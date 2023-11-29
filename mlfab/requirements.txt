@@ -1,0 +1,15 @@
+# requirements.txt
+
+GitPython
+numpy
+omegaconf
+psutil
+sarfile
+setproctitle
+six
+smart_open
+tensorboard
+torch
+torchaudio
+torchvision
+wcwidth
