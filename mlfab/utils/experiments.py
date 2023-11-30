@@ -4,6 +4,7 @@ import datetime
 import enum
 import functools
 import inspect
+import itertools
 import logging
 import os
 import random
@@ -13,16 +14,19 @@ import traceback
 from collections import defaultdict
 from logging import LogRecord
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal, cast
+from typing import Any, Callable, Iterable, Iterator, Literal, TypeVar, cast
 
 import git
 import torch
 from omegaconf import MISSING, DictConfig, ListConfig, OmegaConf
 from torch import Tensor, inf, nn
 from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_foreach_support
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.dataset import Dataset, IterableDataset
 
 from mlfab.core.conf import get_stage_dir
 from mlfab.core.state import State
+from mlfab.utils.logging import configure_streaming_logging
 from mlfab.utils.text import TextBlock, colored
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,8 @@ GradDict = dict[tuple[torch.device, torch.dtype], tuple[list[list[Tensor]], list
 
 # Date format for staging environments.
 DATE_FORMAT = "%Y-%m-%d"
+
+T = TypeVar("T")
 
 
 class CumulativeTimer:
@@ -622,3 +628,39 @@ class _Toasts:
 Toasts = _Toasts()
 
 add_toast = Toasts.add
+
+
+def test_dataset(
+    ds: Dataset[T] | IterableDataset[T] | DataLoader[T],
+    max_samples: int = 3,
+    log_interval: int = 10,
+    callback: Callable[[T], None] | None = None,
+) -> None:
+    """Iterates through a dataset.
+
+    Args:
+        ds: The dataset to iterate through
+        max_samples: Maximum number of samples to loop through
+        log_interval: How often to log the time it takes to load a sample
+        callback: A callback to run on each sample
+    """
+    configure_streaming_logging()
+
+    start_time = time.time()
+
+    if isinstance(ds, (IterableDataset, DataLoader)):
+        logger.info("Iterating samples in %s", "dataloader" if isinstance(ds, DataLoader) else "dataset")
+        for i, sample in enumerate(itertools.islice(ds, max_samples)):
+            if callback is not None:
+                callback(sample)
+            if i % log_interval == 0:
+                logger.info("Sample %d in %.2g seconds", i, time.time() - start_time)
+    else:
+        samples = len(ds)  # type: ignore[arg-type]
+        logger.info("Dataset has %d items", samples)
+        for i in range(min(samples, max_samples)):
+            sample = ds[i]
+            if callback is not None:
+                callback(sample)
+            if i % log_interval == 0:
+                logger.info("Sample %d in %.2g seconds", i, time.time() - start_time)
