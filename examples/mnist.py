@@ -49,7 +49,7 @@ class MnistClassification(mlfab.Task[Config]):
         self.add_logger(
             # mlfab.CursesLogger(),
             mlfab.StdoutLogger(),
-            # mlfab.TensorboardLogger(self.exp_dir),
+            mlfab.TensorboardLogger(self.exp_dir),
         )
 
     def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:

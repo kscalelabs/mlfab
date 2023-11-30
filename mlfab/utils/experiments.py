@@ -583,7 +583,7 @@ def get_git_state(obj: object, width: int = 120) -> list[TextBlock]:
         branch = repo.active_branch
         commit = repo.head.commit
         status = textwrap.indent(str(repo.git.status()), "    ")
-        diff = textwrap.indent(str(repo.git.diff(color=True)), "    ")
+        diff = textwrap.indent(str(repo.git.diff(color=False)), "    ")
         text_blocks += [
             TextBlock(f"Path: {task_file}", width=width),
             TextBlock(f"Branch: {branch}", width=width),
