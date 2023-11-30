@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from mlfab.nn.device.gpu import gpu_device
 from mlfab.nn.parallel import MultiprocessConfig, launch_subprocesses
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def get_num_processes() -> int:
-    if torch.cuda.is_available():
+    if gpu_device.has_device():
         return torch.cuda.device_count()
     return 1
 

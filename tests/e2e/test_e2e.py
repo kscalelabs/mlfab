@@ -47,7 +47,7 @@ class DummyTask(mlfab.Task[Config]):
         )
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
-        x, _ = self.lstm(x)
+        x, _ = self.lstm(x.float())
         z = x + self.emb(y)
         return self.convs(z)
 
@@ -81,6 +81,7 @@ def test_e2e_training(tmpdir: Path) -> None:
 @pytest.mark.slow
 def test_e2e_training_mp(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
+    os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
     mlfab.configure_logging()
