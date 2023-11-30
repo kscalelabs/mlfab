@@ -40,7 +40,7 @@ class StdoutLogger(LoggerImpl):
         log_perf: bool = False,
         log_optim: bool = False,
         log_fp: bool = False,
-        max_toasts: int = 10,
+        max_toasts: int = 5,
         log_interval_seconds: float = 1.0,
     ) -> None:
         """Defines a logger which shows a pop-up using Curses.
@@ -77,8 +77,8 @@ class StdoutLogger(LoggerImpl):
         return super().start()
 
     def stop(self) -> None:
-        self.write_queue_window(self.persistent_toast_queue, True)
-        self.write_queue_window(self.temporary_toast_queue, False)
+        self.write_queue_window(self.persistent_toast_queue)
+        self.write_queue_window(self.temporary_toast_queue)
         return super().stop()
 
     def handle_toast(self, msg: str, persistent: bool, kind: ToastKind) -> None:
@@ -134,7 +134,7 @@ class StdoutLogger(LoggerImpl):
             for k, v in lines.items():
                 self.write_fp.write(f" ↪ {k}: {v}\n")
 
-    def write_queue_window(self, q: Deque[tuple[str, ToastKind]], bold: bool) -> None:
+    def write_queue_window(self, q: Deque[tuple[str, ToastKind]]) -> None:
         if not q:
             return
 
@@ -159,7 +159,6 @@ class StdoutLogger(LoggerImpl):
         self.write_separator()
         self.write_state_window(line)
         self.write_log_window(line)
-        self.write_queue_window(self.persistent_toast_queue, True)
-        self.write_queue_window(self.temporary_toast_queue, False)
-        self.temporary_toast_queue.clear()
+        self.write_queue_window(self.persistent_toast_queue)
+        self.write_queue_window(self.temporary_toast_queue)
         sys.stdout.flush()

@@ -326,8 +326,12 @@ class TrainMixin(
                     single_losses = self.get_single_losses(loss)
                 with self.step_context("backward"):
                     for i, ((single_loss, _), optimizer) in enumerate(zip(single_losses, self.optimizers)):
-                        is_last = i == len(self.optimizers) - 1
-                        self.backward_grads(single_loss, not is_last, optimizer.parameters())
+                        retain_graph = None if len(self.optimizers) == 1 else i < len(self.optimizers) - 1
+                        self.backward_grads(
+                            single_loss,
+                            retain_graph=retain_graph,
+                            inputs=optimizer.parameters(),
+                        )
                 with self.step_context("log_losses"):
                     self.log_mp_scale()
                     for single_loss, loss_names in single_losses:
