@@ -25,7 +25,7 @@ Here's an example of how to use the API:
     reader = TokenReader(file_path)
     num_samples = len(reader)
     for i in range(num_samples):
-        print(reader[i])
+        sample = reader[i]
 
 You can also read some subset of the tokens in a line using slicing syntax.
 This syntax will only read the required tokens from the file, rather than
@@ -35,8 +35,8 @@ reading the entire line and then slicing it. Here is an example:
 .. code-block:: python
 
     reader = TokenReader(file_path)
-    print(reader[0])  # Prints the first line.
-    print(reader[0, 1:3])  # Prints the first line, but only the second and third tokens.
+    first_line = reader[0]  # Gets the first line.
+    first_line_part = reader[0, 1:3]  # Prints the first line, but only the second and third tokens.
 """
 
 import functools

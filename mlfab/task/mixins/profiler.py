@@ -10,6 +10,7 @@ from typing import Any, ContextManager, Generic, Iterator, TypeVar
 import torch
 
 from mlfab.core.conf import field
+from mlfab.nn.device.gpu import gpu_device
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin, StepType
@@ -124,7 +125,7 @@ class ProfilerMixin(
 
         # Prints a table with informative statistics.
         keys = ["self_cpu_time_total", "cpu_time_total", "cpu_memory_usage"]
-        if torch.cuda.is_available():
+        if gpu_device.has_device():
             keys += ["self_cuda_time_total", "cuda_time_total", "cuda_memory_usage"]
         for key in keys:
             table = key_averages.table(
@@ -144,7 +145,7 @@ class ProfilerMixin(
         if not self.config.profiler.enabled:
             return None
 
-        if torch.cuda.is_available():
+        if gpu_device.has_device():
             profiler_activities = [
                 torch.autograd.ProfilerActivity.CPU,
                 torch.autograd.ProfilerActivity.CUDA,

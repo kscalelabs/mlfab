@@ -36,7 +36,7 @@ def _d_neg_log_prob(x: Tensor) -> Tensor:
     return -1 / (1 + torch.exp(-x))
 
 
-def forward_pass_cpu_(logits: Tensor) -> Tensor:
+def forward_pass_cpu_(logits: Tensor) -> tuple[Tensor, Tensor]:
     t_i = logits.size(-2)
     logits = F.pad(logits, (1, 0), value=0.0)
     phis = torch.empty_like(logits)
@@ -49,13 +49,14 @@ def forward_pass_cpu_(logits: Tensor) -> Tensor:
             phis[..., i - 1, :-1] + _neg_log_prob(logits[..., i - 1, :-1]),
         )
     phis = phis[..., 1:]
-    return phis
+    return phis, phis + _neg_log_prob(logits[..., 1:])
 
 
 def backward_pass_cpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tensor:
     t_i = logits.size(-2)
     grad_logits = torch.empty_like(grad_phis)
     grad_logits[..., t_i - 1, :] = 0.0
+    extra_grad = _d_neg_log_prob(logits) * grad_phis
     for i in range(t_i - 2, -1, -1):
         p = phis[..., i + 1, :]
         a = (phis[..., i, :] + _pos_log_prob(logits[..., i, :]) - p).exp()
@@ -66,15 +67,15 @@ def backward_pass_cpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tenso
         grad_logits[..., i, :-1] += d * _d_neg_log_prob(logits[..., i, :-1])
         grad_phis[..., i, :] += c
         grad_phis[..., i, :-1] += d
-    return grad_logits
+    return grad_logits + extra_grad
 
 
 class MonotonicAttentionCpu(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, logits: Tensor) -> Tensor:
-        phis = forward_pass_cpu_(logits)
+        phis, probs = forward_pass_cpu_(logits)
         ctx.save_for_backward(logits, phis)
-        return phis
+        return probs
 
     @staticmethod
     @once_differentiable

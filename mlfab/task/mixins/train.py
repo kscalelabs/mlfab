@@ -62,11 +62,11 @@ def cast_step_kind(s: str) -> StepKind:
 
 @dataclass
 class TrainConfig(
-    DataLoadersConfig,
     CheckpointingConfig,
     OptimizerConfig,
     CompileConfig,
     MixedPrecisionConfig,
+    DataLoadersConfig,
     DeviceConfig,
     ProfilerConfig,
     StepContextConfig,
@@ -101,11 +101,11 @@ Config = TypeVar("Config", bound=TrainConfig)
 
 
 class TrainMixin(
-    DataLoadersMixin[Config],
     CheckpointingMixin[Config],
     OptimizerMixin[Config],
     CompileMixin[Config],
     MixedPrecisionMixin[Config],
+    DataLoadersMixin[Config],
     DeviceMixin[Config],
     ProfilerMixin[Config],
     StepContextMixin[Config],
@@ -580,7 +580,7 @@ class TrainMixin(
                     important=True,
                 )
 
-        except Exception:
+        except BaseException:
             exception_tb = textwrap.indent(highlight_exception_message(traceback.format_exc()), "  ")
             sys.stdout.write(f"Caught exception during training loop:\n\n{exception_tb}\n")
             sys.stdout.flush()

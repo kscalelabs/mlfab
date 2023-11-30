@@ -16,13 +16,12 @@ from multiprocessing.synchronize import Event
 from typing import Generic, TypeVar
 
 import psutil
-import setproctitle
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.task.base import BaseConfig
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
-from mlfab.task.mixins.monitor_process import MonitorProcessConfig, MonitorProcessMixin
+from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ class CPUStatsOptions:
 
 
 @dataclass
-class CPUStatsConfig(MonitorProcessConfig, LoggerConfig, BaseConfig):
+class CPUStatsConfig(ProcessConfig, LoggerConfig, BaseConfig):
     cpu_stats: CPUStatsOptions = field(CPUStatsOptions(), help="CPU stats configuration")
 
 
@@ -92,8 +91,6 @@ def worker(
     start_event: Event,
     pid: int,
 ) -> None:
-    setproctitle.setproctitle("mlfab-cpu-stats")
-
     start_event.set()
 
     proc, cur_pid = psutil.Process(pid), os.getpid()
@@ -104,8 +101,8 @@ def worker(
 
     child_procs = get_children()
 
-    while True:
-        try:
+    try:
+        while True:
             # Updates child processes, preserving the previous child process
             # object. Otherwise the CPU percentage will be zero.
             new_procs = get_children()
@@ -138,11 +135,10 @@ def worker(
             )
 
             monitor_event.set()
+            time.sleep(ping_interval)
 
-        except psutil.NoSuchProcess:
-            logger.info("No parent process; probably cleaning up")
-
-        time.sleep(ping_interval)
+    except BaseException:
+        logger.error("Closing CPU stats monitor")
 
 
 class CPUStatsMonitor:
@@ -192,6 +188,7 @@ class CPUStatsMonitor:
             target=worker,
             args=(self._ping_interval, self._cpu_stats_smem, self._monitor_event, self._start_event, os.getpid()),
             daemon=True,
+            name="mlfab-cpu-stats",
         )
         self._proc.start()
         if wait:
@@ -208,7 +205,7 @@ class CPUStatsMonitor:
         self._cpu_stats = None
 
 
-class CPUStatsMixin(MonitorProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
+class CPUStatsMixin(ProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
     """Defines a task mixin for getting CPU statistics."""
 
     def __init__(self, config: Config) -> None:

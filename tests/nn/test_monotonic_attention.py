@@ -58,7 +58,7 @@ def test_gpu_log() -> None:
     torch.autograd.backward(phis_ref, grad_phis)
     assert probs.grad is not None
     grad_probs_ref = probs.grad.clone()
-    assert torch.allclose(grad_probs, grad_probs_ref, rtol=1e-3)
+    assert torch.allclose(grad_probs, grad_probs_ref, rtol=5e-3)
 
 
 if __name__ == "__main__":

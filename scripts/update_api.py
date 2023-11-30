@@ -4,6 +4,7 @@ import argparse
 import inspect
 import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -60,7 +61,8 @@ def main() -> None:
         with open(fpath, "w") as f:
             f.write(lines)
     else:
-        print(lines)
+        sys.stdout.write(lines)
+        sys.stdout.flush()
 
 
 if __name__ == "__main__":
