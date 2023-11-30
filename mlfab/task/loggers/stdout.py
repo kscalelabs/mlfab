@@ -39,6 +39,7 @@ class StdoutLogger(LoggerImpl):
         log_timers: bool = False,
         log_perf: bool = False,
         log_optim: bool = False,
+        log_fp: bool = False,
         max_toasts: int = 10,
         log_interval_seconds: float = 1.0,
     ) -> None:
@@ -50,6 +51,7 @@ class StdoutLogger(LoggerImpl):
             log_timers: Whether to log timers.
             log_perf: Whether to log performance metrics.
             log_optim: Whether to log optimizer parameters.
+            log_fp: Whether to log floating point parameters.
             max_toasts: The maximum number of toasts to display.
             log_interval_seconds: The interval between successive log lines.
         """
@@ -58,6 +60,7 @@ class StdoutLogger(LoggerImpl):
         self.write_fp = write_fp
         self.log_timers = log_timers
         self.log_perf = log_perf
+        self.log_fp = log_fp
         self.log_optim = log_optim
         self.precision = precision
         self.logger = logging.getLogger("stdout")
@@ -113,6 +116,8 @@ class StdoutLogger(LoggerImpl):
                 if not self.log_perf and namespace.startswith("🔧"):
                     continue
                 if not self.log_optim and namespace.startswith("📉"):
+                    continue
+                if not self.log_fp and namespace.startswith("⚖️"):
                     continue
                 if namespace not in namespace_to_lines:
                     namespace_to_lines[namespace] = {}
