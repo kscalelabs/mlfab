@@ -199,9 +199,10 @@ __all__ = [
     "square_resize_crop",
     "upper_left_crop",
     "add_toast",
+    "create_git_bundle",
     "get_git_state",
     "save_config",
-    "stage_environment",
+    "test_dataset",
     "read_gif",
     "write_gif",
     "configure_logging",
@@ -430,9 +431,10 @@ NAME_MAP: dict[str, str] = {
     "square_resize_crop": "utils.data.transforms",
     "upper_left_crop": "utils.data.transforms",
     "add_toast": "utils.experiments",
+    "create_git_bundle": "utils.experiments",
     "get_git_state": "utils.experiments",
     "save_config": "utils.experiments",
-    "stage_environment": "utils.experiments",
+    "test_dataset": "utils.experiments",
     "read_gif": "utils.io",
     "write_gif": "utils.io",
     "configure_logging": "utils.logging",
@@ -680,7 +682,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         square_resize_crop,
         upper_left_crop,
     )
-    from mlfab.utils.experiments import Toasts, add_toast, create_git_bundle, get_git_state, save_config
+    from mlfab.utils.experiments import Toasts, add_toast, create_git_bundle, get_git_state, save_config, test_dataset
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import configure_logging
     from mlfab.utils.text import (
