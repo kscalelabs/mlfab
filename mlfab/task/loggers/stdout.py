@@ -12,7 +12,7 @@ from wcwidth import wcswidth
 
 from mlfab.task.logger import LoggerImpl, LogLine
 from mlfab.utils.experiments import ToastKind, Toasts
-from mlfab.utils.text import Color, TextBlock, colored, format_timedelta, render_text_blocks
+from mlfab.utils.text import Color, colored, format_timedelta
 
 
 def format_number(value: int | float, precision: int) -> str:
@@ -34,10 +34,9 @@ def as_str(value: Any, precision: int) -> str:  # noqa: ANN401
 class StdoutLogger(LoggerImpl):
     def __init__(
         self,
-        debug: bool = False,
-        debug_fp: TextIO = sys.stdout,
+        write_fp: TextIO = sys.stdout,
         precision: int = 4,
-        log_timers: bool = True,
+        log_timers: bool = False,
         log_perf: bool = False,
         log_optim: bool = False,
         max_toasts: int = 10,
@@ -46,10 +45,7 @@ class StdoutLogger(LoggerImpl):
         """Defines a logger which shows a pop-up using Curses.
 
         Args:
-            debug: Whether to enable debugging mode. If debugging, the
-                terminal will not be modified; instead, we just print to stdout
-                normally.
-            debug_fp: The file to write debug logs to.
+            write_fp: The file to write logs to.
             precision: The integer precision to use when logging scalars.
             log_timers: Whether to log timers.
             log_perf: Whether to log performance metrics.
@@ -59,8 +55,7 @@ class StdoutLogger(LoggerImpl):
         """
         super().__init__(log_interval_seconds)
 
-        self.debug = debug
-        self.debug_fp = debug_fp
+        self.write_fp = write_fp
         self.log_timers = log_timers
         self.log_perf = log_perf
         self.log_optim = log_optim
@@ -89,6 +84,9 @@ class StdoutLogger(LoggerImpl):
         else:
             self.temporary_toast_queue.append((msg, kind))
 
+    def write_separator(self) -> None:
+        self.write_fp.write("\033[2J\033[H")
+
     def write_state_window(self, line: LogLine) -> None:
         elapsed_time = format_timedelta(datetime.timedelta(seconds=line.state.elapsed_time_s), short=True)
         state_info = {
@@ -99,23 +97,10 @@ class StdoutLogger(LoggerImpl):
         if line.state.num_epochs > 0:
             state_info["Epochs"] = f"{line.state.num_epochs}"
 
-        block = render_text_blocks(
-            [
-                [
-                    TextBlock("Phase", no_sep=True),
-                    TextBlock(
-                        line.state.phase,
-                        color="green" if line.state.phase == "train" else "yellow",
-                        no_sep=True,
-                        bold=True,
-                    ),
-                ],
-                *([TextBlock(k, no_sep=True), TextBlock(v, color="cyan", no_sep=True)] for k, v in state_info.items()),
-            ],
-            align_all_blocks=True,
-        )
-        self.debug_fp.write(block)
-        self.debug_fp.write("\n")
+        colored_phase = colored(line.state.phase, "green" if line.state.phase == "train" else "yellow", bold=True)
+        self.write_fp.write(f"Phase: {colored_phase}\n")
+        for k, v in state_info.items():
+            self.write_fp.write(f" ↪ {k}: {colored(v, 'cyan')}\n")
 
     def write_log_window(self, line: LogLine) -> None:
         namespace_to_lines: dict[str, dict[str, str]] = {}
@@ -139,20 +124,10 @@ class StdoutLogger(LoggerImpl):
                     num_lines += 1
                     max_width = max(max_width, wcswidth(k) + wcswidth(v_str) + 2)
 
-        block = render_text_blocks(
-            [
-                [
-                    TextBlock(namespace if i == 0 else "", no_sep=True, color="cyan", bold=True),
-                    TextBlock(k, no_sep=True),
-                    TextBlock(v, no_sep=True),
-                ]
-                for namespace, lines in sorted(namespace_to_lines.items())
-                for i, (k, v) in enumerate(lines.items())
-            ],
-            align_all_blocks=True,
-        )
-        self.debug_fp.write(block)
-        self.debug_fp.write("\n")
+        for namespace, lines in sorted(namespace_to_lines.items()):
+            self.write_fp.write(f"{colored(namespace, 'cyan', bold=True)}\n")
+            for k, v in lines.items():
+                self.write_fp.write(f" ↪ {k}: {v}\n")
 
     def write_queue_window(self, q: Deque[tuple[str, ToastKind]], bold: bool) -> None:
         if not q:
@@ -172,18 +147,11 @@ class StdoutLogger(LoggerImpl):
                     return "magenta"
 
         if q:
-            if bold:
-                block = render_text_blocks(
-                    [[TextBlock(msg, color=get_color(kind), no_sep=True)] for msg, kind in reversed(q)],
-                    align_all_blocks=True,
-                )
-                self.debug_fp.write(block)
-                self.debug_fp.write("\n")
-            else:
-                self.debug_fp.write("\n".join(f" ↪ {colored(msg, get_color(kind))}" for msg, kind in reversed(q)))
-                self.debug_fp.write("\n")
+            self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind in reversed(q)))
+            self.write_fp.write("\n")
 
     def write(self, line: LogLine) -> None:
+        self.write_separator()
         self.write_state_window(line)
         self.write_log_window(line)
         self.write_queue_window(self.persistent_toast_queue, True)
