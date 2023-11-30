@@ -243,7 +243,8 @@ def test_exception_summary() -> None:
         except Exception as e:
             summary.add_exception(e, get_loc())
         summary.step()
-    print(summary.summary())
+    sys.stdout.write(summary.summary())
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":

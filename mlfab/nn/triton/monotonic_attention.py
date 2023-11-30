@@ -212,7 +212,7 @@ def backward_pass_kernel(
         tl.debug_barrier()
 
 
-def forward_pass_cpu_(logits: Tensor) -> Tensor:
+def forward_pass_gpu_(logits: Tensor) -> tuple[Tensor, Tensor]:
     bsz, tsz_src, tsz_tgt = logits.shape
 
     # Sets the initial log phi values.
@@ -244,7 +244,7 @@ def forward_pass_cpu_(logits: Tensor) -> Tensor:
     return phis
 
 
-def backward_pass_cpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tensor:
+def backward_pass_gpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tensor:
     bsz, tsz_src, tsz_tgt = logits.shape
 
     grad_logits = torch.full_like(grad_phis, MIN_LOG_PROB)
@@ -288,10 +288,10 @@ def backward_pass_cpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tenso
     return grad_logits
 
 
-class MonotonicAttentionCpu(Function):
+class MonotonicAttentionGpu(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, logits: Tensor) -> Tensor:
-        phis = forward_pass_cpu_(logits)
+        phis = forward_pass_gpu_(logits)
         ctx.save_for_backward(logits, phis)
         return phis
 
@@ -299,7 +299,7 @@ class MonotonicAttentionCpu(Function):
     @once_differentiable
     def backward(ctx: FunctionCtx, grad_phis: Tensor) -> Tensor:
         logits, phis = ctx.saved_tensors
-        grad_logits = backward_pass_cpu_(logits, phis, grad_phis)
+        grad_logits = backward_pass_gpu_(logits, phis, grad_phis)
         return grad_logits
 
 
@@ -316,4 +316,4 @@ def monotonic_attention_gpu(logits: Tensor) -> Tensor:
     _, tsz_src, tsz_tgt = logits.size()
     if tsz_tgt > tsz_src:
         warnings.warn("One-to-many attention expects the source sequence to be longer than the target sequence!")
-    return MonotonicAttentionCpu.apply(logits)
+    return MonotonicAttentionGpu.apply(logits)

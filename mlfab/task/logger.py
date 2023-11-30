@@ -102,7 +102,7 @@ def get_audio_channel(audio: Tensor, channel_select_mode: ChannelSelectMode) -> 
 def make_human_viewable_resolution(
     image: Tensor,
     interpolation: InterpolationMode = InterpolationMode.BILINEAR,
-    trg_res: tuple[int, int] = (250, 250),
+    trg_res: tuple[int, int] = (512, 512),
 ) -> Tensor:
     """Resizes image to human-viewable resolution.
 

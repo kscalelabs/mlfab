@@ -17,12 +17,10 @@ from multiprocessing.managers import SyncManager, ValueProxy
 from multiprocessing.synchronize import Event
 from typing import Generic, Iterable, Pattern, TypeVar
 
-import setproctitle
-
 from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
-from mlfab.task.mixins.monitor_process import MonitorProcessConfig, MonitorProcessMixin
+from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -34,7 +32,7 @@ class GPUStatsOptions:
 
 
 @dataclass
-class GPUStatsConfig(MonitorProcessConfig, LoggerConfig):
+class GPUStatsConfig(ProcessConfig, LoggerConfig):
     gpu_stats: GPUStatsOptions = field(GPUStatsOptions(), help="GPU stats configuration")
 
 
@@ -110,6 +108,7 @@ def gen_gpu_stats(loop_secs: int = 5) -> Iterable[GPUStats]:
     command = f"nvidia-smi --query-gpu={fields} --format=csv,noheader --loop={loop_secs}"
     visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
     visible_device_ids = None if visible_devices is None else {int(i.strip()) for i in visible_devices.split(",")}
+
     try:
         with subprocess.Popen(command.split(), stdout=subprocess.PIPE, universal_newlines=True) as proc:
             stdout = proc.stdout
@@ -123,8 +122,8 @@ def gen_gpu_stats(loop_secs: int = 5) -> Iterable[GPUStats]:
                 if visible_device_ids is None or stats.index in visible_device_ids:
                     yield stats
 
-    except subprocess.CalledProcessError:
-        logger.exception("Caught exception while trying to query `nvidia-smi`")
+    except BaseException:
+        logger.error("Closing GPU stats monitor")
 
 
 def worker(
@@ -134,8 +133,6 @@ def worker(
     events: list[Event],
     start_event: Event,
 ) -> None:
-    setproctitle.setproctitle("mlfab-gpu-stats")
-
     start_event.set()
 
     logger.debug("Starting GPU stats monitor with PID %d", os.getpid())
@@ -203,6 +200,7 @@ class GPUStatsMonitor:
             target=worker,
             args=(self._ping_interval, self._smems, self._main_event, self._events, self._start_event),
             daemon=True,
+            name="mlfab-gpu-stats",
         )
         self._proc.start()
         if wait:
@@ -218,7 +216,7 @@ class GPUStatsMonitor:
         self._proc = None
 
 
-class GPUStatsMixin(MonitorProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
+class GPUStatsMixin(ProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
     """Defines a task mixin for getting GPU statistics."""
 
     def __init__(self, config: Config) -> None:

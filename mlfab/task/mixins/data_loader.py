@@ -4,7 +4,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Generic, Sized, TypeVar
 
-import setproctitle
 from omegaconf import II, MISSING
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.datapipes.datapipe import IterDataPipe, MapDataPipe
@@ -15,6 +14,7 @@ from mlfab.core.conf import field, is_missing
 from mlfab.core.state import Phase
 from mlfab.nn.functions import set_random_seed
 from mlfab.task.base import BaseConfig, BaseTask
+from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 from mlfab.utils.data.collate import CollateMode, collate
 from mlfab.utils.data.error_handling import error_handling_dataset
 
@@ -38,14 +38,15 @@ class DataLoaderConfig:
 
 
 @dataclass
-class DataLoadersConfig(BaseConfig):
+class DataLoadersConfig(ProcessConfig, BaseConfig):
     batch_size: int = field(MISSING, help="Size of each batch")
+    num_dataloader_workers: int = field(II("mlfab.num_workers:8"), help="Default number of dataloader workers")
     train_dl: DataLoaderConfig = field(
         DataLoaderConfig(
             batch_size=II("batch_size"),
             batch_size_multiplier=1.0,
             shuffle=True,
-            num_workers=II("mlfab.num_workers:8"),
+            num_workers=II("num_dataloader_workers"),
             pin_memory=True,
             drop_last=True,
             persistent_workers=True,
@@ -70,7 +71,7 @@ class DataLoadersConfig(BaseConfig):
 Config = TypeVar("Config", bound=DataLoadersConfig)
 
 
-class DataLoadersMixin(BaseTask[Config], Generic[Config]):
+class DataLoadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
     def __init__(self, config: Config) -> None:
         if is_missing(config, "batch_size") and (
             is_missing(config.train_dl, "batch_size") or is_missing(config.test_dl, "batch_size")
@@ -133,7 +134,7 @@ class DataLoadersMixin(BaseTask[Config], Generic[Config]):
             pin_memory=cfg.pin_memory,
             timeout=0 if debugging else cfg.timeout,
             worker_init_fn=self.worker_init_fn,
-            multiprocessing_context=None,
+            multiprocessing_context=None if debugging or cfg.num_workers <= 0 else self.multiprocessing_context,
             generator=None,
             prefetch_factor=None if debugging or cfg.num_workers == 0 else cfg.prefetch_factor,
             persistent_workers=False if debugging or cfg.num_workers == 0 else cfg.persistent_workers,
@@ -239,7 +240,6 @@ class DataLoadersMixin(BaseTask[Config], Generic[Config]):
 
     @classmethod
     def worker_init_fn(cls, worker_id: int) -> None:
-        setproctitle.setproctitle(f"mlfab-worker-{worker_id}")
         set_random_seed(offset=worker_id)
 
     @classmethod
