@@ -4,6 +4,8 @@
 This model takes a random sequence of letters and outputs a new sequence
 containing the unique letters repeated N times. For example, the input sequence
 "abbbccdef" would be transformed into "aabbccddeeff".
+
+Run this example using `python -m examples.monotonic_attention`.
 """
 
 import random
@@ -177,5 +179,4 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    # python -m examples.monotonic_attention
     MonotonicAttentionTask.launch(Config(batch_size=16, num_dataloader_workers=0))

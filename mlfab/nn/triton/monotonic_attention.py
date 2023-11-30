@@ -53,6 +53,14 @@ def d_neg_log_prob(x):
     return -1 / (1 + tl.math.exp(-x))
 
 
+def _neg_log_prob(x: Tensor) -> Tensor:
+    return -torch.log1p(torch.exp(x))
+
+
+def _d_neg_log_prob(x: Tensor) -> Tensor:
+    return -1 / (1 + torch.exp(-x))
+
+
 @triton.jit
 def forward_pass_kernel(
     # Log probabilities tensor (input)
@@ -241,12 +249,13 @@ def forward_pass_gpu_(logits: Tensor) -> tuple[Tensor, Tensor]:
         BLOCK_SIZE_C=block_size_c,
     )
 
-    return phis
+    return phis, phis + _neg_log_prob(logits)
 
 
 def backward_pass_gpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tensor:
     bsz, tsz_src, tsz_tgt = logits.shape
 
+    extra_grad = _d_neg_log_prob(logits) * grad_phis
     grad_logits = torch.full_like(grad_phis, MIN_LOG_PROB)
 
     # We need to duplicate the phis tensor because the kernel updates it.
@@ -285,15 +294,15 @@ def backward_pass_gpu_(logits: Tensor, phis: Tensor, grad_phis: Tensor) -> Tenso
         BLOCK_SIZE_C=block_size_c,
     )
 
-    return grad_logits
+    return grad_logits + extra_grad
 
 
 class MonotonicAttentionGpu(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, logits: Tensor) -> Tensor:
-        phis = forward_pass_gpu_(logits)
+        phis, probs = forward_pass_gpu_(logits)
         ctx.save_for_backward(logits, phis)
-        return phis
+        return probs
 
     @staticmethod
     @once_differentiable
