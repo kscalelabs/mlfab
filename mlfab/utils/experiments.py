@@ -26,7 +26,6 @@ from torch.utils.data.dataset import Dataset, IterableDataset
 
 from mlfab.core.conf import get_stage_dir
 from mlfab.core.state import State
-from mlfab.utils.logging import configure_streaming_logging
 from mlfab.utils.text import TextBlock, colored
 
 logger = logging.getLogger(__name__)
@@ -644,8 +643,6 @@ def test_dataset(
         log_interval: How often to log the time it takes to load a sample
         callback: A callback to run on each sample
     """
-    configure_streaming_logging()
-
     start_time = time.time()
 
     if isinstance(ds, (IterableDataset, DataLoader)):
