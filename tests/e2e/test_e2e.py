@@ -99,6 +99,19 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
     )
 
 
+def test_staged_training(tmpdir: Path) -> None:
+    os.environ["RUN_DIR"] = str(tmpdir)
+    os.environ["USE_METAL"] = "0"
+
+    mlfab.configure_logging()
+
+    config = Config(batch_size=1)
+    orig_task = DummyTask(config)
+    task_key = orig_task.task_key
+    task: mlfab.Task = mlfab.Task.from_task_key(task_key).get_task(config)
+    assert isinstance(task, DummyTask)
+
+
 if __name__ == "__main__":
     # python -m tests.e2e.test_e2e
     # test_e2e_training(Path(tempfile.mkdtemp()))

@@ -79,4 +79,6 @@ class MnistClassification(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    MnistClassification.launch(Config(batch_size=16))
+    # MnistClassification.launch(Config(batch_size=16))
+    task = MnistClassification(Config(batch_size=16))
+    print(task.task_module, task.task_class_name)

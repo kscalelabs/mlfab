@@ -9,6 +9,7 @@ upstream classes.
 import functools
 import inspect
 import logging
+import signal
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
 from types import FrameType, TracebackType
@@ -98,7 +99,7 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
         pass
 
-    def on_exit(self, signum: int, frame: FrameType | None) -> None:
+    def on_exit(self, sig: signal.Signals, frame: FrameType | None, state: State) -> None:
         pass
 
     def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
@@ -109,12 +110,42 @@ class BaseTask(nn.Module, Generic[Config]):
         return {"weights": self.state_dict()}
 
     @functools.cached_property
+    def task_class_name(self) -> str:
+        return self.__class__.__name__
+
+    @functools.cached_property
     def task_name(self) -> str:
-        return camelcase_to_snakecase(self.__class__.__name__)
+        return camelcase_to_snakecase(self.task_class_name)
 
     @functools.cached_property
     def task_path(self) -> Path:
         return Path(inspect.getfile(self.__class__))
+
+    @functools.cached_property
+    def task_module(self) -> str:
+        if (mod := inspect.getmodule(self.__class__)) is None:
+            raise RuntimeError(f"Could not find module for task {self.__class__}!")
+        if (spec := mod.__spec__) is None:
+            raise RuntimeError(f"Could not find spec for module {mod}!")
+        return spec.name
+
+    @property
+    def task_key(self) -> str:
+        return f"{self.task_module}.{self.task_class_name}"
+
+    @classmethod
+    def from_task_key(cls, task_key: str) -> type[Self]:
+        task_module, task_class_name = task_key.rsplit(".", 1)
+        try:
+            mod = __import__(task_module)
+        except ImportError as e:
+            raise ImportError(f"Could not import module {task_module} for task {task_key}") from e
+        if not hasattr(mod, task_class_name):
+            raise RuntimeError(f"Could not find class {task_class_name} in module {task_module}")
+        task_class = getattr(mod, task_class_name)
+        if not issubclass(task_class, cls):
+            raise RuntimeError(f"Class {task_class_name} in module {task_module} is not a subclass of {cls}")
+        return task_class
 
     def debug(self) -> bool:
         return False
