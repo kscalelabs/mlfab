@@ -115,7 +115,7 @@ class SlurmLauncher(StagedLauncher):
         return f"map_gpu:{','.join(str(i) for i in range(self.gpus_per_node))}"
 
     @property
-    def extra_sbatch_lines(self) -> str:
+    def extra_sbatch_lines(self) -> list[str]:
         sbatch_lines: list[str] = []
         if "EMAIL" in os.environ:
             sbatch_lines += [f"--mail-user={os.environ['EMAIL']}", "--mail-type=ALL"]
@@ -123,7 +123,7 @@ class SlurmLauncher(StagedLauncher):
             sbatch_lines += [f"--account={self.account}"]
         if self.exclusive:
             sbatch_lines += ["--exclusive"]
-        return "\n".join(f"#SBATCH {line}" for line in sbatch_lines)
+        return sbatch_lines
 
     @property
     def extra_export_lines(self) -> str:
@@ -142,21 +142,22 @@ class SlurmLauncher(StagedLauncher):
             export_lines["DATA_PARALLEL_BACKEND"] = self.data_parallel_backend
         return "\n".join(f"export {k}={v}" for k, v in sorted(export_lines.items()))
 
-    def stage_environment(self, task: "TrainMixin[Config]") -> Path:
-        raise NotImplementedError
-
-    def pythonpath(self, stage_dir: str | Path) -> str:
-        pythonpath_paths = [str(stage_dir)] + os.environ.get("PYTHONPATH", "").split(":")
+    def pythonpath(self, stage_dir: str | Path | None) -> str:
+        pythonpath_paths = ([] if stage_dir is None else [str(stage_dir)]) + os.environ.get("PYTHONPATH", "").split(":")
         return ":".join(p for p in pythonpath_paths if p)
 
     def sbatch_file_contents(self, task: "TrainMixin[Config]") -> str:
         output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
-        stage_dir = self.stage_environment(task)
-        comments = ([] if self.comment is None else [self.comment]) + [
-            f"Log directory: {task.exp_dir}",
-            f"Code location: {stage_dir}",
-        ]
+        stage_dir = task.stage_environment()
+        comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
         config_path = self.get_config_path(task)
+
+        # Gets the extra sbatch lines.
+        extra_sbatch_lines = self.extra_sbatch_lines
+        if stage_dir is not None:
+            extra_sbatch_lines += [f"--chdir={stage_dir}"]
+            comments += [f"Code location: {stage_dir}"]
+        extra_sbatch_lines_str = "\n".join(f"#SBATCH {line}" for line in extra_sbatch_lines)
 
         return f"""
 #!/bin/bash
@@ -174,12 +175,10 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --output={output_path}
 #SBATCH --error={error_path}
 #SBATCH --open-mode=append
-#SBATCH --chdir={stage_dir}
-{self.extra_sbatch_lines}
+{extra_sbatch_lines_str}
 
 # Sets the environment variables.
 export SLURM_EXPORT_ENV=ALL
-export STAGE_DIR={stage_dir}
 export PYTHONPATH={self.pythonpath(stage_dir)}
 export MASTER_PORT={self.master_port}
 {self.extra_export_lines}

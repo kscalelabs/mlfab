@@ -115,7 +115,6 @@ class Experiment:
 
 @dataclass
 class Directories:
-    stage: str = field(II("oc.env:STAGE_DIR,staging"), help="The staging directory")
     run: str = field(II("oc.env:RUN_DIR"), help="The run directory")
     data: str = field(II("oc.env:DATA_DIR"), help="The data directory")
     pretrained_models: str = field(II("oc.env:MODELS_DIR"), help="The models directory")
@@ -165,11 +164,6 @@ def load_user_config() -> UserConfig:
         The loaded configuration.
     """
     return _load_user_config_cached()
-
-
-def get_stage_dir() -> Path:
-    (stage_dir := Path(load_user_config().directories.stage)).mkdir(parents=True, exist_ok=True)
-    return stage_dir
 
 
 def get_run_dir() -> Path | None:

@@ -3,11 +3,14 @@
 import datetime
 import enum
 import functools
+import hashlib
 import inspect
 import itertools
 import logging
 import os
 import random
+import shutil
+import sys
 import textwrap
 import time
 import traceback
@@ -24,7 +27,6 @@ from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset, IterableDataset
 
-from mlfab.core.conf import get_stage_dir
 from mlfab.core.state import State
 from mlfab.utils.text import TextBlock, colored
 
@@ -477,90 +479,63 @@ def to_markdown_table(config: DictConfig) -> str:
     return "\n".join([header_str, header_sep_str, rows_str])
 
 
-def create_git_bundle(obj: object) -> str | None:
-    """Creates a Git hundle for the current task.
+def stage_environment(obj: object, root: Path) -> None:
+    """Stages the current task to a staging directory.
 
     Args:
-        obj: The object which is in the target Git repo.
-
-    Returns:
-        The unique handle for the created Git bundle, or None if the Git bundle
-        could not be created.
+        obj: The object with the module to stage.
+        root: The root directory to stage to.
     """
-    try:
-        task_file = inspect.getfile(type(obj))
-        repo = git.Repo(task_file, search_parent_directories=True)
-        branch = repo.active_branch
-        commit = repo.head.commit
+    root.mkdir(exist_ok=True, parents=True)
 
-        # Creates a Git bundle with the current commit.
-        bundle_key = f"{branch.name}.{datetime.datetime.now().strftime(DATE_FORMAT)}.{commit.hexsha[:8]}"
-        bundle_name = f"{commit.hexsha[:8]}.bundle"
-        bundle_path = get_stage_dir() / bundle_name
-        if not bundle_path.exists():
-            repo.git.bundle("create", str(bundle_path), f"{branch.name}..{commit.hexsha}")
+    # Gets the path to the root module. This is done heuristically, so it may
+    # not work in all cases, but it should generally work.
+    if (mod := inspect.getmodule(obj.__class__)) is None:
+        raise RuntimeError(f"Could not find module for task {obj.__class__}!")
+    if (spec := mod.__spec__) is None:
+        raise RuntimeError(f"Could not find spec for module {mod}!")
+    if spec.origin is None:
+        raise RuntimeError(f"Could not find origin for spec {spec}!")
+    root_mod = spec.name.split(".", 1)[0]
+    path_parts = Path(spec.origin).parts[:-1]
+    if root_mod not in path_parts:
+        raise RuntimeError(f"Could not find root module {root_mod} in path {path_parts}!")
+    root_path = Path(*path_parts[: path_parts.index(root_mod) + 1])
 
-        # Creates a patch file, if there are uncommitted changes.
-        if repo.is_dirty():
-            patch_name = f"{bundle_key}.patch"
-            patch_path = get_stage_dir() / patch_name
-            repo.git.diff("HEAD", ">", str(patch_path))
+    # Gets files to stage.
+    fpaths: set[tuple[Path, Path]] = set()
+    for module in sys.modules.values():
+        if (fpath_str := getattr(module, "__file__", None)) is None:
+            continue
+        fpath = Path(fpath_str).resolve()
+        try:
+            rel_fpath = fpath.relative_to(root_path)
+            fpaths.add((fpath, rel_fpath))
+        except ValueError:
+            pass
 
-        return bundle_key
+    # Computes hash of all files and return if it matches the previous hash.
+    hashobj = hashlib.md5()
+    for fpath, _ in fpaths:
+        with open(fpath, "rb") as f:
+            while data := f.read(65536):
+                hashobj.update(data)
+    hashval = hashobj.hexdigest()
+    prev_hashval: str | None = None
+    hash_file = root / ".hash"
+    if hash_file.exists():
+        prev_hashval = hash_file.read_text().strip()
+    if prev_hashval == hashval:
+        return
+    hash_file.write_text(hashval)
 
-    except Exception:
-        logger.exception("Failed to create Git bundle")
-        return None
-
-
-def checkout_git_bundle(bundle_key: str, checkout_path: str | Path) -> None:
-    """Unpacks a Git bundle into a directory.
-
-    Args:
-        bundle_key: The unique handle for the bundle.
-        checkout_path: The path to unpack the bundle to.
-    """
-    # Gets the bundle path.
-    hexsha = bundle_key.split(".")[-1]
-    bundle_name = f"{hexsha}.bundle"
-    bundle_path = get_stage_dir() / bundle_name
-    if not bundle_path.exists():
-        raise RuntimeError(f"Bundle for {bundle_key} does not exist in {bundle_path}!")
-
-    # Unpacks the bundle.
-    checkout_path = Path(checkout_path)
-    checkout_path.mkdir(exist_ok=True, parents=True)
-    git.Repo.clone_from(str(bundle_path), str(checkout_path), bare=True)
-
-    # Applies the patch file, if it exists.
-    patch_name = f"{bundle_key}.patch"
-    patch_path = get_stage_dir() / patch_name
-    if patch_path.exists():
-        repo = git.Repo(checkout_path)
-        repo.git.apply(["-3", str(patch_path)])
-
-
-def stage_environment(obj: object) -> Path | None:
-    """Creates a Git bundle, then clones it to a staging directory.
-
-    Args:
-        obj: The object which is in the target Git repo.
-
-    Returns:
-        The path to the staging directory, or None if the Git bundle could not
-        be created.
-    """
-    if (bundle_key := create_git_bundle(obj)) is None:
-        return None
-
-    # Clones the bundle to a staging directory.
-    stage_dir = get_stage_dir()
-    stage_dir.mkdir(exist_ok=True, parents=True)
-    stage_path = stage_dir / bundle_key
-    if not stage_path.exists():
-        checkout_git_bundle(bundle_key, stage_path)
-
-    return stage_path
+    # Copies all files to the staging directory.
+    if (root / root_mod).exists():
+        shutil.rmtree(root / root_mod, ignore_errors=True)
+    for fpath, rel_fpath in fpaths:
+        new_fpath = root / root_mod / rel_fpath
+        new_fpath.parent.mkdir(exist_ok=True, parents=True)
+        shutil.copyfile(fpath, new_fpath)
 
 
 def get_git_state(obj: object, width: int = 120) -> list[TextBlock]:

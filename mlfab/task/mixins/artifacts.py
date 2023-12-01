@@ -13,7 +13,7 @@ from mlfab.core.conf import field, get_run_dir
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.base import BaseConfig, BaseTask
-from mlfab.utils.experiments import add_toast
+from mlfab.utils.experiments import add_toast, stage_environment
 from mlfab.utils.text import show_info
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class ArtifactsMixin(BaseTask[Config]):
         # Attempts to parse the experiment directory from the command line path.
         for arg in sys.argv[1:]:
             exp_dir = Path(arg)
-            if exp_dir.exists():
+            if exp_dir.is_dir():
                 return exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
@@ -87,6 +87,16 @@ class ArtifactsMixin(BaseTask[Config]):
             self._exp_dir = self.get_exp_dir()
             add_toast("status", self._exp_dir)
         return self._exp_dir
+
+    @functools.lru_cache(maxsize=None)
+    def stage_environment(self) -> Path | None:
+        stage_dir = self.exp_dir / "code"
+        try:
+            stage_environment(self, stage_dir)
+        except Exception:
+            logger.exception("Failed to stage environment!")
+            return None
+        return stage_dir
 
     def on_training_end(self, state: State) -> None:
         super().on_training_end(state)
