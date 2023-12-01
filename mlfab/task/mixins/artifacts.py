@@ -4,11 +4,12 @@ import functools
 import inspect
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
-from mlfab.core.conf import get_run_dir
+from mlfab.core.conf import field, get_run_dir
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.base import BaseConfig, BaseTask
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ArtifactsConfig(BaseConfig):
-    pass
+    exp_dir: str | None = field(None, help="The fixed experiment directory")
 
 
 Config = TypeVar("Config", bound=ArtifactsConfig)
@@ -54,7 +55,18 @@ class ArtifactsMixin(BaseTask[Config]):
         elif not missing_ok:
             raise RuntimeError(f"Lock file not found at {lock_file}")
 
-    def get_empty_exp_dir(self) -> Path:
+    def get_exp_dir(self) -> Path:
+        if self.config.exp_dir is not None:
+            exp_dir = Path(self.config.exp_dir)
+            exp_dir.mkdir(parents=True, exist_ok=True)
+            return exp_dir
+
+        # Attempts to parse the experiment directory from the command line path.
+        for arg in sys.argv[1:]:
+            exp_dir = Path(arg)
+            if exp_dir.exists():
+                return exp_dir
+
         def get_exp_dir(run_id: int) -> Path:
             return self.run_dir / f"run_{run_id}"
 
@@ -72,7 +84,7 @@ class ArtifactsMixin(BaseTask[Config]):
     @functools.cached_property
     def exp_dir(self) -> Path:
         if self._exp_dir is None:
-            self._exp_dir = self.get_empty_exp_dir()
+            self._exp_dir = self.get_exp_dir()
             add_toast("status", self._exp_dir)
         return self._exp_dir
 
