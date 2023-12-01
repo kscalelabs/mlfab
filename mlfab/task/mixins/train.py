@@ -26,7 +26,7 @@ from mlfab.nn.functions import recursive_chunk
 from mlfab.nn.parallel import is_master
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
-from mlfab.task.launchers.single_process import SingleProcessLauncher
+from mlfab.task.launchers.multi_process import MultiProcessLauncher
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
@@ -611,5 +611,5 @@ class TrainMixin(
     @classmethod
     def launch(cls, *cfgs: RawConfigType, launcher: BaseLauncher | None = None) -> None:
         if launcher is None:
-            launcher = SingleProcessLauncher()
+            launcher = MultiProcessLauncher()
         launcher.launch(cls, *cfgs)
