@@ -20,7 +20,6 @@ __all__ = [
     "get_data_dir",
     "get_pretrained_models_dir",
     "get_run_dir",
-    "get_stage_dir",
     "load_user_config",
     "State",
     "cast_phase",
@@ -161,6 +160,7 @@ __all__ = [
     "BaseLauncher",
     "MultiProcessLauncher",
     "SingleProcessLauncher",
+    "SlurmLauncher",
     "LogAudio",
     "LogImage",
     "LogLine",
@@ -199,7 +199,6 @@ __all__ = [
     "square_resize_crop",
     "upper_left_crop",
     "add_toast",
-    "create_git_bundle",
     "get_git_state",
     "save_config",
     "test_dataset",
@@ -252,7 +251,6 @@ NAME_MAP: dict[str, str] = {
     "get_data_dir": "core.conf",
     "get_pretrained_models_dir": "core.conf",
     "get_run_dir": "core.conf",
-    "get_stage_dir": "core.conf",
     "load_user_config": "core.conf",
     "State": "core.state",
     "cast_phase": "core.state",
@@ -393,6 +391,7 @@ NAME_MAP: dict[str, str] = {
     "BaseLauncher": "task.launchers.base",
     "MultiProcessLauncher": "task.launchers.multi_process",
     "SingleProcessLauncher": "task.launchers.single_process",
+    "SlurmLauncher": "task.launchers.slurm",
     "LogAudio": "task.logger",
     "LogImage": "task.logger",
     "LogLine": "task.logger",
@@ -431,7 +430,6 @@ NAME_MAP: dict[str, str] = {
     "square_resize_crop": "utils.data.transforms",
     "upper_left_crop": "utils.data.transforms",
     "add_toast": "utils.experiments",
-    "create_git_bundle": "utils.experiments",
     "get_git_state": "utils.experiments",
     "save_config": "utils.experiments",
     "test_dataset": "utils.experiments",
@@ -488,7 +486,6 @@ if IMPORT_ALL or TYPE_CHECKING:
         get_data_dir,
         get_pretrained_models_dir,
         get_run_dir,
-        get_stage_dir,
         load_user_config,
     )
     from mlfab.core.state import Phase, State, cast_phase
@@ -649,6 +646,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.launchers.base import BaseLauncher
     from mlfab.task.launchers.multi_process import MultiProcessLauncher
     from mlfab.task.launchers.single_process import SingleProcessLauncher
+    from mlfab.task.launchers.slurm import SlurmLauncher
     from mlfab.task.logger import LogAudio, Logger, LoggerImpl, LogImage, LogLine, LogVideo
     from mlfab.task.loggers.curses import CursesLogger
     from mlfab.task.loggers.json import JsonLogger
@@ -682,7 +680,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         square_resize_crop,
         upper_left_crop,
     )
-    from mlfab.utils.experiments import Toasts, add_toast, create_git_bundle, get_git_state, save_config, test_dataset
+    from mlfab.utils.experiments import Toasts, add_toast, get_git_state, save_config, test_dataset
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import configure_logging
     from mlfab.utils.text import (

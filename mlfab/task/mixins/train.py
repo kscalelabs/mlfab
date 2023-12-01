@@ -12,7 +12,8 @@ import time
 import traceback
 from dataclasses import dataclass, is_dataclass
 from threading import Thread
-from typing import Any, Generic, Iterator, Literal, Mapping, Sequence, TypeVar, cast, get_args
+from types import FrameType
+from typing import Any, Callable, Generic, Iterator, Literal, Mapping, Sequence, TypeVar, cast, get_args
 
 import numpy as np
 import torch
@@ -129,6 +130,8 @@ class TrainMixin(
 
         # The kind of step that was specified in the config.
         self.__step_kind = cast_step_kind(self.config.step_kind)
+
+        self.__signal_handlers: dict[signal.Signals, list[Callable[[], None]]] = {}
 
     def on_step_end(self, state: State, loss_dict: dict[str, Tensor]) -> None:
         super().on_step_end(state, loss_dict)
@@ -464,6 +467,18 @@ class TrainMixin(
         self.logger.log_git_state(get_git_state(self))
         self.logger.log_config(cast(DictConfig, self.config))
 
+    def on_exit(self, sig: signal.Signals, frame: FrameType | None, state: State) -> None:
+        super().on_exit(sig, frame, state)
+
+        self.save_checkpoint(state)
+        for signal_handler in self.__signal_handlers.get(sig, []):
+            signal_handler()
+
+    def add_signal_handler(self, sig: signal.Signals, handler: Callable[[], None]) -> None:
+        if sig not in self.__signal_handlers:
+            self.__signal_handlers[sig] = []
+        self.__signal_handlers[sig].append(handler)
+
     def run_training_loop(self) -> None:
         """Runs the training loop.
 
@@ -508,8 +523,13 @@ class TrainMixin(
 
         self.on_training_start(state)
 
+        def on_exit(signum: int, frame: FrameType | None) -> None:
+            sig = signal.Signals(signum)
+            self.on_exit(sig, frame, state)
+
         # Handle user-defined interrupts during the training loop.
-        signal.signal(signal.SIGUSR1, self.on_exit)
+        for sig in self.__signal_handlers.keys():
+            signal.signal(sig, on_exit)
 
         try:
             with contextlib.ExitStack() as ctx:

@@ -66,7 +66,7 @@ class MnistClassification(mlfab.Task[Config]):
         x, y = batch
         yhat = self(x)
         self.log_step(batch, yhat, state)
-        return F.cross_entropy(yhat, y.squeeze(-1))
+        return F.cross_entropy(yhat, y.squeeze(-1).long())
 
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
         (x, y), yhat = batch, output
