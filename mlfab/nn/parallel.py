@@ -1253,7 +1253,6 @@ def launch_subprocesses(
     OmegaConf.resolve(cast(OmegaConfContainer, cfg))
 
     if cfg.world_size <= 1:
-        logger.warning("Multi-process trainer expects more than one device; running single-process")
         cfg.rank = 0
         init_and_run(func, cfg, *args, **kwargs)
         return

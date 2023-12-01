@@ -29,7 +29,7 @@ class MultiProcessLauncher(BaseLauncher):
             will use sensible defaults based on the hardware environment.
     """
 
-    def __init__(self, num_processes: int | None) -> None:
+    def __init__(self, num_processes: int | None = None) -> None:
         super().__init__()
 
         self.num_processes = get_num_processes() if num_processes is None else num_processes

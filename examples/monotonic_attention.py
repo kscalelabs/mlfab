@@ -154,7 +154,7 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
         self.log_step(batch, tokens_out_pred, state)
         return F.cross_entropy(
             tokens_out_pred.view(-1, self.config.num_letters + 1),
-            tokens_out.view(-1),
+            tokens_out.view(-1).long(),
             ignore_index=PADDING_IDX,
         )
 
@@ -179,4 +179,4 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    MonotonicAttentionTask.launch(Config(batch_size=16, num_dataloader_workers=0))
+    MonotonicAttentionTask.launch(Config(batch_size=16, num_dataloader_workers=0, valid_every_n_seconds=10))
