@@ -117,7 +117,7 @@ class Experiment:
 class Directories:
     run: str = field(II("oc.env:RUN_DIR"), help="The run directory")
     data: str = field(II("oc.env:DATA_DIR"), help="The data directory")
-    pretrained_models: str = field(II("oc.env:MODELS_DIR"), help="The models directory")
+    pretrained_models: str = field(II("oc.env:MODEL_DIR"), help="The models directory")
 
 
 @dataclass
@@ -189,6 +189,7 @@ def get_pretrained_models_dir() -> Path:
     if is_missing(config, "pretrained_models"):
         raise RuntimeError(
             "The data directory has not been set! You should set it in your config file "
-            f"in {user_config_path()} or set the DATA_DIR environment variable."
+            f"in {user_config_path()} or set the MODEL_DIR environment variable."
         )
     return Path(config.pretrained_models)
+g
