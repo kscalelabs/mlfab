@@ -192,4 +192,3 @@ def get_pretrained_models_dir() -> Path:
             f"in {user_config_path()} or set the MODEL_DIR environment variable."
         )
     return Path(config.pretrained_models)
-g
