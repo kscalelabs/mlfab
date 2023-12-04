@@ -9,8 +9,10 @@ import itertools
 import logging
 import os
 import random
+import re
 import shutil
 import sys
+import tempfile
 import textwrap
 import time
 import traceback
@@ -26,7 +28,9 @@ from torch import Tensor, inf, nn
 from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype, _has_foreach_support
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset, IterableDataset
+from torchvision.datasets.utils import download_url
 
+from mlfab.core.conf import get_pretrained_models_dir
 from mlfab.core.state import State
 from mlfab.utils.text import TextBlock, colored
 
@@ -636,3 +640,133 @@ def test_dataset(
                 callback(sample)
             if i % log_interval == 0:
                 logger.info("Sample %d in %.2g seconds", i, time.time() - start_time)
+
+
+def check_md5(file_path: str | Path, hash_str: str | None, chunk_size: int = 2**16) -> bool:
+    """Checks the MD5 of the downloaded file.
+
+    Args:
+        file_path: Path to the downloaded file.
+        hash_str: Expected MD5 of the file; if None, return True.
+        chunk_size: Size of the chunks to read from the file.
+
+    Returns:
+        True if the MD5 matches, False otherwise.
+    """
+    if hash_str is None:
+        return True
+
+    md5 = hashlib.md5()
+
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            md5.update(chunk)
+
+    return md5.hexdigest() == hash_str
+
+
+def check_sha256(file_path: str | Path, hash_str: str | None, chunk_size: int = 2**16) -> bool:
+    """Checks the SHA256 of the downloaded file.
+
+    Args:
+        file_path: Path to the downloaded file.
+        hash_str: Expected SHA256 of the file; if None, return True.
+        chunk_size: Size of the chunks to read from the file.
+
+    Returns:
+        True if the SHA256 matches, False otherwise.
+    """
+    if hash_str is None:
+        return True
+
+    sha256 = hashlib.sha256()
+
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            sha256.update(chunk)
+
+    return sha256.hexdigest() == hash_str
+
+
+def ensure_downloaded(
+    url: str,
+    *dnames: str,
+    md5: str | None = None,
+    sha256: str | None = None,
+    is_tmp: bool = False,
+    recheck_hash: bool = False,
+) -> Path:
+    """Ensures that a checkpoint URL has been downloaded.
+
+    This basically just provides a nice way of organizing pre-trained models,
+    by saving them to a consistent location.
+
+    Args:
+        url: The URL to download.
+        dnames: The directory to download to (note that this is relative to the
+            model directory). The final name should be the file name
+        md5: The MD5 hash of the file, if known.
+        sha256: The SHA256 hash of the file, if known.
+        is_tmp: If set, use ``tmp/`` instead of ``get_pretrained_models_dir()``
+        recheck_hash: Whether to recheck the hash of the file if it already
+            exists.
+
+    Returns:
+        The path to the downloaded file.
+    """
+    assert len(dnames) >= 1, "Must provide at least 1 directory name"
+    filepath = Path(tempfile.mkdtemp("models")) if is_tmp else get_pretrained_models_dir()
+    for dname in dnames:
+        filepath = filepath / dname
+    (root := filepath.parent).mkdir(parents=True, exist_ok=True)
+
+    def check_hashes() -> bool:
+        return filepath.is_file() and check_sha256(filepath, sha256) and check_md5(filepath, md5)
+
+    def download_file() -> None:
+        download_url(url, root=root, filename=filepath.name)
+        assert filepath.is_file(), f"Failed to download {url} to {filepath}"
+        if not check_hashes():
+            filepath.unlink()
+            raise RuntimeError(f"Hashes for {url} do not match")
+
+    # If the file does not exist, download it and check the hashes.
+    if not filepath.exists():
+        download_file()
+
+    # By default, assume the downloaded file hash is correct.
+    if not recheck_hash:
+        return filepath
+
+    # Check the file hashes again, to ensure the file was not corrupted.
+    if not check_hashes():
+        filepath.unlink()
+        download_file()
+
+    return filepath
+
+
+def get_state_dict_prefix(
+    ckpt: dict[str, T],
+    prefix: str | None = None,
+    suffix: str | None = None,
+    regexp: re.Pattern[str] | None = None,
+) -> dict[str, T]:
+    """Returns the parts of a checkpoint which begin with a prefix.
+
+    Args:
+        ckpt: The checkpoint to modify
+        prefix: The prefix to clip
+        suffix: The suffix to clip
+        regexp: The regexp to search for (doesn't modify any keys)
+
+    Returns:
+        The modified checkpoint
+    """
+    if prefix is not None:
+        ckpt = {k[len(prefix) :]: v for k, v in ckpt.items() if k.startswith(prefix)}
+    if suffix is not None:
+        ckpt = {k[: -len(suffix)]: v for k, v in ckpt.items() if k.endswith(suffix)}
+    if regexp is not None:
+        ckpt = {k: v for k, v in ckpt.items() if regexp.match(k)}
+    return ckpt

@@ -199,12 +199,17 @@ __all__ = [
     "square_resize_crop",
     "upper_left_crop",
     "add_toast",
+    "check_md5",
+    "check_sha256",
+    "ensure_downloaded",
     "get_git_state",
+    "get_state_dict_prefix",
     "save_config",
     "test_dataset",
     "read_gif",
     "write_gif",
     "configure_logging",
+    "configure_streaming_logging",
     "TextBlock",
     "colored",
     "format_datetime",
@@ -430,12 +435,17 @@ NAME_MAP: dict[str, str] = {
     "square_resize_crop": "utils.data.transforms",
     "upper_left_crop": "utils.data.transforms",
     "add_toast": "utils.experiments",
+    "check_md5": "utils.experiments",
+    "check_sha256": "utils.experiments",
+    "ensure_downloaded": "utils.experiments",
     "get_git_state": "utils.experiments",
+    "get_state_dict_prefix": "utils.experiments",
     "save_config": "utils.experiments",
     "test_dataset": "utils.experiments",
     "read_gif": "utils.io",
     "write_gif": "utils.io",
     "configure_logging": "utils.logging",
+    "configure_streaming_logging": "utils.logging",
     "TextBlock": "utils.text",
     "colored": "utils.text",
     "format_datetime": "utils.text",
@@ -680,9 +690,19 @@ if IMPORT_ALL or TYPE_CHECKING:
         square_resize_crop,
         upper_left_crop,
     )
-    from mlfab.utils.experiments import Toasts, add_toast, get_git_state, save_config, test_dataset
+    from mlfab.utils.experiments import (
+        Toasts,
+        add_toast,
+        check_md5,
+        check_sha256,
+        ensure_downloaded,
+        get_git_state,
+        get_state_dict_prefix,
+        save_config,
+        test_dataset,
+    )
     from mlfab.utils.io import read_gif, write_gif
-    from mlfab.utils.logging import configure_logging
+    from mlfab.utils.logging import configure_logging, configure_streaming_logging
     from mlfab.utils.text import (
         TextBlock,
         colored,
