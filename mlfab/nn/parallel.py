@@ -975,10 +975,14 @@ def split_n_items_across_workers(n: int, worker_id: int, num_workers: int) -> tu
 
 
 def num_workers(default: int) -> int:
-    if (cpu_count := os.cpu_count()) is None:
-        return default
-    # This is a somewhat arbitrary heuristic, but seems to be a fine default.
-    return min(cpu_count * 2, 8)
+    if hasattr(os, "sched_getaffinity"):
+        try:
+            return len(os.sched_getaffinity(0))
+        except Exception:
+            pass
+    if (cpu_count := os.cpu_count()) is not None:
+        return cpu_count
+    return default
 
 
 OmegaConf.register_new_resolver("mlfab.num_workers", num_workers, replace=True)

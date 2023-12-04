@@ -40,7 +40,7 @@ class DataLoaderConfig:
 @dataclass
 class DataLoadersConfig(ProcessConfig, BaseConfig):
     batch_size: int = field(MISSING, help="Size of each batch")
-    num_dataloader_workers: int = field(II("mlfab.num_workers:8"), help="Default number of dataloader workers")
+    num_dataloader_workers: int = field(II("mlfab.num_workers:-1"), help="Default number of dataloader workers")
     train_dl: DataLoaderConfig = field(
         DataLoaderConfig(
             batch_size=II("batch_size"),
