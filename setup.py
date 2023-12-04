@@ -58,6 +58,7 @@ setup(
             "py.typed",
             "requirements*.txt",
             "scripts/create_mlfab_project/assets/**/*",
+            "scripts/create_mlfab_project/assets/**/.*",
         ],
     },
 )
