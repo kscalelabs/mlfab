@@ -4,7 +4,6 @@ import functools
 import inspect
 import logging
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -57,15 +56,9 @@ class ArtifactsMixin(BaseTask[Config]):
 
     def get_exp_dir(self) -> Path:
         if self.config.exp_dir is not None:
-            exp_dir = Path(self.config.exp_dir)
+            exp_dir = Path(self.config.exp_dir).expanduser().resolve()
             exp_dir.mkdir(parents=True, exist_ok=True)
             return exp_dir
-
-        # Attempts to parse the experiment directory from the command line path.
-        for arg in sys.argv[1:]:
-            exp_dir = Path(arg)
-            if exp_dir.is_dir():
-                return exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
             return self.run_dir / f"run_{run_id}"

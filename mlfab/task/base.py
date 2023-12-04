@@ -198,7 +198,7 @@ class BaseTask(nn.Module, Generic[Config]):
         """
         task_path = Path(inspect.getfile(cls))
         cfg = OmegaConf.structured(cls.get_config_class())
-        cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs))
+        cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs), OmegaConf.from_cli())
         return cast(Config, cfg)
 
     @classmethod
