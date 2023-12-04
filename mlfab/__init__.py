@@ -228,6 +228,7 @@ __all__ = [
 __all__ += [
     "ActivationType",
     "add_toast",
+    "CollateMode",
     "EmbeddingKind",
     "NormType",
     "ODESolverType",
@@ -466,6 +467,7 @@ NAME_MAP.update(
     {
         "ActivationType": "nn.activations",
         "add_toast": "utils.experiments",
+        "CollateMode": "utils.data.collate",
         "EmbeddingKind": "nn.embeddings",
         "NormType": "nn.norms",
         "ODESolverType": "nn.diffusion.ode",
@@ -669,7 +671,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.optimizer import OptType
     from mlfab.task.mixins.profiler import ProfilerOptions
     from mlfab.task.task import Config, Task
-    from mlfab.utils.data.collate import collate, collate_non_null, pad_all, pad_sequence
+    from mlfab.utils.data.collate import CollateMode, collate, collate_non_null, pad_all, pad_sequence
     from mlfab.utils.data.dataset import SmallDataset
     from mlfab.utils.data.error_handling import (
         ErrorHandlingDataset,
