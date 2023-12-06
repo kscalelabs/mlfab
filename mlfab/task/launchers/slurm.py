@@ -20,7 +20,8 @@ from mlfab.nn.parallel import (
 )
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.staged import StagedLauncher
-from mlfab.task.mixins.train import Config, TrainMixin
+from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
+from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.logging import configure_logging
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ class SlurmLauncher(StagedLauncher):
         pythonpath_paths = ([] if stage_dir is None else [str(stage_dir)]) + os.environ.get("PYTHONPATH", "").split(":")
         return ":".join(p for p in pythonpath_paths if p)
 
-    def sbatch_file_contents(self, task: "TrainMixin[Config]") -> str:
+    def sbatch_file_contents(self, task: "ArtifactsMixin[ArtifactsConfig]") -> str:
         output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
@@ -214,8 +215,11 @@ srun \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
 
-    def launch(self, task: "type[TrainMixin[Config]]", *cfgs: RawConfigType) -> None:
-        task_obj = task.get_task(*cfgs)
+    def launch(self, task: "type[RunnableMixin[RunnableConfig]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
+        task_obj = task.get_task(*cfgs, use_cli=use_cli)
+
+        if not isinstance(task_obj, ArtifactsMixin):
+            raise RuntimeError(f"Task {task} must be an `ArtifactsMixin`")
 
         # Writes the sbatch file.
         sbatch_path = task_obj.exp_dir / "sbatch.sh"

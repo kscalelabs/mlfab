@@ -75,6 +75,7 @@ def test_e2e_training(tmpdir: Path) -> None:
             ),
             max_steps=10,
         ),
+        use_cli=False,
     )
 
 
@@ -96,9 +97,11 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
             max_steps=10,
         ),
         launcher=mlfab.MultiProcessLauncher(num_processes=2),
+        use_cli=False,
     )
 
 
+@pytest.mark.slow
 def test_staged_training(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["USE_METAL"] = "0"
@@ -108,11 +111,11 @@ def test_staged_training(tmpdir: Path) -> None:
     config = Config(batch_size=1)
     orig_task = DummyTask(config)
     task_key = orig_task.task_key
-    task: mlfab.Task = mlfab.Task.from_task_key(task_key).get_task(config)
+    task: mlfab.Task = mlfab.Task.from_task_key(task_key).get_task(config, use_cli=False)
     assert isinstance(task, DummyTask)
 
 
 if __name__ == "__main__":
-    # python -m tests.e2e.test_e2e
+    # python -m tests.e2e.test_task_e2e
     # test_e2e_training(Path(tempfile.mkdtemp()))
     test_e2e_training_mp(Path(tempfile.mkdtemp()))

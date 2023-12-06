@@ -1,4 +1,4 @@
-"""Composes the base task with all the mixins into a single task interface."""
+"""Composes various mixins into a single script interface."""
 
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -7,14 +7,10 @@ from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins import (
     ArtifactsConfig,
     ArtifactsMixin,
-    CheckpointingConfig,
-    CheckpointingMixin,
     CompileConfig,
     CompileMixin,
     CPUStatsConfig,
     CPUStatsMixin,
-    DataLoadersConfig,
-    DataLoadersMixin,
     DeviceConfig,
     DeviceMixin,
     GPUStatsConfig,
@@ -23,8 +19,6 @@ from mlfab.task.mixins import (
     LoggerMixin,
     MixedPrecisionConfig,
     MixedPrecisionMixin,
-    OptimizerConfig,
-    OptimizerMixin,
     ProcessConfig,
     ProcessMixin,
     ProfilerConfig,
@@ -33,19 +27,13 @@ from mlfab.task.mixins import (
     RunnableMixin,
     StepContextConfig,
     StepContextMixin,
-    TrainConfig,
-    TrainMixin,
 )
 
 
 @dataclass
-class Config(
-    TrainConfig,
-    CheckpointingConfig,
-    OptimizerConfig,
+class ScriptConfig(
     CompileConfig,
     MixedPrecisionConfig,
-    DataLoadersConfig,
     CPUStatsConfig,
     DeviceConfig,
     GPUStatsConfig,
@@ -60,16 +48,12 @@ class Config(
     pass
 
 
-ConfigT = TypeVar("ConfigT", bound=Config)
+ConfigT = TypeVar("ConfigT", bound=ScriptConfig)
 
 
-class Task(
-    TrainMixin[ConfigT],
-    CheckpointingMixin[ConfigT],
-    OptimizerMixin[ConfigT],
+class Script(
     CompileMixin[ConfigT],
     MixedPrecisionMixin[ConfigT],
-    DataLoadersMixin[ConfigT],
     CPUStatsMixin[ConfigT],
     DeviceMixin[ConfigT],
     GPUStatsMixin[ConfigT],

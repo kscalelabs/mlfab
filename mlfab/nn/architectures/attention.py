@@ -303,7 +303,7 @@ class MultiheadAttention(nn.Module):
         else:
             assert value.dim() == 3
             xv = F.linear(value, vw, vb)
-            xv = xv = xv.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
+            xv = xv.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
 
         return xq, xk, xv
 
