@@ -35,7 +35,7 @@ with open("mlfab/scripts/create_mlfab_project/assets.txt") as f:
 create_mlfab_project_assets = [f"scripts/create_mlfab_project/assets/{file}" for file in files]
 missing_files = [file for file in create_mlfab_project_assets if not os.path.exists(f"mlfab/{file}")]
 assert not missing_files, f"Could not find all assets: {missing_files}"
-g
+
 
 setup(
     name="mlfab",
