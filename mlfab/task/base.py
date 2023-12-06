@@ -186,35 +186,39 @@ class BaseTask(nn.Module, Generic[Config]):
         )
 
     @classmethod
-    def get_config(cls, *cfgs: RawConfigType) -> Config:
+    def get_config(cls, *cfgs: RawConfigType, use_cli: bool = True) -> Config:
         """Builds the structured config from the provided config classes.
 
         Args:
             cfgs: The config classes to merge. If a string or Path is provided,
                 it will be loaded as a YAML file.
+            use_cli: Whether to allow additional overrides from the CLI.
 
         Returns:
             The merged configs.
         """
         task_path = Path(inspect.getfile(cls))
         cfg = OmegaConf.structured(cls.get_config_class())
-        cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs), OmegaConf.from_cli())
+        cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs))
+        if use_cli:
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
         return cast(Config, cfg)
 
     @classmethod
-    def config_str(cls, *cfgs: RawConfigType) -> str:
-        return OmegaConf.to_yaml(cls.get_config(*cfgs))
+    def config_str(cls, *cfgs: RawConfigType, use_cli: bool = True) -> str:
+        return OmegaConf.to_yaml(cls.get_config(*cfgs, use_cli=use_cli))
 
     @classmethod
-    def get_task(cls, *cfgs: RawConfigType) -> Self:
+    def get_task(cls, *cfgs: RawConfigType, use_cli: bool = True) -> Self:
         """Builds the task from the provided config classes.
 
         Args:
             cfgs: The config classes to merge. If a string or Path is provided,
                 it will be loaded as a YAML file.
+            use_cli: Whether to allow additional overrides from the CLI.
 
         Returns:
             The task.
         """
-        cfg = cls.get_config(*cfgs)
+        cfg = cls.get_config(*cfgs, use_cli=use_cli)
         return cls(cfg)

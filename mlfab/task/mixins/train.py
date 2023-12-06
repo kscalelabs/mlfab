@@ -24,9 +24,6 @@ from mlfab.core.conf import field
 from mlfab.core.state import Phase, State
 from mlfab.nn.functions import recursive_chunk
 from mlfab.nn.parallel import is_master
-from mlfab.task.base import RawConfigType
-from mlfab.task.launchers.base import BaseLauncher
-from mlfab.task.launchers.multi_process import MultiProcessLauncher
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
@@ -35,6 +32,7 @@ from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.mixed_precision import MixedPrecisionConfig, MixedPrecisionMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
+from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
 from mlfab.utils.experiments import EpochDoneError, StateTimer, TrainingFinishedError, add_toast, get_git_state
 from mlfab.utils.text import highlight_exception_message, show_info
@@ -72,6 +70,7 @@ class TrainConfig(
     ProfilerConfig,
     StepContextConfig,
     ArtifactsConfig,
+    RunnableConfig,
 ):
     valid_every_n_steps: int | None = field(None, help="Number of training steps to run per validation step")
     valid_every_n_seconds: float | None = field(60.0 * 10.0, help="Run validation every N seconds")
@@ -111,6 +110,7 @@ class TrainMixin(
     ProfilerMixin[Config],
     StepContextMixin[Config],
     ArtifactsMixin[Config],
+    RunnableMixin[Config],
     Generic[Config],
 ):
     def __init__(self, config: Config) -> None:
@@ -479,6 +479,9 @@ class TrainMixin(
             self.__signal_handlers[sig] = []
         self.__signal_handlers[sig].append(handler)
 
+    def run(self) -> None:
+        self.run_training_loop()
+
     def run_training_loop(self) -> None:
         """Runs the training loop.
 
@@ -607,9 +610,3 @@ class TrainMixin(
 
         finally:
             self.on_training_end(state)
-
-    @classmethod
-    def launch(cls, *cfgs: RawConfigType, launcher: BaseLauncher | None = None) -> None:
-        if launcher is None:
-            launcher = MultiProcessLauncher()
-        launcher.launch(cls, *cfgs)

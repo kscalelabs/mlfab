@@ -127,6 +127,13 @@ def get_rank() -> int:
     return 0 if _RANK is None else _RANK
 
 
+def clear_rank() -> None:
+    global _RANK
+
+    _RANK = None
+    os.environ.pop("RANK", None)
+
+
 def set_local_rank(rank: int) -> None:
     global _LOCAL_RANK
 
@@ -143,6 +150,13 @@ def get_local_rank_optional() -> int | None:
 
 def get_local_rank() -> int:
     return 0 if _LOCAL_RANK is None else _LOCAL_RANK
+
+
+def clear_local_rank() -> None:
+    global _LOCAL_RANK
+
+    _LOCAL_RANK = None
+    os.environ.pop("LOCAL_RANK", None)
 
 
 def set_world_size(world_size: int) -> None:
@@ -163,6 +177,13 @@ def get_world_size() -> int:
     return 1 if _WORLD_SIZE is None else _WORLD_SIZE
 
 
+def clear_world_size() -> None:
+    global _WORLD_SIZE
+
+    _WORLD_SIZE = None
+    os.environ.pop("WORLD_SIZE", None)
+
+
 def set_local_world_size(local_world_size: int) -> None:
     global _LOCAL_WORLD_SIZE
 
@@ -181,6 +202,13 @@ def get_local_world_size() -> int:
     return 1 if _LOCAL_WORLD_SIZE is None else _LOCAL_WORLD_SIZE
 
 
+def clear_local_world_size() -> None:
+    global _LOCAL_WORLD_SIZE
+
+    _LOCAL_WORLD_SIZE = None
+    os.environ.pop("LOCAL_WORLD_SIZE", None)
+
+
 def set_master_addr(master_addr: str) -> None:
     global _MASTER_ADDR
 
@@ -193,6 +221,13 @@ def set_master_addr(master_addr: str) -> None:
 def get_master_addr() -> str:
     assert _MASTER_ADDR is not None, "Master address is not yet set"
     return _MASTER_ADDR
+
+
+def clear_master_addr() -> None:
+    global _MASTER_ADDR
+
+    _MASTER_ADDR = None
+    os.environ.pop("MASTER_ADDR", None)
 
 
 def set_master_port(port: int) -> None:
@@ -210,17 +245,19 @@ def get_master_port() -> int:
     return _MASTER_PORT
 
 
+def clear_master_port() -> None:
+    global _MASTER_PORT
+
+    _MASTER_PORT = None
+    os.environ.pop("MASTER_PORT", None)
+
+
 def is_master() -> bool:
     return get_rank() == 0
 
 
 def is_distributed() -> bool:
     return _INIT_METHOD is not None
-
-
-def get_init_method() -> str:
-    assert _INIT_METHOD is not None, "Init method is not yet set"
-    return _INIT_METHOD
 
 
 def set_init_method(init_method: str) -> None:
@@ -230,6 +267,18 @@ def set_init_method(init_method: str) -> None:
         os.environ["INIT_METHOD"] = _INIT_METHOD = init_method
     else:
         raise ValueError(f"Init method {init_method} is already set")
+
+
+def get_init_method() -> str:
+    assert _INIT_METHOD is not None, "Init method is not yet set"
+    return _INIT_METHOD
+
+
+def clear_init_method() -> None:
+    global _INIT_METHOD
+
+    _INIT_METHOD = None
+    os.environ.pop("INIT_METHOD", None)
 
 
 def set_dist(
@@ -248,6 +297,16 @@ def set_dist(
     set_master_addr(master_addr)
     set_master_port(master_port)
     set_init_method(init_method)
+
+
+def clear_dist() -> None:
+    clear_rank()
+    clear_local_rank()
+    clear_world_size()
+    clear_local_world_size()
+    clear_master_addr()
+    clear_master_port()
+    clear_init_method()
 
 
 @dataclass
@@ -1290,6 +1349,11 @@ def launch_subprocesses(
         error = error_queue.get()
         if error:
             raise RuntimeError(f"Process {rank} failed with error:\n{error}")
+
+    if dist.GroupMember.WORLD is not None:
+        dist.destroy_process_group()
+    clear_dist()
+    reset_parallelism()
 
 
 class _AllToAll(Function):

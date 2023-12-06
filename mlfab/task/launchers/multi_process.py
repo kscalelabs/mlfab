@@ -12,7 +12,7 @@ from mlfab.task.launchers.base import BaseLauncher
 from mlfab.task.launchers.single_process import run_single_process_training
 
 if TYPE_CHECKING:
-    from mlfab.task.mixins.train import Config, TrainMixin
+    from mlfab.task.mixins.runnable import Config, RunnableMixin
 
 
 def get_num_processes() -> int:
@@ -34,7 +34,7 @@ class MultiProcessLauncher(BaseLauncher):
 
         self.num_processes = get_num_processes() if num_processes is None else num_processes
 
-    def launch(self, task: "type[TrainMixin[Config]]", *cfgs: RawConfigType) -> None:
+    def launch(self, task: "type[RunnableMixin[Config]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
         cfg = MultiprocessConfig(world_size=self.num_processes)
-        train_fn = functools.partial(run_single_process_training, task, *cfgs)
+        train_fn = functools.partial(run_single_process_training, task, *cfgs, use_cli=use_cli)
         launch_subprocesses(train_fn, cfg)
