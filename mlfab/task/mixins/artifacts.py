@@ -72,7 +72,7 @@ class ArtifactsMixin(BaseTask[Config]):
         while (exp_dir := get_exp_dir(run_id)).is_dir() and has_lock_file(exp_dir):
             run_id += 1
         exp_dir.mkdir(exist_ok=True, parents=True)
-        return exp_dir
+        return exp_dir.expanduser().resolve()
 
     @functools.cached_property
     def exp_dir(self) -> Path:
