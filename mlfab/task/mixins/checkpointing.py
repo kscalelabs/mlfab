@@ -5,7 +5,7 @@ import logging
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Generic, TypeVar, cast
+from typing import Generic, Self, TypeVar, cast
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -60,8 +60,18 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def get_ckpt_path(self, state: State | None = None) -> Path:
         return get_ckpt_path(self.exp_dir, state)
 
-    def read_state_dict(self, path: Path) -> dict:
+    @classmethod
+    def read_state_dict(cls, path: Path) -> dict:
         return torch.load(path)
+
+    @classmethod
+    def get_task_from_ckpt(cls, path: Path) -> Self:
+        state_dict = cls.read_state_dict(path)
+        raw_config = state_dict.pop("config", None)
+        if raw_config is None:
+            raise RuntimeError(f"Could not find config in checkpoint at {path}!")
+        cfg = OmegaConf.create(raw_config)
+        return cls(cfg)
 
     def get_init_ckpt_path(self) -> Path | None:
         if (ckpt_path := self.get_ckpt_path_optional()) is not None and ckpt_path.exists():
