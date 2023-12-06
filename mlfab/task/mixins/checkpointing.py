@@ -65,13 +65,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return torch.load(path)
 
     @classmethod
-    def get_task_from_ckpt(cls, path: str | Path) -> Self:
+    def get_task_from_ckpt(cls, path: str | Path, strict: bool = True, assign: bool = False) -> Self:
         state_dict = cls.read_state_dict(path)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
         cfg = OmegaConf.create(raw_config)
-        return cls(cfg)
+        task = cls(cfg)
+        task.load_task_state_dict(state_dict, strict=strict, assign=assign)
+        return task
 
     def get_init_ckpt_path(self) -> Path | None:
         if (ckpt_path := self.get_ckpt_path_optional()) is not None and ckpt_path.exists():
