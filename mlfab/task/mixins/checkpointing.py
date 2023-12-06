@@ -61,11 +61,11 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return get_ckpt_path(self.exp_dir, state)
 
     @classmethod
-    def read_state_dict(cls, path: Path) -> dict:
+    def read_state_dict(cls, path: str | Path) -> dict:
         return torch.load(path)
 
     @classmethod
-    def get_task_from_ckpt(cls, path: Path) -> Self:
+    def get_task_from_ckpt(cls, path: str | Path) -> Self:
         state_dict = cls.read_state_dict(path)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
