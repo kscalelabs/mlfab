@@ -10,6 +10,7 @@ import functools
 import inspect
 import logging
 import signal
+import sys
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
 from types import FrameType, TracebackType
@@ -201,6 +202,10 @@ class BaseTask(nn.Module, Generic[Config]):
         cfg = OmegaConf.structured(cls.get_config_class())
         cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs))
         if use_cli:
+            if "-h" in sys.argv or "--help" in sys.argv:
+                sys.stderr.write(OmegaConf.to_yaml(cfg))
+                sys.stderr.flush()
+                sys.exit(0)
             cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
         return cast(Config, cfg)
 
