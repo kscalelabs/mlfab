@@ -9,8 +9,8 @@ You can implement a self-attention model using the built-in PyTorch module:
     self.attn = nn.TransformerEncoder(
         nn.TransformerEncoderLayer(
             d_model=512,
-            nhead=8,
-            dim_feedforward=2048,
+            head_dims=64,
+            feedforward_factor=4,
             dropout=0.1,
             activation='relu',
             batch_first=True,
@@ -28,8 +28,8 @@ states. Instead, you can use the equivalent implementation in this file:
     self.attn = TransformerEncoder(
         TransformerEncoderLayer(
             d_model=512,
-            nhead=8,
-            dim_feedforward=2048,
+            head_dims=64,
+            feedforward_factor=4,
             dropout=0.1,
             # activation='relu',  Always ReLU
             # batch_first=True,  Always batch first

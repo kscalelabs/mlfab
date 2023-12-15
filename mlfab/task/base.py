@@ -206,7 +206,8 @@ class BaseTask(nn.Module, Generic[Config]):
                 sys.stderr.write(OmegaConf.to_yaml(cfg))
                 sys.stderr.flush()
                 sys.exit(0)
-            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli())
+            arg_list = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(arg_list))
         return cast(Config, cfg)
 
     @classmethod

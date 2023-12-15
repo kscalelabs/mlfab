@@ -546,14 +546,20 @@ class RwkvFeedForward(nn.Module):
 
 
 class RwkvBlock(nn.Module):
-    def __init__(self, emb_dim: int, pre_norm: bool, wkv_key: WkvFnKey | None = None) -> None:
+    def __init__(
+        self,
+        emb_dim: int,
+        pre_norm: bool = False,
+        wkv_key: WkvFnKey | None = None,
+        feedforward_factor: int = 4,
+    ) -> None:
         super().__init__()
 
         self.ln0 = nn.LayerNorm(emb_dim) if pre_norm else None
         self.ln1 = nn.LayerNorm(emb_dim)
         self.ln2 = nn.LayerNorm(emb_dim)
         self.att = RwkvAttention(emb_dim, wkv_key=wkv_key)
-        self.ffn = RwkvFeedForward(emb_dim, emb_dim * 4)
+        self.ffn = RwkvFeedForward(emb_dim, emb_dim * feedforward_factor)
 
     def run_attn(self, x: Tensor, state: RwkvState | None = None) -> tuple[Tensor, RwkvAttentionState]:
         return self.att.forward(self.ln1(x), None if state is None else state[0])
@@ -578,6 +584,8 @@ class RwkvStack(nn.Module):
         emb_dim: The number of embedding dimensions in each block
         num_layers: The number of layers in the stack
         wkv_key: The WKV algorithm to use
+        feedforward_factor: The factor by which the input number of dimensions
+            is multiplied to get the feedforward hidden dimension.
 
     Inputs:
         x: The input tensor, with shape ``(B, T, D)``
@@ -587,7 +595,13 @@ class RwkvStack(nn.Module):
         The output tensor, with shape ``(B, T, D)``, and the next state
     """
 
-    def __init__(self, emb_dim: int, num_layers: int, wkv_key: WkvFnKey | None = None) -> None:
+    def __init__(
+        self,
+        emb_dim: int,
+        num_layers: int,
+        wkv_key: WkvFnKey | None = None,
+        feedforward_factor: int = 4,
+    ) -> None:
         super().__init__()
 
         self.blocks = nn.ModuleList([RwkvBlock(emb_dim, pre_norm=i == 0, wkv_key=wkv_key) for i in range(num_layers)])
