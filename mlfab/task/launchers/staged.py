@@ -13,13 +13,13 @@ class StagedLauncher(BaseLauncher, ABC):
 
         self.config_file_name = config_file_name
 
-    def get_config_path(self, task: "ArtifactsMixin[Config]") -> Path:
+    def get_config_path(self, task: "ArtifactsMixin[Config]", use_cli: bool = True) -> Path:
         config_path = task.exp_dir / self.config_file_name
         task.config.exp_dir = str(task.exp_dir)
         with open(config_path, "w", encoding="utf-8") as f:
-            f.write(task.config_str(task.config))
+            f.write(task.config_str(task.config, use_cli=use_cli))
         return config_path
 
     @classmethod
-    def from_components(cls, task_key: str, config_path: Path) -> "ArtifactsMixin":
-        return ArtifactsMixin.from_task_key(task_key).get_task(config_path)
+    def from_components(cls, task_key: str, config_path: Path, use_cli: bool = True) -> "ArtifactsMixin":
+        return ArtifactsMixin.from_task_key(task_key).get_task(config_path, use_cli=use_cli)
