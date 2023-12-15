@@ -25,7 +25,7 @@ class CliLauncher(BaseLauncher):
         use_cli: bool | list[str] = True,
     ) -> None:
         args = use_cli if isinstance(use_cli, list) else sys.argv[1:]
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument(
             "-l",
             "--launcher",
@@ -33,7 +33,7 @@ class CliLauncher(BaseLauncher):
             default="mp",
             help="The launcher to use; `single` for single-process, `mp` for multi-process, `slurm` for SLURM",
         )
-        args, cli_args_rest = parser.parse_known_args(args=args)
+        args, cli_args_rest = parser.parse_known_intermixed_args(args=args)
         launcher_choice: LauncherChoice = args.launcher
         use_cli_next: bool | list[str] = False if not use_cli else cli_args_rest
 

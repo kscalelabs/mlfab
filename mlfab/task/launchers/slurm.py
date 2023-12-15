@@ -180,7 +180,7 @@ class SlurmLauncher(StagedLauncher):
         parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes to use")
         parser.add_argument("--num-jobs", type=int, default=1, help="The number of jobs to launch")
         parser.add_argument("--account", type=str, default=None, help="The account to use")
-        args, remaining_args = parser.parse_known_args()
+        args, remaining_args = parser.parse_known_intermixed_args()
 
         return (
             SlurmArgs(
