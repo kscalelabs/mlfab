@@ -74,7 +74,7 @@ def test_slurm_launcher(tmpdir: Path) -> None:
         cpus_per_gpu=1,
     )
 
-    task = DummyTask.get_task(Config(batch_size=16))
+    task = DummyTask.get_task(Config(batch_size=16), use_cli=False)
 
     contents = launcher.sbatch_file_contents(task)
     match = re.search(r"python -m .+", contents)

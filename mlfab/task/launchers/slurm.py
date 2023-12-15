@@ -23,6 +23,7 @@ from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.logging import configure_logging
+from mlfab.utils.text import show_info
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class SlurmLauncher(StagedLauncher):
         output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
-        config_path = self.get_config_path(task)
+        config_path = self.get_config_path(task, use_cli=False)
 
         # Gets the extra sbatch lines.
         extra_sbatch_lines = self.extra_sbatch_lines
@@ -206,8 +207,6 @@ srun \\
 """.strip()
 
     def launch(self, task: "type[RunnableMixin[RunnableConfig]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
-        configure_logging()
-
         task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
         if not isinstance(task_obj, ArtifactsMixin):
@@ -237,7 +236,7 @@ srun \\
             all_run_ids += [run_ids[0]]
 
         run_ids_str = "".join(f"\n - {run_id}" for run_id in all_run_ids)
-        logger.info("Launched %d job(s):%s", len(all_run_ids), run_ids_str)
+        show_info(f"Launched {len(all_run_ids)} job(s) to {task_obj.exp_dir}:{run_ids_str}")
 
         task_obj.add_lock_file("scheduled", exists_ok=False)
 
@@ -246,7 +245,7 @@ srun \\
         if len(sys.argv) != 3:
             raise RuntimeError(f"Usage: python -m {cls.__module__} <task_key> <config_path>")
         task_key, config_path = sys.argv[1:]
-        task = cls.from_components(task_key, Path(config_path))
+        task = cls.from_components(task_key, Path(config_path), use_cli=False)
 
         # Adding the "running" lock file before rmoving the "scheduled" lock
         # file in order to prevent accidentally launching another job while the

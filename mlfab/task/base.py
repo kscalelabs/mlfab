@@ -138,7 +138,7 @@ class BaseTask(nn.Module, Generic[Config]):
     def from_task_key(cls, task_key: str) -> type[Self]:
         task_module, task_class_name = task_key.rsplit(".", 1)
         try:
-            mod = __import__(task_module)
+            mod = __import__(task_module, fromlist=[task_class_name])
         except ImportError as e:
             raise ImportError(f"Could not import module {task_module} for task {task_key}") from e
         if not hasattr(mod, task_class_name):
