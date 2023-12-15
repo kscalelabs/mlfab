@@ -1,5 +1,7 @@
 """Defines a launcher to launch a Slurm training job."""
 
+import datetime
+import json
 import logging
 import os
 import re
@@ -206,6 +208,31 @@ srun \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
 
+    def update_job_info(self, task: ArtifactsMixin, all_run_ids: list[str]) -> None:
+        job_file = task.exp_dir / "slurm_info.json"
+
+        # Loads existing job information, or creates an empty list.
+        job_info: list
+        if job_file.exists():
+            with open(job_file, "r", encoding="utf-8") as f:
+                job_info = json.load(f)
+        else:
+            job_info = []
+
+        # Adds the new job information.
+        job_info += [
+            {
+                "launch_time": datetime.datetime.now().isoformat(),
+                "job_ids": all_run_ids,
+                "task_key": task.task_key,
+                "exp_dir": str(task.exp_dir),
+            },
+        ]
+
+        # Writes the updated job information to a file.
+        with open(job_file, "w", encoding="utf-8") as f:
+            json.dump(job_info, f, indent=2)
+
     def launch(self, task: "type[RunnableMixin[RunnableConfig]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
         task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
@@ -237,6 +264,9 @@ srun \\
 
         run_ids_str = "".join(f"\n - {run_id}" for run_id in all_run_ids)
         show_info(f"Launched {len(all_run_ids)} job(s) to {task_obj.exp_dir}:{run_ids_str}")
+
+        # Writes the job information to a file.
+        self.update_job_info(task_obj, all_run_ids)
 
         task_obj.add_lock_file("scheduled", exists_ok=False)
 
