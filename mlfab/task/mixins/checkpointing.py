@@ -70,7 +70,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         path: str | Path,
         strict: bool = True,
         assign: bool = False,
-        use_cli: bool = False,
+        use_cli: bool | list[str] = False,
     ) -> Self:
         state_dict = cls.read_state_dict(path)
         raw_config = state_dict.pop("config", None)

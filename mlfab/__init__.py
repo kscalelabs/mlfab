@@ -142,7 +142,7 @@ __all__ = [
     "can_use_fused",
     "separate_decayable_params",
     "ColumnParallelLinear",
-    "MultiprocessConfig",
+    "MultiProcessConfig",
     "ParallelConfig",
     "ParallelEmbedding",
     "RowParallelLinear",
@@ -170,6 +170,7 @@ __all__ = [
     "ResidualVectorQuantization",
     "VectorQuantization",
     "BaseLauncher",
+    "CliLauncher",
     "MultiProcessLauncher",
     "SingleProcessLauncher",
     "SlurmLauncher",
@@ -393,7 +394,7 @@ NAME_MAP: dict[str, str] = {
     "can_use_fused": "nn.optimizers",
     "separate_decayable_params": "nn.optimizers",
     "ColumnParallelLinear": "nn.parallel",
-    "MultiprocessConfig": "nn.parallel",
+    "MultiProcessConfig": "nn.parallel",
     "ParallelConfig": "nn.parallel",
     "ParallelEmbedding": "nn.parallel",
     "RowParallelLinear": "nn.parallel",
@@ -421,6 +422,7 @@ NAME_MAP: dict[str, str] = {
     "ResidualVectorQuantization": "nn.quantization.vq",
     "VectorQuantization": "nn.quantization.vq",
     "BaseLauncher": "task.launchers.base",
+    "CliLauncher": "task.launchers.cli",
     "MultiProcessLauncher": "task.launchers.multi_process",
     "SingleProcessLauncher": "task.launchers.single_process",
     "SlurmLauncher": "task.launchers.slurm",
@@ -668,7 +670,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.optimizers import Adam, Lion, can_use_foreach, can_use_fused, separate_decayable_params
     from mlfab.nn.parallel import (
         ColumnParallelLinear,
-        MultiprocessConfig,
+        MultiProcessConfig,
         ParallelConfig,
         ParallelEmbedding,
         RowParallelLinear,
@@ -696,6 +698,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.quantization.lfq import LookupFreeQuantization
     from mlfab.nn.quantization.vq import ResidualVectorQuantization, VectorQuantization
     from mlfab.task.launchers.base import BaseLauncher
+    from mlfab.task.launchers.cli import CliLauncher
     from mlfab.task.launchers.multi_process import MultiProcessLauncher
     from mlfab.task.launchers.single_process import SingleProcessLauncher
     from mlfab.task.launchers.slurm import SlurmLauncher

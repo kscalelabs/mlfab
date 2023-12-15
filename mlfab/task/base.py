@@ -187,7 +187,7 @@ class BaseTask(nn.Module, Generic[Config]):
         )
 
     @classmethod
-    def get_config(cls, *cfgs: RawConfigType, use_cli: bool = True) -> Config:
+    def get_config(cls, *cfgs: RawConfigType, use_cli: bool | list[str] = True) -> Config:
         """Builds the structured config from the provided config classes.
 
         Args:
@@ -202,20 +202,20 @@ class BaseTask(nn.Module, Generic[Config]):
         cfg = OmegaConf.structured(cls.get_config_class())
         cfg = OmegaConf.merge(cfg, *(get_config(other_cfg, task_path) for other_cfg in cfgs))
         if use_cli:
-            if "-h" in sys.argv or "--help" in sys.argv:
+            args = use_cli if isinstance(use_cli, list) else sys.argv[1:]
+            if "-h" in args or "--help" in args:
                 sys.stderr.write(OmegaConf.to_yaml(cfg))
                 sys.stderr.flush()
                 sys.exit(0)
-            arg_list = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
-            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(arg_list))
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(args))
         return cast(Config, cfg)
 
     @classmethod
-    def config_str(cls, *cfgs: RawConfigType, use_cli: bool = True) -> str:
+    def config_str(cls, *cfgs: RawConfigType, use_cli: bool | list[str] = True) -> str:
         return OmegaConf.to_yaml(cls.get_config(*cfgs, use_cli=use_cli))
 
     @classmethod
-    def get_task(cls, *cfgs: RawConfigType, use_cli: bool = True) -> Self:
+    def get_task(cls, *cfgs: RawConfigType, use_cli: bool | list[str] = True) -> Self:
         """Builds the task from the provided config classes.
 
         Args:
