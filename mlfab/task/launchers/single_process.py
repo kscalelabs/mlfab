@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 def run_single_process_training(
     task: "type[RunnableMixin[Config]]",
     *cfgs: RawConfigType,
-    use_cli: bool = True,
+    use_cli: bool | list[str] = True,
 ) -> None:
     configure_logging()
     task_obj = task.get_task(*cfgs, use_cli=use_cli)
@@ -21,5 +21,10 @@ def run_single_process_training(
 
 
 class SingleProcessLauncher(BaseLauncher):
-    def launch(self, task: "type[RunnableMixin[Config]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
+    def launch(
+        self,
+        task: "type[RunnableMixin[Config]]",
+        *cfgs: RawConfigType,
+        use_cli: bool | list[str] = True,
+    ) -> None:
         run_single_process_training(task, *cfgs, use_cli=use_cli)

@@ -1,11 +1,16 @@
 """Defines a launcher to launch a Slurm training job."""
 
+import argparse
+import datetime
+import functools
+import json
 import logging
 import os
 import re
 import signal
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from mlfab.nn.parallel import (
@@ -65,14 +70,57 @@ def requeue_job() -> None:
             logger.info("SLURM_JOB_ID environment variable not found; not requeueing")
 
 
+@dataclass
+class PartitionInfo:
+    name: str
+    gpus_per_node: int
+    cpus_per_node: int
+
+
+@functools.lru_cache()
+def parse_sinfo_output() -> list[PartitionInfo]:
+    sinfo_output = subprocess.check_output(["sinfo", "--format", "%c %G %P"])
+    partition_infos: list[PartitionInfo] = []
+    lines = sinfo_output.decode("utf-8").splitlines()[1:]
+    for line in lines:
+        cpus_per_node, gres, name = line.split()
+
+        # Parses GPUs per node from gres.
+        gpus_per_node_re = re.search(r"gpu:(\d+)", gres)
+        if gpus_per_node_re is None:
+            continue
+        gpus_per_node = int(gpus_per_node_re.group(1))
+
+        # Cleans up partition name.
+        name = name.replace("*", "")
+
+        partition_infos += [PartitionInfo(name, int(gpus_per_node), int(cpus_per_node))]
+
+    return partition_infos
+
+
+@dataclass
+class SlurmArgs:
+    partition: str | None
+    gpus_per_node: int | None
+    num_nodes: int
+    num_jobs: int
+    account: str | None
+
+
 class SlurmLauncher(StagedLauncher):
-    """Defines a launcher to launch a Slurm training job."""
+    """Defines a launcher to launch a Slurm training job.
+
+    If no parameters are supplied, this launcher will attempt to use `sinfo` to
+    find a partition with at least one GPU, and will use the first such
+    partition found, with the default number of GPUs per node and CPUs per GPU.
+    """
 
     def __init__(
         self,
-        partition: str,
-        gpus_per_node: int,
-        cpus_per_gpu: int,
+        partition: str | None = None,
+        gpus_per_node: int | None = None,
+        cpus_per_gpu: int | None = None,
         num_nodes: int = 1,
         gpu_type: str | None = None,
         exclusive: bool = False,
@@ -90,9 +138,25 @@ class SlurmLauncher(StagedLauncher):
     ) -> None:
         super().__init__()
 
-        self.partition = partition
-        self.gpus_per_node = gpus_per_node
-        self.cpus_per_gpu = cpus_per_gpu
+        if partition is None:
+            if len(sinfo_output := parse_sinfo_output()) == 0:
+                raise RuntimeError("`sinfo` did not return any partitions with available GPUs!")
+            partition = sinfo_output[0].name
+
+        if gpus_per_node is None or cpus_per_gpu is None:
+            try:
+                first_partition = next(p for p in parse_sinfo_output() if p.name == partition)
+            except StopIteration:
+                raise RuntimeError(f"Partition {partition} not found in `sinfo` output")
+            if gpus_per_node is None:
+                gpus_per_node = first_partition.gpus_per_node
+            if cpus_per_gpu is None:
+                cpus_per_gpu = first_partition.cpus_per_node // gpus_per_node
+
+        self.partition: str = partition
+        self.gpus_per_node: int = gpus_per_node
+        self.cpus_per_gpu: int = cpus_per_gpu
+
         self.num_nodes = num_nodes
         self.gpu_type = gpu_type
         self.exclusive = exclusive
@@ -107,6 +171,27 @@ class SlurmLauncher(StagedLauncher):
         self.pipeline_parallel_backend = pipeline_parallel_backend
         self.data_parallel_backend = data_parallel_backend
         self.account = account
+
+    @classmethod
+    def parse_args_from_cli(cls) -> tuple[SlurmArgs, list[str]]:
+        parser = argparse.ArgumentParser(description="Launches a Slurm job.")
+        parser.add_argument("--partition", type=str, default=None, help="The partition to use")
+        parser.add_argument("--gpus-per-node", type=int, default=None, help="The number of GPUs per node")
+        parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes to use")
+        parser.add_argument("--num-jobs", type=int, default=1, help="The number of jobs to launch")
+        parser.add_argument("--account", type=str, default=None, help="The account to use")
+        args, remaining_args = parser.parse_known_args()
+
+        return (
+            SlurmArgs(
+                partition=args.partition,
+                gpus_per_node=args.gpus_per_node,
+                num_nodes=args.num_nodes,
+                num_jobs=args.num_jobs,
+                account=args.account,
+            ),
+            remaining_args,
+        )
 
     @property
     def extra_sbatch_lines(self) -> list[str]:
@@ -206,7 +291,37 @@ srun \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
 
-    def launch(self, task: "type[RunnableMixin[RunnableConfig]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
+    def update_job_info(self, task: ArtifactsMixin, all_run_ids: list[str]) -> None:
+        job_file = task.exp_dir / "slurm_info.json"
+
+        # Loads existing job information, or creates an empty list.
+        job_info: list
+        if job_file.exists():
+            with open(job_file, "r", encoding="utf-8") as f:
+                job_info = json.load(f)
+        else:
+            job_info = []
+
+        # Adds the new job information.
+        job_info += [
+            {
+                "launch_time": datetime.datetime.now().isoformat(),
+                "job_ids": all_run_ids,
+                "task_key": task.task_key,
+                "exp_dir": str(task.exp_dir),
+            },
+        ]
+
+        # Writes the updated job information to a file.
+        with open(job_file, "w", encoding="utf-8") as f:
+            json.dump(job_info, f, indent=2)
+
+    def launch(
+        self,
+        task: "type[RunnableMixin[RunnableConfig]]",
+        *cfgs: RawConfigType,
+        use_cli: bool | list[str] = True,
+    ) -> None:
         task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
         if not isinstance(task_obj, ArtifactsMixin):
@@ -237,6 +352,9 @@ srun \\
 
         run_ids_str = "".join(f"\n - {run_id}" for run_id in all_run_ids)
         show_info(f"Launched {len(all_run_ids)} job(s) to {task_obj.exp_dir}:{run_ids_str}")
+
+        # Writes the job information to a file.
+        self.update_job_info(task_obj, all_run_ids)
 
         task_obj.add_lock_file("scheduled", exists_ok=False)
 

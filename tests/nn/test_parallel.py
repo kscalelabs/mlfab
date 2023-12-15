@@ -112,7 +112,7 @@ def test_parallel_model(use_lora: bool) -> None:
 
     port = mlfab.get_unused_port()
 
-    config = mlfab.MultiprocessConfig(
+    config = mlfab.MultiProcessConfig(
         world_size=4,
         master_addr="127.0.0.1",
         master_port=port,

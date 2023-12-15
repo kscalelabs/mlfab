@@ -1155,7 +1155,7 @@ def dp(model: T, cfg: ParallelConfig) -> T | DDP | FSDP:
 
 
 @dataclass
-class MultiprocessConfig:
+class MultiProcessConfig:
     rank: int = field(-1, help="The rank of the process")
     local_rank: int = field(-1, help="The local rank of the process")
     world_size: int = field(II("mlfab.device_count:1"), help="The total number of processes")
@@ -1235,7 +1235,7 @@ def set_distributed_backend(backend: str) -> None:
 
 def init_and_run(
     func: Callable[P, None],
-    cfg: MultiprocessConfig,
+    cfg: MultiProcessConfig,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
@@ -1266,7 +1266,7 @@ def init_and_run(
 def _func_wrapped(
     func: Callable[P, None],
     setup: Callable[[], None] | None,
-    cfg: MultiprocessConfig,
+    cfg: MultiProcessConfig,
     error_queue: "mp.SimpleQueue[str | None]",
     *args: P.args,
     **kwargs: P.kwargs,
@@ -1289,7 +1289,7 @@ def _func_wrapped(
 
 def launch_subprocesses(
     func: Callable[P, None],
-    cfg: MultiprocessConfig | None = None,
+    cfg: MultiProcessConfig | None = None,
     setup: Callable[[], None] | None = None,
     rank_offset: int = 0,
     *args: P.args,
@@ -1309,10 +1309,10 @@ def launch_subprocesses(
         RuntimeError: If the function fails in any subprocess.
     """
     if cfg is None:
-        cfg = MultiprocessConfig()
+        cfg = MultiProcessConfig()
 
     # Runs OmegaConf resolve to resolve any variables.
-    cfg = cast(MultiprocessConfig, OmegaConf.merge(OmegaConf.structured(MultiprocessConfig), cfg))
+    cfg = cast(MultiProcessConfig, OmegaConf.merge(OmegaConf.structured(MultiProcessConfig), cfg))
     OmegaConf.resolve(cast(OmegaConfContainer, cfg))
 
     if cfg.world_size <= 1:

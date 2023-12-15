@@ -121,6 +121,17 @@ class Directories:
 
 
 @dataclass
+class SlurmPartition:
+    partition: str = field(MISSING, help="The partition name")
+    num_nodes: int = field(1, help="The number of nodes to use")
+
+
+@dataclass
+class Slurm:
+    launch: dict[str, SlurmPartition] = field({}, help="The available launch configurations")
+
+
+@dataclass
 class UserConfig:
     error_handling: ErrorHandling = field(ErrorHandling)
     logging: Logging = field(Logging)
@@ -128,6 +139,7 @@ class UserConfig:
     triton: Triton = field(Triton)
     experiment: Experiment = field(Experiment)
     directories: Directories = field(Directories)
+    slurm: Slurm = field(Slurm)
 
 
 def user_config_path() -> Path:
