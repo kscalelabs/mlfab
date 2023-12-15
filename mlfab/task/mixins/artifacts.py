@@ -83,7 +83,7 @@ class ArtifactsMixin(BaseTask[Config]):
 
     @functools.lru_cache(maxsize=None)
     def stage_environment(self) -> Path | None:
-        stage_dir = self.exp_dir / "code"
+        stage_dir = (self.exp_dir / "code").resolve()
         try:
             stage_environment(self, stage_dir)
         except Exception:

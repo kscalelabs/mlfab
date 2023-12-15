@@ -108,14 +108,6 @@ class SlurmLauncher(StagedLauncher):
         self.account = account
 
     @property
-    def gres(self) -> str:
-        return f"gpu:{self.gpus_per_node}" if self.gpu_type is None else f"gpu:{self.gpu_type}:{self.gpus_per_node}"
-
-    @property
-    def gpu_bind(self) -> str:
-        return f"map_gpu:{','.join(str(i) for i in range(self.gpus_per_node))}"
-
-    @property
     def extra_sbatch_lines(self) -> list[str]:
         sbatch_lines: list[str] = []
         if "EMAIL" in os.environ:
@@ -170,9 +162,8 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --comment='{'; '.join(comments)}'
 #SBATCH --nodes={self.num_nodes}
 #SBATCH --ntasks-per-node={self.gpus_per_node}
-#SBATCH --cpus-per-task={self.cpus_per_gpu}
-#SBATCH --gres={self.gres}
-#SBATCH --gpu-bind={self.gpu_bind}
+#SBATCH --cpus-per-gpu={self.cpus_per_gpu}
+#SBATCH --gpus-per-node={self.gpus_per_node}
 #SBATCH --output={output_path}
 #SBATCH --error={error_path}
 #SBATCH --open-mode=append
@@ -209,13 +200,14 @@ echo "" >&2
 srun \\
     --nodes={self.num_nodes} \\
     --ntasks-per-node={self.gpus_per_node} \\
-    --cpus-per-task={self.cpus_per_gpu} \\
-    --gres={self.gres} \\
-    --gpu-bind={self.gpu_bind} \\
+    --cpus-per-gpu={self.cpus_per_gpu} \\
+    --gpus-per-node={self.gpus_per_node} \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
 
     def launch(self, task: "type[RunnableMixin[RunnableConfig]]", *cfgs: RawConfigType, use_cli: bool = True) -> None:
+        configure_logging()
+
         task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
         if not isinstance(task_obj, ArtifactsMixin):
