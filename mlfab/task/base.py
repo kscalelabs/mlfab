@@ -9,11 +9,10 @@ upstream classes.
 import functools
 import inspect
 import logging
-import signal
 import sys
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
-from types import FrameType, TracebackType
+from types import TracebackType
 from typing import Generic, Self, TypeVar, cast
 
 from omegaconf import Container, DictConfig, OmegaConf
@@ -98,9 +97,6 @@ class BaseTask(nn.Module, Generic[Config]):
         pass
 
     def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
-        pass
-
-    def on_exit(self, sig: signal.Signals, frame: FrameType | None, state: State) -> None:
         pass
 
     def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
