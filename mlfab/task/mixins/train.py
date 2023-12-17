@@ -5,6 +5,7 @@ import contextlib
 import functools
 import itertools
 import logging
+import signal
 import sys
 import textwrap
 import time
@@ -514,8 +515,7 @@ class TrainMixin(
             self.save_checkpoint(state)
 
         # Handle user-defined interrupts during the training loop.
-        self.add_signal_handler(on_exit)
-        self.set_signal_handlers()
+        self.add_signal_handler(on_exit, signal.SIGUSR1, signal.SIGTERM)
 
         try:
             with contextlib.ExitStack() as ctx:

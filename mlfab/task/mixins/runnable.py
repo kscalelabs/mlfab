@@ -23,6 +23,7 @@ class RunnableMixin(BaseTask[Config], ABC):
         super().__init__(config)
 
         self.__signal_handlers: dict[signal.Signals, list[Callable[[], None]]] = {}
+        self.__set_signal_handlers: set[signal.Signals] = set()
 
     @abstractmethod
     def run(self) -> None:
@@ -47,17 +48,11 @@ class RunnableMixin(BaseTask[Config], ABC):
         for signal_handler in self.__signal_handlers.get(sig, []):
             signal_handler()
 
-    def add_signal_handler(self, handler: Callable[[], None], sig: signal.Signals | None = None) -> None:
-        if sig is None:
-            for s in self.__signal_handlers.keys():
-                if s not in self.__signal_handlers:
-                    self.__signal_handlers[s] = []
-                self.__signal_handlers[s].append(handler)
-        else:
+    def add_signal_handler(self, handler: Callable[[], None], *sigs: signal.Signals) -> None:
+        for sig in sigs:
             if sig not in self.__signal_handlers:
                 self.__signal_handlers[sig] = []
+            if sig not in self.__set_signal_handlers:
+                self.__set_signal_handlers.add(sig)
+                signal.signal(sig, self.call_signal_handler)
             self.__signal_handlers[sig].append(handler)
-
-    def set_signal_handlers(self) -> None:
-        for sig in self.__signal_handlers.keys():
-            signal.signal(sig, self.call_signal_handler)
