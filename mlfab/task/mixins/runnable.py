@@ -49,7 +49,7 @@ class RunnableMixin(BaseTask[Config], ABC):
 
     def add_signal_handler(self, handler: Callable[[], None], sig: signal.Signals | None = None) -> None:
         if sig is None:
-            for s in signal.Signals:
+            for s in self.__signal_handlers.keys():
                 if s not in self.__signal_handlers:
                     self.__signal_handlers[s] = []
                 self.__signal_handlers[s].append(handler)
