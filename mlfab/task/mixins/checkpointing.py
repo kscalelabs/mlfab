@@ -9,6 +9,7 @@ from typing import Generic, Self, TypeVar, cast
 
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
@@ -61,8 +62,19 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return get_ckpt_path(self.exp_dir, state)
 
     @classmethod
-    def read_state_dict(cls, path: str | Path) -> dict:
-        return torch.load(path)
+    def read_state_dict(
+        cls,
+        path: str | Path,
+        map_location: MAP_LOCATION = None,
+        weights_only: bool = False,
+        mmap: bool | None = None,
+    ) -> dict:
+        return torch.load(
+            path,
+            map_location=map_location,
+            weights_only=weights_only,
+            mmap=mmap,
+        )
 
     @classmethod
     def get_task_from_ckpt(
@@ -71,8 +83,16 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         strict: bool = True,
         assign: bool = False,
         use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        weights_only: bool = False,
+        mmap: bool | None = None,
     ) -> Self:
-        state_dict = cls.read_state_dict(path)
+        state_dict = cls.read_state_dict(
+            path,
+            map_location=map_location,
+            weights_only=weights_only,
+            mmap=mmap,
+        )
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
@@ -90,10 +110,20 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def load_initial_state(self) -> State:
+    def load_initial_state(
+        self,
+        map_location: MAP_LOCATION = None,
+        weights_only: bool = False,
+        mmap: bool | None = None,
+    ) -> State:
         init_ckpt_path = self.get_init_ckpt_path()
         if init_ckpt_path is not None:
-            state_dict = self.read_state_dict(init_ckpt_path)
+            state_dict = self.read_state_dict(
+                init_ckpt_path,
+                map_location=map_location,
+                weights_only=weights_only,
+                mmap=mmap,
+            )
             raw_state = state_dict.pop("state", None)
             raw_config = state_dict.pop("config", None)
             if raw_config is not None:
