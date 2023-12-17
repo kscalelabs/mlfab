@@ -9,11 +9,10 @@ upstream classes.
 import functools
 import inspect
 import logging
-import signal
 import sys
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
-from types import FrameType, TracebackType
+from types import TracebackType
 from typing import Generic, Self, TypeVar, cast
 
 from omegaconf import Container, DictConfig, OmegaConf
