@@ -365,6 +365,9 @@ srun \\
         task_key, config_path = sys.argv[1:]
         task = cls.from_components(task_key, Path(config_path), use_cli=False)
 
+        if not isinstance(task, RunnableMixin):
+            raise RuntimeError(f"Task {task} must be a `RunnableMixin`")
+
         # Adding the "running" lock file before rmoving the "scheduled" lock
         # file in order to prevent accidentally launching another job while the
         # current job is being set up.
@@ -397,10 +400,10 @@ srun \\
             dp_backend=data_parallel_backend or backend,
         )
 
-        task.add_signal_handler(signal.SIGUSR1, requeue_job)
+        task.add_signal_handler(requeue_job, signal.SIGUSR1)
 
         # Runs the base training loop.
-        task.run_training_loop()
+        task.run()
 
 
 if __name__ == "__main__":
