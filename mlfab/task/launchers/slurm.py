@@ -13,6 +13,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import torch
+
 from mlfab.nn.parallel import (
     init_parallelism,
     init_process_group_from_backend,
@@ -325,7 +327,9 @@ srun \\
         if not issubclass(task, ArtifactsMixin):
             raise RuntimeError(f"Task {task} must be an `ArtifactsMixin`")
 
-        task_obj = task.get_task(*cfgs, use_cli=use_cli)
+        # Creates the task using the meta device to avoid instantiating weights.
+        with torch.device("meta"):
+            task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
         # Writes the sbatch file.
         sbatch_path = task_obj.exp_dir / "sbatch.sh"
