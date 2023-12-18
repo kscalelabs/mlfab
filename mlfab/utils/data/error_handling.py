@@ -65,12 +65,16 @@ class ExceptionSummary:
                 TextBlock("Error Summary", color="red", bold=True, width=60, center=True),
                 TextBlock("Count", color="yellow", bold=False, width=10, center=True),
                 TextBlock("Percent", color="yellow", bold=False, width=10, center=True),
-            ]
+            ],
         ]
 
         def get_header(s: str) -> list[list[TextBlock]]:
             return [
-                [TextBlock(s, color="yellow", bold=True, width=60), TextBlock("", width=10), TextBlock("", width=10)]
+                [
+                    TextBlock(s, color="yellow", bold=True, width=60, no_sep=True),
+                    TextBlock("", width=10, no_sep=True),
+                    TextBlock("", width=10, no_sep=True),
+                ],
             ]
 
         def get_line(ks: str, v: int) -> list[list[TextBlock]]:
@@ -97,12 +101,13 @@ class ExceptionSummary:
             blocks += get_line(k, v)
 
         # Logs the total number of exceptions.
+        exception_prct = int(self.total_exceptions / self.steps * 100)
         blocks += [
             [
-                TextBlock("", width=60),
-                TextBlock(f"{self.total_exceptions} / {self.steps}", color="red", bold=True, width=10),
-                TextBlock(f"{int(self.total_exceptions / self.steps * 100)} %", color="red", bold=True, width=10),
-            ]
+                TextBlock("", width=60, no_sep=True),
+                TextBlock(f"{self.total_exceptions} / {self.steps}", color="red", bold=True, width=10, no_sep=True),
+                TextBlock(f"{exception_prct} %", color="red", bold=True, width=10, no_sep=True),
+            ],
         ]
 
         return render_text_blocks(blocks)
