@@ -74,6 +74,8 @@ def separate_decayable_params(model: nn.Module, default_decay: bool, weight_deca
 
     for mn, m in model.named_modules():
         for pn, p in m.named_parameters():
+            if not p.requires_grad:
+                continue
             fpn = f"{mn}.{pn}" if mn else pn
             if fpn in seen:
                 continue
@@ -87,7 +89,7 @@ def separate_decayable_params(model: nn.Module, default_decay: bool, weight_deca
             else:
                 (wd_params if default_decay else no_wd_params).add(fpn)
 
-    param_dict = {pn: p for pn, p in model.named_parameters()}
+    param_dict = {pn: p for pn, p in model.named_parameters() if p.requires_grad}
     inter_params = wd_params & no_wd_params
     union_params = wd_params | no_wd_params
     assert len(inter_params) == 0, "Parameters made it into both decay and no-decay sets!"
