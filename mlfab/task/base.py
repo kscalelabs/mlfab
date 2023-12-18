@@ -203,7 +203,15 @@ class BaseTask(nn.Module, Generic[Config]):
                 sys.stderr.write(OmegaConf.to_yaml(cfg))
                 sys.stderr.flush()
                 sys.exit(0)
-            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(args))
+
+            # Attempts to load any paths as configs.
+            is_path = [Path(arg).is_file() or (task_path / arg).is_file() for arg in args]
+            paths = [arg for arg, is_path in zip(args, is_path) if is_path]
+            non_paths = [arg for arg, is_path in zip(args, is_path) if not is_path]
+            if paths:
+                cfg = OmegaConf.merge(cfg, *(get_config(path, task_path) for path in paths))
+            cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(non_paths))
+
         return cast(Config, cfg)
 
     @classmethod
