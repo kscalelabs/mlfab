@@ -8,7 +8,6 @@ from collections import deque
 from typing import Any, Deque, TextIO
 
 from torch import Tensor
-from wcwidth import wcswidth
 
 from mlfab.task.logger import LoggerImpl, LogLine
 from mlfab.utils.experiments import ToastKind, Toasts
