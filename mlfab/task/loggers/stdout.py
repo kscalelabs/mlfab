@@ -8,7 +8,6 @@ from collections import deque
 from typing import Any, Deque, TextIO
 
 from torch import Tensor
-from wcwidth import wcswidth
 
 from mlfab.task.logger import LoggerImpl, LogLine
 from mlfab.utils.experiments import ToastKind, Toasts
@@ -42,6 +41,7 @@ class StdoutLogger(LoggerImpl):
         log_fp: bool = False,
         max_toasts: int = 5,
         log_interval_seconds: float = 1.0,
+        remove_temporary_after: datetime.timedelta = datetime.timedelta(seconds=10),
     ) -> None:
         """Defines a logger which shows a pop-up using Curses.
 
@@ -54,6 +54,8 @@ class StdoutLogger(LoggerImpl):
             log_fp: Whether to log floating point parameters.
             max_toasts: The maximum number of toasts to display.
             log_interval_seconds: The interval between successive log lines.
+            remove_temporary_after: The time after which temporary toasts
+                are removed.
         """
         super().__init__(log_interval_seconds)
 
@@ -63,10 +65,11 @@ class StdoutLogger(LoggerImpl):
         self.log_fp = log_fp
         self.log_optim = log_optim
         self.precision = precision
+        self.remove_temporary_after = remove_temporary_after
         self.logger = logging.getLogger("stdout")
 
-        self.persistent_toast_queue: Deque[tuple[str, ToastKind]] = deque()
-        self.temporary_toast_queue: Deque[tuple[str, ToastKind]] = deque(maxlen=max_toasts)
+        self.persistent_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque()
+        self.temporary_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque(maxlen=max_toasts)
 
         Toasts.register_callback("error", functools.partial(self.handle_toast, persistent=False, kind="error"))
         Toasts.register_callback("warning", functools.partial(self.handle_toast, persistent=False, kind="warning"))
@@ -77,15 +80,15 @@ class StdoutLogger(LoggerImpl):
         return super().start()
 
     def stop(self) -> None:
-        self.write_queue_window(self.persistent_toast_queue)
-        self.write_queue_window(self.temporary_toast_queue)
+        self.write_queue_windows()
         return super().stop()
 
     def handle_toast(self, msg: str, persistent: bool, kind: ToastKind) -> None:
+        current_time = datetime.datetime.now()
         if persistent:
-            self.persistent_toast_queue.append((msg, kind))
+            self.persistent_toast_queue.append((msg, kind, current_time))
         else:
-            self.temporary_toast_queue.append((msg, kind))
+            self.temporary_toast_queue.append((msg, kind, current_time))
 
     def write_separator(self) -> None:
         self.write_fp.write("\033[2J\033[H")
@@ -100,15 +103,14 @@ class StdoutLogger(LoggerImpl):
         if line.state.num_epochs > 0:
             state_info["Epochs"] = f"{line.state.num_epochs}"
 
+        colored_prefix = colored("Phase: ", "grey", bold=True)
         colored_phase = colored(line.state.phase, "green" if line.state.phase == "train" else "yellow", bold=True)
-        self.write_fp.write(f"Phase: {colored_phase}\n")
+        self.write_fp.write(f"{colored_prefix}{colored_phase}\n")
         for k, v in state_info.items():
             self.write_fp.write(f" ↪ {k}: {colored(v, 'cyan')}\n")
 
     def write_log_window(self, line: LogLine) -> None:
         namespace_to_lines: dict[str, dict[str, str]] = {}
-        num_lines = 0
-        max_width = 0
         for log in (line.scalars, line.strings):
             for namespace, values in log.items():
                 if not self.log_timers and namespace.startswith("⏰"):
@@ -121,20 +123,20 @@ class StdoutLogger(LoggerImpl):
                     continue
                 if namespace not in namespace_to_lines:
                     namespace_to_lines[namespace] = {}
-                num_lines += 2 if num_lines > 0 else 1
-                max_width = max(max_width, wcswidth(namespace) + 3)
                 for k, v in values.items():
                     v_str = as_str(v, self.precision)
                     namespace_to_lines[namespace][k] = v_str
-                    num_lines += 1
-                    max_width = max(max_width, wcswidth(k) + wcswidth(v_str) + 2)
 
+        if not namespace_to_lines:
+            return
+
+        self.write_fp.write("\n")
         for namespace, lines in sorted(namespace_to_lines.items()):
             self.write_fp.write(f"{colored(namespace, 'cyan', bold=True)}\n")
             for k, v in lines.items():
                 self.write_fp.write(f" ↪ {k}: {v}\n")
 
-    def write_queue_window(self, q: Deque[tuple[str, ToastKind]]) -> None:
+    def write_queue_window(self, title: str, q: Deque[tuple[str, ToastKind, datetime.datetime]], remove: bool) -> None:
         if not q:
             return
 
@@ -151,14 +153,22 @@ class StdoutLogger(LoggerImpl):
                 case _:
                     return "magenta"
 
-        if q:
-            self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind in reversed(q)))
-            self.write_fp.write("\n")
+        self.write_fp.write(f"\n{colored(title, 'grey', bold=True)}\n")
+        self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind, _ in reversed(q)))
+        self.write_fp.write("\n")
+
+        if remove:
+            now = datetime.datetime.now()
+            while q and now - q[0][2] > self.remove_temporary_after:
+                q.popleft()
+
+    def write_queue_windows(self) -> None:
+        self.write_queue_window("Status", self.persistent_toast_queue, False)
+        self.write_queue_window("Alerts", self.temporary_toast_queue, True)
 
     def write(self, line: LogLine) -> None:
         self.write_separator()
         self.write_state_window(line)
         self.write_log_window(line)
-        self.write_queue_window(self.persistent_toast_queue)
-        self.write_queue_window(self.temporary_toast_queue)
+        self.write_queue_windows()
         sys.stdout.flush()

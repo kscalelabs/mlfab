@@ -22,6 +22,6 @@ def detect_device() -> base_device:
     for device_type in ALL_DEVICE_TYPES:
         if device_type.has_device():
             device = device_type()
-            add_toast("status", f"Using device: {device}")
+            add_toast("info", f"Using device: {device}")
             return device
     raise RuntimeError("Could not automatically detect the device to use")
