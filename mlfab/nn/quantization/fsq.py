@@ -14,6 +14,8 @@ very closely with the `original implementation
 import torch
 from torch import Tensor, nn
 
+from mlfab.nn.functions import device_fn
+
 
 def round_ste(z: Tensor) -> Tensor:
     zhat = z.round()
@@ -58,6 +60,7 @@ class FiniteScalarQuantization(nn.Module):
             quantized values will be in the range ``[-1, 1]``.
     """
 
+    @device_fn("cpu")
     def __init__(self, levels: list[int]) -> None:
         super().__init__()
 
