@@ -185,6 +185,7 @@ __all__ = [
     "LogVideo",
     "Logger",
     "LoggerImpl",
+    "make_square_image_or_video",
     "CursesLogger",
     "JsonLogger",
     "StdoutLogger",
@@ -442,6 +443,7 @@ NAME_MAP: dict[str, str] = {
     "LogVideo": "task.logger",
     "Logger": "task.logger",
     "LoggerImpl": "task.logger",
+    "make_square_image_or_video": "task.logger",
     "CursesLogger": "task.loggers.curses",
     "JsonLogger": "task.loggers.json",
     "StdoutLogger": "task.loggers.stdout",
@@ -717,7 +719,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.launchers.multi_process import MultiProcessLauncher
     from mlfab.task.launchers.single_process import SingleProcessLauncher
     from mlfab.task.launchers.slurm import SlurmLauncher
-    from mlfab.task.logger import LogAudio, Logger, LoggerImpl, LogImage, LogLine, LogVideo
+    from mlfab.task.logger import LogAudio, Logger, LoggerImpl, LogImage, LogLine, LogVideo, make_square_image_or_video
     from mlfab.task.loggers.curses import CursesLogger
     from mlfab.task.loggers.json import JsonLogger
     from mlfab.task.loggers.stdout import StdoutLogger

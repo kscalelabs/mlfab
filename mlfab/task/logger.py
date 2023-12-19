@@ -507,13 +507,7 @@ def standardize_point_cloud(
     return value, color
 
 
-def make_square_image_or_video(
-    images_or_videos: Tensor,
-    *,
-    sep: int = 0,
-    squareness_weight: float = 1.0,
-    emptiness_weight: float = 1.0,
-) -> Tensor:
+def make_square_image_or_video(images_or_videos: Tensor, *, sep: int = 0) -> Tensor:
     """Makes a square image by concatenating all the child images.
 
     This does a simple ternary search to minimize a squareness penalty and an
@@ -524,8 +518,6 @@ def make_square_image_or_video(
         images_or_videos: The images tensor, with shape (B, C, H, W) or
             (B, T, C, H, W)
         sep: Some optional padding around the images
-        squareness_weight: Weight for number of non-square pixels in penalty
-        emptiness_weight: Weight for number of empty pixels in penalty
 
     Returns:
         The square image, with shape (C, H', W') or (T, C, H', W')
@@ -533,18 +525,16 @@ def make_square_image_or_video(
     assert images_or_videos.dim() in (4, 5)
 
     def ternary_search_optimal_side_counts(height: int, width: int, count: int) -> tuple[int, int]:
-        lo, hi = 1, count
+        min_factors = [i for i in range(1, math.ceil(math.sqrt(count)) + 1) if count % i == 0]
+        max_factors = [i for i in min_factors[::-1] if i * i != count]
+        factors = [(i, count // i) for i in min_factors] + [(count // i, i) for i in max_factors]
 
-        def squareness_penalty(val: int) -> float:
-            h, w = val * height, ((count + val - 1) // val) * width
-            return (h * w) - min(h, w) ** 2
+        lo, hi = 0, len(factors) - 1
 
-        def emptiness_penalty(val: int) -> float:
-            h, w = val * height, ((count + val - 1) // val) * width
-            return (h * w) - (height * width * count)
-
-        def penalty(val: int) -> float:
-            return squareness_penalty(val) * squareness_weight + emptiness_penalty(val) * emptiness_weight
+        def penalty(i: int) -> float:
+            hval, wval = factors[i]
+            h, w = hval * height, wval * width
+            return -(min(h, w) ** 2)
 
         # Runs ternary search to minimize penalty.
         while lo < hi - 2:
@@ -557,12 +547,13 @@ def make_square_image_or_video(
         # Returns the lowest-penalty configuration.
         mid = (lo + hi) // 2
         plo, pmid, phi = penalty(lo), penalty(mid), penalty(hi)
+
         if pmid <= plo and pmid <= phi:
-            return mid, (count + mid - 1) // mid
+            return factors[mid]
         elif plo <= phi:
-            return lo, (count + lo - 1) // lo
+            return factors[lo]
         else:
-            return hi, (count + hi - 1) // hi
+            return factors[hi]
 
     height, width = images_or_videos.shape[-2:]
     image_list = list(torch.unbind(images_or_videos, dim=0))

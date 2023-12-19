@@ -27,6 +27,20 @@ class DummyLogger(mlfab.LoggerImpl):
 
 
 @pytest.mark.parametrize(
+    "in_shape, out_shape",
+    [
+        ((4, 1, 256, 256), (1, 512, 512)),
+        ((4, 1, 1000, 10), (1, 1000, 40)),
+        ((4, 1, 10, 1000), (1, 40, 1000)),
+    ],
+)
+def test_square_image(in_shape: tuple[int, ...], out_shape: tuple[int, ...]) -> None:
+    in_tensor = torch.randn(*in_shape)
+    out_tensor = mlfab.make_square_image_or_video(in_tensor)
+    assert out_tensor.shape == out_shape
+
+
+@pytest.mark.parametrize(
     "multi_samples, in_shape, out_shape",
     [
         (False, (100, 100), (1, 100, 100)),
