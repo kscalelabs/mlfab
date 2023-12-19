@@ -1,8 +1,10 @@
+# mypy: disable-error-code="override"
 """Defines helper Torch functions."""
 
+import functools
 import random
 from dataclasses import is_dataclass
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, ParamSpec, Sequence, TypeVar
 
 import numpy as np
 import torch
@@ -13,6 +15,9 @@ from torch.nn.common_types import _size_1_t
 from mlfab.core.conf import load_user_config
 from mlfab.nn.activations import ActivationType, get_activation
 from mlfab.nn.norms import NormType, get_norm_1d
+
+T = TypeVar("T")
+P = ParamSpec("P")
 
 
 def recursive_apply(item: Any, func: Callable[[Tensor], Tensor]) -> Any:  # noqa: ANN401
@@ -82,7 +87,7 @@ class _InvertGrad(Function):
         return input
 
     @staticmethod
-    def backward(ctx: FunctionCtx, grad_output: Tensor) -> tuple[Tensor, None]:  # type: ignore[override]
+    def backward(ctx: FunctionCtx, grad_output: Tensor) -> tuple[Tensor, None]:
         return grad_output * ctx.scale, None
 
 
@@ -110,7 +115,7 @@ class _SwapGrads(Function):
         return x, y
 
     @staticmethod
-    def backward(ctx: FunctionCtx, grad_x: Tensor, grad_y: Tensor) -> tuple[Tensor, Tensor]:  # type: ignore[override]
+    def backward(ctx: FunctionCtx, grad_x: Tensor, grad_y: Tensor) -> tuple[Tensor, Tensor]:
         return grad_y, grad_x
 
 
@@ -137,7 +142,7 @@ class _CombineGrads(Function):
         return x, y
 
     @staticmethod
-    def backward(ctx: FunctionCtx, grad_x: Tensor, grad_y: Tensor) -> tuple[Tensor, Tensor]:  # type: ignore[override]
+    def backward(ctx: FunctionCtx, grad_x: Tensor, grad_y: Tensor) -> tuple[Tensor, Tensor]:
         grad = grad_x + grad_y
         return grad, grad
 
@@ -339,7 +344,7 @@ class StreamingConv1d(nn.Conv1d):
 
         assert isinstance(self.padding, tuple) and len(self.padding) == 1 and isinstance(self.padding[0], int)
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         x: Tensor,
         state: tuple[Tensor, int] | None = None,
@@ -377,7 +382,7 @@ class StreamingConvTranspose1d(nn.ConvTranspose1d):
             out_channels=out_channels,
         )
 
-    def forward(  # type: ignore[override]
+    def forward(
         self,
         x: Tensor,
         state: tuple[Tensor, int] | None = None,
@@ -550,3 +555,20 @@ class DropPath(nn.Module):
 
     def extra_repr(self) -> str:
         return f"drop_prob={round(self.drop_prob,3):0.3f}"
+
+
+class device_fn:  # noqa: N801
+    """A decorator to set the device for a function scope."""
+
+    def __init__(self, device: str | torch.device) -> None:
+        super().__init__()
+
+        self.device = device
+
+    def __call__(self, fn: Callable[P, T]) -> Callable[P, T]:
+        @functools.wraps(fn)
+        def wrapped(*args: P.args, **kwargs: P.kwargs) -> T:
+            with torch.device(self.device):
+                return fn(*args, **kwargs)
+
+        return wrapped

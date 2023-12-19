@@ -377,6 +377,8 @@ def get_parametrization_norm(
     Returns:
         The parametrized module
     """
+    if all(p.device.type == "meta" for p in module.parameters()):
+        return module
     match norm:
         case "no_norm":
             return module

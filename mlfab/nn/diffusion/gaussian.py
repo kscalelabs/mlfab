@@ -41,7 +41,7 @@ import torch
 from torch import Tensor, nn
 
 from mlfab.nn.diffusion.ode import BaseODESolver, ODESolverType, get_ode_solver
-from mlfab.nn.functions import append_dims
+from mlfab.nn.functions import append_dims, device_fn
 from mlfab.nn.losses import pseudo_huber_loss
 
 DiffusionLossFn = Literal["mse", "l1", "pseudo-huber"]
@@ -181,6 +181,7 @@ class GaussianDiffusion(nn.Module):
 
     __constants__ = ["num_timesteps", "pred_mode", "sigma_type"]
 
+    @device_fn("cpu")
     def __init__(
         self,
         beta_schedule: DiffusionBetaSchedule = "linear",
