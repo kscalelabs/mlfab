@@ -460,7 +460,7 @@ class TrainMixin(
 
     def log_state(self) -> None:
         add_toast("status", self.task_path)
-        add_toast("status", self.task_name)
+        add_toast("info", self.task_name)
         self.logger.log_git_state(get_git_state(self))
         self.logger.log_config(cast(DictConfig, self.config))
 
