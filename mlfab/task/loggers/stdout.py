@@ -42,6 +42,7 @@ class StdoutLogger(LoggerImpl):
         log_fp: bool = False,
         max_toasts: int = 5,
         log_interval_seconds: float = 1.0,
+        remove_temporary_after: datetime.timedelta = datetime.timedelta(seconds=5),
     ) -> None:
         """Defines a logger which shows a pop-up using Curses.
 
@@ -54,6 +55,8 @@ class StdoutLogger(LoggerImpl):
             log_fp: Whether to log floating point parameters.
             max_toasts: The maximum number of toasts to display.
             log_interval_seconds: The interval between successive log lines.
+            remove_temporary_after: The time after which temporary toasts
+                are removed.
         """
         super().__init__(log_interval_seconds)
 
@@ -63,10 +66,11 @@ class StdoutLogger(LoggerImpl):
         self.log_fp = log_fp
         self.log_optim = log_optim
         self.precision = precision
+        self.remove_temporary_after = remove_temporary_after
         self.logger = logging.getLogger("stdout")
 
-        self.persistent_toast_queue: Deque[tuple[str, ToastKind]] = deque()
-        self.temporary_toast_queue: Deque[tuple[str, ToastKind]] = deque(maxlen=max_toasts)
+        self.persistent_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque()
+        self.temporary_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque(maxlen=max_toasts)
 
         Toasts.register_callback("error", functools.partial(self.handle_toast, persistent=False, kind="error"))
         Toasts.register_callback("warning", functools.partial(self.handle_toast, persistent=False, kind="warning"))
@@ -77,15 +81,16 @@ class StdoutLogger(LoggerImpl):
         return super().start()
 
     def stop(self) -> None:
-        self.write_queue_window(self.persistent_toast_queue)
-        self.write_queue_window(self.temporary_toast_queue)
+        self.write_queue_window(self.persistent_toast_queue, False)
+        self.write_queue_window(self.temporary_toast_queue, True)
         return super().stop()
 
     def handle_toast(self, msg: str, persistent: bool, kind: ToastKind) -> None:
+        current_time = datetime.datetime.now()
         if persistent:
-            self.persistent_toast_queue.append((msg, kind))
+            self.persistent_toast_queue.append((msg, kind, current_time))
         else:
-            self.temporary_toast_queue.append((msg, kind))
+            self.temporary_toast_queue.append((msg, kind, current_time))
 
     def write_separator(self) -> None:
         self.write_fp.write("\033[2J\033[H")
@@ -134,7 +139,7 @@ class StdoutLogger(LoggerImpl):
             for k, v in lines.items():
                 self.write_fp.write(f" ↪ {k}: {v}\n")
 
-    def write_queue_window(self, q: Deque[tuple[str, ToastKind]]) -> None:
+    def write_queue_window(self, q: Deque[tuple[str, ToastKind, datetime.datetime]], remove: bool) -> None:
         if not q:
             return
 
@@ -152,13 +157,18 @@ class StdoutLogger(LoggerImpl):
                     return "magenta"
 
         if q:
-            self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind in reversed(q)))
+            self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind, _ in reversed(q)))
             self.write_fp.write("\n")
+
+            if remove:
+                now = datetime.datetime.now()
+                while q and now - q[0][2] > self.remove_temporary_after:
+                    q.popleft()
 
     def write(self, line: LogLine) -> None:
         self.write_separator()
         self.write_state_window(line)
         self.write_log_window(line)
-        self.write_queue_window(self.persistent_toast_queue)
-        self.write_queue_window(self.temporary_toast_queue)
+        self.write_queue_window(self.persistent_toast_queue, False)
+        self.write_queue_window(self.temporary_toast_queue, True)
         sys.stdout.flush()
