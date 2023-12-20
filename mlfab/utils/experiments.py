@@ -32,7 +32,7 @@ from torchvision.datasets.utils import download_url
 
 from mlfab.core.conf import get_pretrained_models_dir
 from mlfab.core.state import State
-from mlfab.utils.text import TextBlock, colored
+from mlfab.utils.text import colored
 
 logger = logging.getLogger(__name__)
 
@@ -542,7 +542,7 @@ def stage_environment(obj: object, root: Path) -> None:
         shutil.copyfile(fpath, new_fpath)
 
 
-def get_git_state(obj: object, width: int = 120) -> list[TextBlock]:
+def get_git_state(obj: object) -> str:
     """Gets the state of the Git repo that an object is in as a string.
 
     Args:
@@ -552,10 +552,6 @@ def get_git_state(obj: object, width: int = 120) -> list[TextBlock]:
     Returns:
         A nicely-formatted string showing the current task's Git state.
     """
-    text_blocks: list[TextBlock] = [
-        TextBlock("Git State", center=True, color="green", bold=True, width=width),
-    ]
-
     try:
         task_file = inspect.getfile(type(obj))
         repo = git.Repo(task_file, search_parent_directories=True)
@@ -563,18 +559,37 @@ def get_git_state(obj: object, width: int = 120) -> list[TextBlock]:
         commit = repo.head.commit
         status = textwrap.indent(str(repo.git.status()), "    ")
         diff = textwrap.indent(str(repo.git.diff(color=False)), "    ")
-        text_blocks += [
-            TextBlock(f"Path: {task_file}", width=width),
-            TextBlock(f"Branch: {branch}", width=width),
-            TextBlock(f"Commit: {commit}", width=width),
-            TextBlock(status, width=width),
-            TextBlock(diff, width=width),
-        ]
+        return "\n".join(
+            [
+                f"Path: {task_file}",
+                f"Branch: {branch}",
+                f"Commit: {commit}",
+                "Status:",
+                status,
+                "Diff:",
+                diff,
+            ]
+        )
 
     except Exception:
-        text_blocks += [TextBlock(traceback.format_exc(), width=width)]
+        return traceback.format_exc()
 
-    return text_blocks
+
+def get_training_code(obj: object) -> str:
+    """Gets the text from the file containing the provided object.
+
+    Args:
+        obj: The object to get the file from.
+
+    Returns:
+        The text from the file containing the object.
+    """
+    try:
+        task_file = inspect.getfile(type(obj))
+        with open(task_file, "r") as f:
+            return f.read()
+    except Exception:
+        return traceback.format_exc()
 
 
 ToastKind = Literal["status", "info", "warning", "error", "other"]

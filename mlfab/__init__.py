@@ -225,6 +225,7 @@ __all__ = [
     "ensure_downloaded",
     "get_git_state",
     "get_state_dict_prefix",
+    "get_training_code",
     "save_config",
     "test_dataset",
     "read_gif",
@@ -483,6 +484,7 @@ NAME_MAP: dict[str, str] = {
     "ensure_downloaded": "utils.experiments",
     "get_git_state": "utils.experiments",
     "get_state_dict_prefix": "utils.experiments",
+    "get_training_code": "utils.experiments",
     "save_config": "utils.experiments",
     "test_dataset": "utils.experiments",
     "read_gif": "utils.io",
@@ -761,6 +763,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         ensure_downloaded,
         get_git_state,
         get_state_dict_prefix,
+        get_training_code,
         save_config,
         test_dataset,
     )

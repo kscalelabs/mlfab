@@ -29,7 +29,6 @@ from torchvision.transforms import InterpolationMode
 
 from mlfab.core.state import Phase, State
 from mlfab.utils.experiments import IntervalTicker
-from mlfab.utils.text import TextBlock
 
 logger = logging.getLogger(__name__)
 
@@ -658,11 +657,18 @@ class LoggerImpl(ABC):
             line: The line to write.
         """
 
-    def log_git_state(self, git_state: list[TextBlock]) -> None:
+    def log_git_state(self, git_state: str) -> None:
         """Logs Git state for the current run.
 
         Args:
             git_state: The Git state, as text blocks.
+        """
+
+    def log_training_code(self, training_code: str) -> None:
+        """Logs the training script code.
+
+        Args:
+            training_code: The training script code.
         """
 
     def log_config(self, config: DictConfig) -> None:
@@ -1342,9 +1348,13 @@ class Logger:
 
         self.point_clouds[namespace][key] = point_cloud_future
 
-    def log_git_state(self, git_state: list[TextBlock]) -> None:
+    def log_git_state(self, git_state: str) -> None:
         for logger in self.loggers:
             logger.log_git_state(git_state)
+
+    def log_training_code(self, training_code: str) -> None:
+        for logger in self.loggers:
+            logger.log_training_code(training_code)
 
     def log_config(self, config: DictConfig) -> None:
         for logger in self.loggers:
