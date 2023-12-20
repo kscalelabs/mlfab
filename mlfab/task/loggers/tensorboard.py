@@ -14,14 +14,13 @@ from typing import TypeVar
 
 import torch
 import torch.distributed
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.utils.tensorboard import SummaryWriter
 
 from mlfab.core.state import Phase
 from mlfab.nn.parallel import is_master, port_is_busy
 from mlfab.task.logger import TARGET_FPS, LoggerImpl, LogLine
-from mlfab.utils.experiments import add_toast, to_markdown_table
-from mlfab.utils.text import TextBlock
+from mlfab.utils.experiments import add_toast
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -65,6 +64,7 @@ class TensorboardLogger(LoggerImpl):
         self.proc: subprocess.Popen | None = None
 
         self.git_state: str | None = None
+        self.training_code: str | None = None
         self.config: DictConfig | None = None
 
         self._started = False
@@ -174,14 +174,15 @@ class TensorboardLogger(LoggerImpl):
             return self.test_writer
         raise NotImplementedError(f"Unexpected phase: {phase}")
 
-    def log_git_state(self, git_state: list[TextBlock]) -> None:
+    def log_git_state(self, git_state: str) -> None:
         if not is_master():
             return
-        git_state_strings = []
-        git_state_strings += ["| " + " ".join(git_state[0].lines) + " |"]
-        git_state_strings += ["| --- |"]
-        git_state_strings += ["| " + line + " |" for s in git_state[1:] for line in s.lines]
-        self.git_state = "\n".join(git_state_strings)
+        self.git_state = f"```\n{git_state}\n```"
+
+    def log_training_code(self, training_code: str) -> None:
+        if not is_master():
+            return
+        self.training_code = f"```python\n{training_code}\n```"
 
     def log_config(self, config: DictConfig) -> None:
         if not is_master():
@@ -261,9 +262,13 @@ class TensorboardLogger(LoggerImpl):
                 )
 
         if self.config is not None:
-            writer.add_text("config", to_markdown_table(self.config))
+            writer.add_text("config", f"```\n{OmegaConf.to_yaml(self.config)}\n```")
             self.config = None
 
         if self.git_state is not None:
             writer.add_text("git", self.git_state)
             self.git_state = None
+
+        if self.training_code is not None:
+            writer.add_text("training_code", self.training_code)
+            self.training_code = None

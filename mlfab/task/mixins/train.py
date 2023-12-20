@@ -33,7 +33,14 @@ from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
-from mlfab.utils.experiments import EpochDoneError, StateTimer, TrainingFinishedError, add_toast, get_git_state
+from mlfab.utils.experiments import (
+    EpochDoneError,
+    StateTimer,
+    TrainingFinishedError,
+    add_toast,
+    get_git_state,
+    get_training_code,
+)
 from mlfab.utils.text import highlight_exception_message, show_info
 
 logger = logging.getLogger(__name__)
@@ -462,6 +469,7 @@ class TrainMixin(
         add_toast("status", self.task_path)
         add_toast("info", self.task_name)
         self.logger.log_git_state(get_git_state(self))
+        self.logger.log_training_code(get_training_code(self))
         self.logger.log_config(cast(DictConfig, self.config))
 
     def run(self) -> None:
