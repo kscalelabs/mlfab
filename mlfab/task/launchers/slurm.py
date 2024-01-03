@@ -148,7 +148,7 @@ class SlurmLauncher(StagedLauncher):
                 raise RuntimeError("`sinfo` did not return any partitions with available GPUs!")
             partition = sinfo_output[0].name
 
-        if gpus_per_node is None or cpus_per_gpu is None or time_limit is None:
+        if gpus_per_node is None or cpus_per_gpu is None:
             try:
                 first_partition = next(p for p in parse_sinfo_output() if p.name == partition)
             except StopIteration:
@@ -157,17 +157,15 @@ class SlurmLauncher(StagedLauncher):
                 gpus_per_node = first_partition.gpus_per_node
             if cpus_per_gpu is None:
                 cpus_per_gpu = first_partition.cpus_per_node // gpus_per_node
-            if time_limit is None:
-                time_limit = first_partition.time_limit
 
         self.partition: str = partition
         self.gpus_per_node: int = gpus_per_node
         self.cpus_per_gpu: int = cpus_per_gpu
-        self.time_limit: str = time_limit
 
         self.num_nodes = num_nodes
         self.gpu_type = gpu_type
         self.exclusive = exclusive
+        self.time_limit = time_limit
         self.num_jobs = num_jobs
         self.comment = comment
         self.master_port = master_port
@@ -209,6 +207,8 @@ class SlurmLauncher(StagedLauncher):
             sbatch_lines += [f"--account={self.account}"]
         if self.exclusive:
             sbatch_lines += ["--exclusive"]
+        if self.time_limit is not None:
+            sbatch_lines += [f"--time={self.time_limit}"]
         return sbatch_lines
 
     @property
@@ -251,7 +251,6 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --partition={self.partition}
 #SBATCH --requeue
 #SBATCH --signal=USR1@60
-#SBATCH --time={self.time_limit}
 #SBATCH --comment='{'; '.join(comments)}'
 #SBATCH --nodes={self.num_nodes}
 #SBATCH --ntasks-per-node={self.gpus_per_node}
