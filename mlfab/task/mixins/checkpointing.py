@@ -171,7 +171,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         # Updates the symlink to the new checkpoint.
         last_ckpt_path.unlink(missing_ok=True)
         try:
-            last_ckpt_path.symlink_to(ckpt_path)
+            last_ckpt_path.symlink_to(ckpt_path.relative_to(last_ckpt_path.parent))
         except FileExistsError:
             logger.exception("Exception while trying to update %s", ckpt_path)
 
