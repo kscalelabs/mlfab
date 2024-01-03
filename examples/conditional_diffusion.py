@@ -54,13 +54,6 @@ class ConditionalDiffusion(mlfab.Task[Config]):
             input_embedding_dim=config.embed_dim,
         )
 
-    def set_loggers(self) -> None:
-        self.add_logger(
-            # mlfab.CursesLogger(),
-            mlfab.StdoutLogger(),
-            mlfab.TensorboardLogger(self.exp_dir),
-        )
-
     def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
         root_dir = mlfab.get_data_dir() / "mnist"
         mnist = MNIST(

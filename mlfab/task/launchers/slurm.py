@@ -4,7 +4,6 @@ import argparse
 import datetime
 import functools
 import json
-import logging
 import os
 import re
 import signal
@@ -31,8 +30,6 @@ from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfi
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.logging import configure_logging
 from mlfab.utils.text import show_info
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_MASTER_PORT = 29500
 
@@ -62,14 +59,19 @@ def set_slurm_master_addr_and_port() -> str:
     return host
 
 
+def write_message(message: str) -> None:
+    sys.stderr.write(message)
+    sys.stderr.flush()
+
+
 def requeue_job() -> None:
     if is_master():
         if "SLURM_JOB_ID" in os.environ:
             cmd = ["scontrol", "requeue", os.environ["SLURM_JOB_ID"]]
-            logger.info("Running %s", " ".join(cmd))
+            write_message(f"Requeuing job {os.environ['SLURM_JOB_ID']}\n")
             subprocess.check_call(cmd)
         else:
-            logger.info("SLURM_JOB_ID environment variable not found; not requeueing")
+            write_message("SLURM_JOB_ID environment variable not found; not requeueing\n")
 
 
 @dataclass
@@ -267,8 +269,7 @@ export MASTER_PORT={self.master_port}
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
 export NCCL_DEBUG=1
-export SHOW_FULL_IMPORT_ERROR=1
-export IGNORE_REGISTRY_CACHE=1
+export DISABLE_TENSORBOARD=1
 
 # Make a new line in the stdout file.
 echo ""

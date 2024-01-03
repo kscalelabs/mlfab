@@ -167,9 +167,11 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         torch.save(state_dict, ckpt_path)
 
         if last_ckpt_path.exists():
+            if not last_ckpt_path.is_symlink():
+                raise RuntimeError(f"{last_ckpt_path} is not a symlink!")
             if self.config.only_save_most_recent:
                 base_ckpt = last_ckpt_path.resolve()
-                if base_ckpt.is_file():
+                if base_ckpt.is_file() and not base_ckpt.is_symlink():
                     base_ckpt.unlink()
             last_ckpt_path.unlink()
 

@@ -80,8 +80,7 @@ class MnistClassification(mlfab.Task[Config]):
 
     def set_loggers(self) -> None:
         self.add_logger(
-            mlfab.CursesLogger(),
-            # mlfab.StdoutLogger(),
+            mlfab.StdoutLogger(),
             mlfab.TensorboardLogger(self.exp_dir),
         )
 
