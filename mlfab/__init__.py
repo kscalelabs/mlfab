@@ -230,6 +230,7 @@ __all__ = [
     "test_dataset",
     "read_gif",
     "write_gif",
+    "ColoredFormatter",
     "configure_logging",
     "TextBlock",
     "colored",
@@ -488,6 +489,7 @@ NAME_MAP: dict[str, str] = {
     "test_dataset": "utils.experiments",
     "read_gif": "utils.io",
     "write_gif": "utils.io",
+    "ColoredFormatter": "utils.logging",
     "configure_logging": "utils.logging",
     "TextBlock": "utils.text",
     "colored": "utils.text",
@@ -766,7 +768,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         test_dataset,
     )
     from mlfab.utils.io import read_gif, write_gif
-    from mlfab.utils.logging import ColoredFormatter
+    from mlfab.utils.logging import ColoredFormatter, configure_logging
     from mlfab.utils.text import (
         TextBlock,
         colored,
