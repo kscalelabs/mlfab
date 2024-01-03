@@ -344,3 +344,7 @@ def highlight_exception_message(s: str) -> str:
     s = re.sub(r"\^+", r"\033[1;35m\g<0>\033[0m", s)
     s = re.sub(r"File \"(.+?)\"", r'File "\033[36m\1\033[0m"', s)
     return s
+
+
+def is_interactive_session() -> bool:
+    return hasattr(sys, "ps1") or hasattr(sys, "ps2") or sys.stdout.isatty() or sys.stderr.isatty()

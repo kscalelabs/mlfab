@@ -22,4 +22,8 @@ class StagedLauncher(BaseLauncher, ABC):
 
     @classmethod
     def from_components(cls, task_key: str, config_path: Path, use_cli: bool | list[str] = True) -> "ArtifactsMixin":
-        return ArtifactsMixin.from_task_key(task_key).get_task(config_path, use_cli=use_cli)
+        return (
+            ArtifactsMixin.from_task_key(task_key)
+            .get_task(config_path, use_cli=use_cli)
+            .set_exp_dir(config_path.parent)
+        )

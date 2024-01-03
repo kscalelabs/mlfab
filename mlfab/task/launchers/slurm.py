@@ -4,7 +4,6 @@ import argparse
 import datetime
 import functools
 import json
-import logging
 import os
 import re
 import signal
@@ -31,8 +30,6 @@ from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfi
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.logging import configure_logging
 from mlfab.utils.text import show_info
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_MASTER_PORT = 29500
 
@@ -62,14 +59,19 @@ def set_slurm_master_addr_and_port() -> str:
     return host
 
 
+def write_message(message: str) -> None:
+    sys.stderr.write(message)
+    sys.stderr.flush()
+
+
 def requeue_job() -> None:
     if is_master():
         if "SLURM_JOB_ID" in os.environ:
             cmd = ["scontrol", "requeue", os.environ["SLURM_JOB_ID"]]
-            logger.info("Running %s", " ".join(cmd))
+            write_message(f"Requeuing job {os.environ['SLURM_JOB_ID']}\n")
             subprocess.check_call(cmd)
         else:
-            logger.info("SLURM_JOB_ID environment variable not found; not requeueing")
+            write_message("SLURM_JOB_ID environment variable not found; not requeueing\n")
 
 
 @dataclass
@@ -77,15 +79,16 @@ class PartitionInfo:
     name: str
     gpus_per_node: int
     cpus_per_node: int
+    time_limit: str
 
 
 @functools.lru_cache()
 def parse_sinfo_output() -> list[PartitionInfo]:
-    sinfo_output = subprocess.check_output(["sinfo", "--format", "%c %G %P"])
+    sinfo_output = subprocess.check_output(["sinfo", "--format", "%c %G %P %l"])
     partition_infos: list[PartitionInfo] = []
     lines = sinfo_output.decode("utf-8").splitlines()[1:]
     for line in lines:
-        cpus_per_node, gres, name = line.split()
+        cpus_per_node, gres, name, time_limit = line.split()
 
         # Parses GPUs per node from gres.
         gpus_per_node_re = re.search(r"gpu:(\d+)", gres)
@@ -96,7 +99,7 @@ def parse_sinfo_output() -> list[PartitionInfo]:
         # Cleans up partition name.
         name = name.replace("*", "")
 
-        partition_infos += [PartitionInfo(name, int(gpus_per_node), int(cpus_per_node))]
+        partition_infos += [PartitionInfo(name, int(gpus_per_node), int(cpus_per_node), time_limit)]
 
     return partition_infos
 
@@ -126,7 +129,7 @@ class SlurmLauncher(StagedLauncher):
         num_nodes: int = 1,
         gpu_type: str | None = None,
         exclusive: bool = False,
-        time_limit: str = "3-00:00:00",
+        time_limit: str | None = None,
         num_jobs: int = 1,
         comment: str | None = None,
         master_port: int = DEFAULT_MASTER_PORT,
@@ -204,6 +207,8 @@ class SlurmLauncher(StagedLauncher):
             sbatch_lines += [f"--account={self.account}"]
         if self.exclusive:
             sbatch_lines += ["--exclusive"]
+        if self.time_limit is not None:
+            sbatch_lines += [f"--time={self.time_limit}"]
         return sbatch_lines
 
     @property
@@ -246,7 +251,6 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --partition={self.partition}
 #SBATCH --requeue
 #SBATCH --signal=USR1@60
-#SBATCH --time={self.time_limit}
 #SBATCH --comment='{'; '.join(comments)}'
 #SBATCH --nodes={self.num_nodes}
 #SBATCH --ntasks-per-node={self.gpus_per_node}
@@ -267,8 +271,7 @@ export MASTER_PORT={self.master_port}
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
 export NCCL_DEBUG=1
-export SHOW_FULL_IMPORT_ERROR=1
-export IGNORE_REGISTRY_CACHE=1
+export DISABLE_TENSORBOARD=1
 
 # Make a new line in the stdout file.
 echo ""

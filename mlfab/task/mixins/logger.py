@@ -1,6 +1,8 @@
 """Defines a mixin for incorporating some logging functionality."""
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from types import TracebackType
 from typing import Callable, Generic, Self, Sequence, TypeVar
 
@@ -10,7 +12,12 @@ from mlfab.core.conf import Device as BaseDeviceConfig, field
 from mlfab.core.state import State
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.logger import ChannelSelectMode, Logger, LoggerImpl, Number
+from mlfab.task.loggers.json import JsonLogger
+from mlfab.task.loggers.state import StateLogger
 from mlfab.task.loggers.stdout import StdoutLogger
+from mlfab.task.loggers.tensorboard import TensorboardLogger
+from mlfab.task.mixins.artifacts import ArtifactsMixin
+from mlfab.utils.text import is_interactive_session
 
 
 @dataclass
@@ -21,17 +28,30 @@ class LoggerConfig(BaseConfig):
 Config = TypeVar("Config", bound=LoggerConfig)
 
 
+def get_env_var(name: str, default: bool) -> bool:
+    if name not in os.environ:
+        return default
+    return os.environ[name].strip() == "1"
+
+
 class LoggerMixin(BaseTask[Config], Generic[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
         self.logger = Logger()
 
+    def log_directory(self) -> Path | None:
+        return None
+
     def add_logger(self, *logger: LoggerImpl) -> None:
         self.logger.add_logger(*logger)
 
     def set_loggers(self) -> None:
-        self.add_logger(StdoutLogger())
+        self.add_logger(StdoutLogger() if is_interactive_session() else JsonLogger())
+        if isinstance(self, ArtifactsMixin):
+            self.add_logger(StateLogger(self.exp_dir))
+            if not get_env_var("DISABLE_TENSORBOARD", False):
+                self.add_logger(TensorboardLogger(self.exp_dir))
 
     def write_logs(self, state: State) -> None:
         self.logger.write(state)

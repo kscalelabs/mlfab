@@ -1,12 +1,10 @@
 """Defines a logger which logs JSON lines to a file."""
 
 import json
+import sys
 from dataclasses import asdict
-from io import TextIOWrapper
-from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 
-from omegaconf import DictConfig, OmegaConf
 from torch import Tensor
 
 from mlfab.task.logger import LoggerImpl, LogLine
@@ -21,11 +19,7 @@ def get_json_value(value: Any) -> Any:  # noqa: ANN401
 class JsonLogger(LoggerImpl):
     def __init__(
         self,
-        run_directory: str | Path,
-        log_file_name: str = "log.jsonl",
-        git_state_name: str = "git_state.txt",
-        train_code_name: str = "train_code.py",
-        config_name: str = "config.yaml",
+        log_stream: TextIO = sys.stdout,
         flush_immediately: bool = False,
         open_mode: Literal["w", "a"] = "w",
         line_sep: str = "\n",
@@ -35,11 +29,7 @@ class JsonLogger(LoggerImpl):
         """Defines a simpler logger which logs to stdout.
 
         Args:
-            run_directory: The directory to log to.
-            log_file_name: The name of the log file.
-            git_state_name: The name of the git state file.
-            train_code_name: The name of the training code file.
-            config_name: The name of the config file.
+            log_stream: The stream to log to.
             flush_immediately: Whether to flush the file after every write.
             open_mode: The file open mode.
             line_sep: The line separator to use.
@@ -51,31 +41,15 @@ class JsonLogger(LoggerImpl):
         """
         super().__init__(log_interval_seconds)
 
-        self.log_file = Path(run_directory).expanduser().resolve() / log_file_name
-        self.git_state_file = Path(run_directory).expanduser().resolve() / git_state_name
-        self.train_code_file = Path(run_directory).expanduser().resolve() / train_code_name
-        self.config_file = Path(run_directory).expanduser().resolve() / config_name
+        self.log_stream = log_stream
         self.flush_immediately = flush_immediately
         self.open_mode = open_mode
         self.line_sep = line_sep
         self.remove_unicode_from_namespaces = remove_unicode_from_namespaces
 
-        self.__fp: TextIOWrapper | None = None
-
-    def start(self) -> None:
-        self.__fp = open(self.log_file, self.open_mode)
-        return super().start()
-
-    def stop(self) -> None:
-        if self.__fp is not None:
-            self.__fp.close()
-            self.__fp = None
-        return super().stop()
-
     @property
-    def fp(self) -> TextIOWrapper:
-        assert self.__fp is not None, "Not started!"
-        return self.__fp
+    def fp(self) -> TextIO:
+        return self.log_stream
 
     def get_json(self, line: LogLine) -> str:
         data: dict = {"state": asdict(line.state)}
@@ -94,14 +68,3 @@ class JsonLogger(LoggerImpl):
         self.fp.write(self.line_sep)
         if self.flush_immediately:
             self.fp.flush()
-
-    def log_git_state(self, git_state: str) -> None:
-        with open(self.git_state_file, "w") as f:
-            f.write(git_state)
-
-    def log_training_code(self, training_code: str) -> None:
-        with open(self.train_code_file, "w") as f:
-            f.write(training_code)
-
-    def log_config(self, config: DictConfig) -> None:
-        OmegaConf.save(config, self.config_file)

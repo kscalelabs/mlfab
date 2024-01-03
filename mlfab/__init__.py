@@ -186,8 +186,8 @@ __all__ = [
     "Logger",
     "LoggerImpl",
     "make_square_image_or_video",
-    "CursesLogger",
     "JsonLogger",
+    "StateLogger",
     "StdoutLogger",
     "TensorboardLogger",
     "TorchCompileOptions",
@@ -445,8 +445,8 @@ NAME_MAP: dict[str, str] = {
     "Logger": "task.logger",
     "LoggerImpl": "task.logger",
     "make_square_image_or_video": "task.logger",
-    "CursesLogger": "task.loggers.curses",
     "JsonLogger": "task.loggers.json",
+    "StateLogger": "task.loggers.state",
     "StdoutLogger": "task.loggers.stdout",
     "TensorboardLogger": "task.loggers.tensorboard",
     "TorchCompileOptions": "task.mixins.compile",
@@ -722,8 +722,8 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.launchers.single_process import SingleProcessLauncher
     from mlfab.task.launchers.slurm import SlurmLauncher
     from mlfab.task.logger import LogAudio, Logger, LoggerImpl, LogImage, LogLine, LogVideo, make_square_image_or_video
-    from mlfab.task.loggers.curses import CursesLogger
     from mlfab.task.loggers.json import JsonLogger
+    from mlfab.task.loggers.state import StateLogger
     from mlfab.task.loggers.stdout import StdoutLogger
     from mlfab.task.loggers.tensorboard import TensorboardLogger
     from mlfab.task.mixins.compile import TorchCompileOptions

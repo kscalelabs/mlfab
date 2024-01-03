@@ -160,23 +160,25 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         last_ckpt_path = self.get_ckpt_path()
         ckpt_path.parent.mkdir(exist_ok=True, parents=True)
 
-        # Gets the complete state dict.
+        # Potentially removes the last checkpoint.
+        if last_ckpt_path.exists() and self.config.only_save_most_recent:
+            if (base_ckpt := last_ckpt_path.resolve()).is_file():
+                base_ckpt.unlink()
+
+        # Saves the complete state dict to the checkpoint.
         state_dict = self.task_state_dict()
         state_dict["state"] = json.dumps(asdict(state))
         state_dict["config"] = OmegaConf.to_yaml(self.config)
         torch.save(state_dict, ckpt_path)
 
-        if last_ckpt_path.exists():
-            if self.config.only_save_most_recent:
-                base_ckpt = last_ckpt_path.resolve()
-                if base_ckpt.is_file():
-                    base_ckpt.unlink()
-            last_ckpt_path.unlink()
-
+        # Updates the symlink to the new checkpoint.
+        last_ckpt_path.unlink(missing_ok=True)
         try:
             last_ckpt_path.symlink_to(ckpt_path)
         except FileExistsError:
             logger.exception("Exception while trying to update %s", ckpt_path)
+
+        # Marks directory as having artifacts which shouldn't be overwritten.
         self.add_lock_file("ckpt", exists_ok=True)
         self.on_after_save_checkpoint(ckpt_path)
 

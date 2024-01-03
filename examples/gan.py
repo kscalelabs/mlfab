@@ -49,13 +49,6 @@ class MnistGan(mlfab.Task[Config]):
             nn.Conv2d(config.embed_dim, 1, 1),
         )
 
-    def set_loggers(self) -> None:
-        self.add_logger(
-            # mlfab.CursesLogger(),
-            mlfab.StdoutLogger(),
-            mlfab.TensorboardLogger(self.exp_dir),
-        )
-
     def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor]]:
         root_dir = mlfab.get_data_dir() / "mnist"
         mnist = MNIST(
