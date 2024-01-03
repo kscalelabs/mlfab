@@ -155,6 +155,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if not is_master():
             return ckpt_path
 
+        if ckpt_path.exists():
+            logger.warning("Checkpoint path %s already exists! Skipping", ckpt_path)
+            return ckpt_path
+
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
         last_ckpt_path = self.get_ckpt_path()
@@ -171,14 +175,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 raise RuntimeError(f"{last_ckpt_path} is not a symlink!")
             if self.config.only_save_most_recent:
                 base_ckpt = last_ckpt_path.resolve()
-                if base_ckpt.is_file() and not base_ckpt.is_symlink():
+                if base_ckpt.is_file():
                     base_ckpt.unlink()
-            last_ckpt_path.unlink()
 
+        last_ckpt_path.unlink(missing_ok=True)
         try:
             last_ckpt_path.symlink_to(ckpt_path)
         except FileExistsError:
             logger.exception("Exception while trying to update %s", ckpt_path)
+
         self.add_lock_file("ckpt", exists_ok=True)
         self.on_after_save_checkpoint(ckpt_path)
 
