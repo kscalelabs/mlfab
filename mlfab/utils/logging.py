@@ -2,7 +2,6 @@
 
 import logging
 import math
-import sys
 
 from mlfab.core.conf import load_user_config
 from mlfab.utils.experiments import Toasts
