@@ -160,7 +160,7 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
     def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
         if self.grad_scaler is not None and "grad_scaler" in state_dict:
             self.grad_scaler.load_state_dict(json.loads(state_dict["grad_scaler"]))
-        super().load_task_state_dict(state_dict)
+        super().load_task_state_dict(state_dict, strict=strict, assign=assign)
 
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()
