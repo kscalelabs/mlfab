@@ -49,9 +49,10 @@ class LoggerMixin(BaseTask[Config], Generic[Config]):
     def set_loggers(self) -> None:
         self.add_logger(StdoutLogger() if is_interactive_session() else JsonLogger())
         if isinstance(self, ArtifactsMixin):
-            self.add_logger(StateLogger(self.exp_dir))
-            if not get_env_var("DISABLE_TENSORBOARD", False):
-                self.add_logger(TensorboardLogger(self.exp_dir))
+            self.add_logger(
+                StateLogger(self.exp_dir),
+                TensorboardLogger(self.exp_dir),
+            )
 
     def write_logs(self, state: State) -> None:
         self.logger.write(state)

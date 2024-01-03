@@ -271,7 +271,6 @@ export MASTER_PORT={self.master_port}
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
 export NCCL_DEBUG=1
-export DISABLE_TENSORBOARD=1
 
 # Make a new line in the stdout file.
 echo ""
