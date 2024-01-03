@@ -232,6 +232,7 @@ __all__ = [
     "write_gif",
     "ColoredFormatter",
     "configure_logging",
+    "configure_stream_logging",
     "TextBlock",
     "colored",
     "format_datetime",
@@ -491,6 +492,7 @@ NAME_MAP: dict[str, str] = {
     "write_gif": "utils.io",
     "ColoredFormatter": "utils.logging",
     "configure_logging": "utils.logging",
+    "configure_stream_logging": "utils.logging",
     "TextBlock": "utils.text",
     "colored": "utils.text",
     "format_datetime": "utils.text",
@@ -768,7 +770,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         test_dataset,
     )
     from mlfab.utils.io import read_gif, write_gif
-    from mlfab.utils.logging import ColoredFormatter, configure_logging
+    from mlfab.utils.logging import ColoredFormatter, configure_logging, configure_stream_logging
     from mlfab.utils.text import (
         TextBlock,
         colored,

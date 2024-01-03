@@ -9,6 +9,7 @@ import re
 import signal
 import subprocess
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -330,7 +331,8 @@ srun \\
             raise RuntimeError(f"Task {task} must be an `ArtifactsMixin`")
 
         # Creates the task using the meta device to avoid instantiating weights.
-        with torch.device("meta"):
+        with torch.device("meta"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
             task_obj = task.get_task(*cfgs, use_cli=use_cli)
 
         # Writes the sbatch file.

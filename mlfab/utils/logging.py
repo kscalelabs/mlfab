@@ -2,9 +2,11 @@
 
 import logging
 import math
+import sys
+from typing import Callable, TextIO
 
 from mlfab.core.conf import load_user_config
-from mlfab.utils.experiments import Toasts
+from mlfab.utils.experiments import ToastKind, Toasts
 from mlfab.utils.text import Color, color_parts, colored
 
 # Logging level to show on all ranks.
@@ -116,7 +118,11 @@ class ToastHandler(logging.Handler):
 
 
 def configure_logging(*, rank: int | None = None, world_size: int | None = None) -> None:
-    """Instantiates print logging.
+    """Instantiates logging.
+
+    This captures logs and reroutes them to the Toasts module, which is
+    pretty similar to Python logging except that the API is a lot easier to
+    interact with.
 
     Args:
         prefix: An optional prefix to add to the logger
@@ -126,6 +132,14 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
     if rank is not None or world_size is not None:
         assert rank is not None and world_size is not None
     root_logger = logging.getLogger()
+
+    # Removes any existing ToastHandler.
+    handlers_to_remove = []
+    for handler in root_logger.handlers:
+        if isinstance(handler, ToastHandler):
+            handlers_to_remove.append(handler)
+    for handler in handlers_to_remove:
+        root_logger.removeHandler(handler)
 
     config = load_user_config().logging
 
@@ -148,3 +162,36 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
         logging.getLogger("matplotlib").setLevel(logging.WARNING)
         logging.getLogger("PIL").setLevel(logging.WARNING)
         logging.getLogger("torch").setLevel(logging.WARNING)
+
+
+def configure_stream_logging(
+    stream: TextIO = sys.stdout,
+    *,
+    rank: int | None = None,
+    world_size: int | None = None,
+) -> None:
+    """Configures logging to a stream.
+
+    Args:
+        stream: The stream to log to.
+        rank: The current rank, or None if not using multiprocessing
+        world_size: The total world size, or None if not using multiprocessing
+    """
+    configure_logging(rank=rank, world_size=world_size)
+
+    kinds: dict[ToastKind, Color] = {
+        "status": "green",
+        "info": "cyan",
+        "warning": "yellow",
+        "error": "red",
+        "other": "grey",
+    }
+
+    def get_callback(kind: ToastKind, color: Color) -> Callable[[str], None]:
+        def callback(msg: str) -> None:
+            stream.write(colored(kind, color) + ": " + msg + "\n")
+
+        return callback
+
+    for kind, color in kinds.items():
+        Toasts.register_callback(kind, get_callback(kind, color))
