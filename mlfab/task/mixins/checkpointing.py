@@ -112,6 +112,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         map_location: MAP_LOCATION = None,
         weights_only: bool = False,
         mmap: bool | None = None,
+        strict: bool = True,
+        assign: bool = False,
     ) -> State:
         init_ckpt_path = self.get_init_ckpt_path()
         if init_ckpt_path is None:
@@ -128,7 +130,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             config_diff = get_diff_string(diff_configs(OmegaConf.create(raw_config), cast(DictConfig, self.config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
-        self.load_task_state_dict(state_dict)
+        self.load_task_state_dict(state_dict, strict, assign)
         if raw_state is not None:
             return State(**json.loads(raw_state))
         warnings.warn("No state found in checkpoint! Using default initial state.")
