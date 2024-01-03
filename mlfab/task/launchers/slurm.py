@@ -79,15 +79,16 @@ class PartitionInfo:
     name: str
     gpus_per_node: int
     cpus_per_node: int
+    time_limit: str
 
 
 @functools.lru_cache()
 def parse_sinfo_output() -> list[PartitionInfo]:
-    sinfo_output = subprocess.check_output(["sinfo", "--format", "%c %G %P"])
+    sinfo_output = subprocess.check_output(["sinfo", "--format", "%c %G %P %l"])
     partition_infos: list[PartitionInfo] = []
     lines = sinfo_output.decode("utf-8").splitlines()[1:]
     for line in lines:
-        cpus_per_node, gres, name = line.split()
+        cpus_per_node, gres, name, time_limit = line.split()
 
         # Parses GPUs per node from gres.
         gpus_per_node_re = re.search(r"gpu:(\d+)", gres)
@@ -98,7 +99,7 @@ def parse_sinfo_output() -> list[PartitionInfo]:
         # Cleans up partition name.
         name = name.replace("*", "")
 
-        partition_infos += [PartitionInfo(name, int(gpus_per_node), int(cpus_per_node))]
+        partition_infos += [PartitionInfo(name, int(gpus_per_node), int(cpus_per_node), time_limit)]
 
     return partition_infos
 
@@ -128,7 +129,7 @@ class SlurmLauncher(StagedLauncher):
         num_nodes: int = 1,
         gpu_type: str | None = None,
         exclusive: bool = False,
-        time_limit: str = "3-00:00:00",
+        time_limit: str | None = None,
         num_jobs: int = 1,
         comment: str | None = None,
         master_port: int = DEFAULT_MASTER_PORT,
@@ -147,7 +148,7 @@ class SlurmLauncher(StagedLauncher):
                 raise RuntimeError("`sinfo` did not return any partitions with available GPUs!")
             partition = sinfo_output[0].name
 
-        if gpus_per_node is None or cpus_per_gpu is None:
+        if gpus_per_node is None or cpus_per_gpu is None or time_limit is None:
             try:
                 first_partition = next(p for p in parse_sinfo_output() if p.name == partition)
             except StopIteration:
@@ -156,15 +157,17 @@ class SlurmLauncher(StagedLauncher):
                 gpus_per_node = first_partition.gpus_per_node
             if cpus_per_gpu is None:
                 cpus_per_gpu = first_partition.cpus_per_node // gpus_per_node
+            if time_limit is None:
+                time_limit = first_partition.time_limit
 
         self.partition: str = partition
         self.gpus_per_node: int = gpus_per_node
         self.cpus_per_gpu: int = cpus_per_gpu
+        self.time_limit: str = time_limit
 
         self.num_nodes = num_nodes
         self.gpu_type = gpu_type
         self.exclusive = exclusive
-        self.time_limit = time_limit
         self.num_jobs = num_jobs
         self.comment = comment
         self.master_port = master_port

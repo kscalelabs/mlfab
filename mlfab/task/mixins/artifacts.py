@@ -6,7 +6,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import Self, TypeVar
 
 from mlfab.core.conf import field, get_run_dir
 from mlfab.core.state import State
@@ -74,7 +74,11 @@ class ArtifactsMixin(BaseTask[Config]):
         exp_dir.mkdir(exist_ok=True, parents=True)
         return exp_dir.expanduser().resolve()
 
-    @functools.cached_property
+    def set_exp_dir(self, exp_dir: Path) -> Self:
+        self._exp_dir = exp_dir
+        return self
+
+    @property
     def exp_dir(self) -> Path:
         if self._exp_dir is None:
             self._exp_dir = self.get_exp_dir()
