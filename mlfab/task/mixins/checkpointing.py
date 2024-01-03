@@ -53,11 +53,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         self.__last_ckpt_time = 0.0
 
-    def get_ckpt_path_optional(self, state: State | None = None) -> Path | None:
-        if self._exp_dir is None:
-            return None
-        return get_ckpt_path(self.exp_dir, state)
-
     def get_ckpt_path(self, state: State | None = None) -> Path:
         return get_ckpt_path(self.exp_dir, state)
 
@@ -102,8 +97,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return task
 
     def get_init_ckpt_path(self) -> Path | None:
-        if (ckpt_path := self.get_ckpt_path_optional()) is not None and ckpt_path.exists():
-            return ckpt_path
+        if self._exp_dir is not None:
+            ckpt_path = self.get_ckpt_path()
+            if ckpt_path.exists():
+                return ckpt_path
         if self.config.load_from_ckpt_path is not None:
             ckpt_path = Path(self.config.load_from_ckpt_path)
             assert ckpt_path.exists(), f"Checkpoint path {ckpt_path} does not exist."
@@ -117,24 +114,24 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         mmap: bool | None = None,
     ) -> State:
         init_ckpt_path = self.get_init_ckpt_path()
-        if init_ckpt_path is not None:
-            state_dict = self.read_state_dict(
-                init_ckpt_path,
-                map_location=map_location,
-                weights_only=weights_only,
-                mmap=mmap,
-            )
-            raw_state = state_dict.pop("state", None)
-            raw_config = state_dict.pop("config", None)
-            if raw_config is not None:
-                config_diff = get_diff_string(diff_configs(OmegaConf.create(raw_config), cast(DictConfig, self.config)))
-                if config_diff:
-                    logger.warning("Loaded config differs from current config:\n%s", config_diff)
-            self.load_task_state_dict(state_dict)
-            if raw_state is None:
-                warnings.warn("No state found in checkpoint! Using default initial state.")
-            else:
-                return State(**json.loads(raw_state))
+        if init_ckpt_path is None:
+            return State.init_state()
+        state_dict = self.read_state_dict(
+            init_ckpt_path,
+            map_location=map_location,
+            weights_only=weights_only,
+            mmap=mmap,
+        )
+        raw_state = state_dict.pop("state", None)
+        raw_config = state_dict.pop("config", None)
+        if raw_config is not None:
+            config_diff = get_diff_string(diff_configs(OmegaConf.create(raw_config), cast(DictConfig, self.config)))
+            if config_diff:
+                logger.warning("Loaded config differs from current config:\n%s", config_diff)
+        self.load_task_state_dict(state_dict)
+        if raw_state is not None:
+            return State(**json.loads(raw_state))
+        warnings.warn("No state found in checkpoint! Using default initial state.")
         return State.init_state()
 
     def should_checkpoint(self, state: State) -> bool:

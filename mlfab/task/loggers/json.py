@@ -8,6 +8,7 @@ from typing import Any, Literal, TextIO
 from torch import Tensor
 
 from mlfab.task.logger import LoggerImpl, LogLine
+from mlfab.utils.experiments import Toasts
 
 
 def get_json_value(value: Any) -> Any:  # noqa: ANN401
@@ -20,6 +21,7 @@ class JsonLogger(LoggerImpl):
     def __init__(
         self,
         log_stream: TextIO = sys.stdout,
+        err_log_stream: TextIO = sys.stderr,
         flush_immediately: bool = False,
         open_mode: Literal["w", "a"] = "w",
         line_sep: str = "\n",
@@ -30,6 +32,7 @@ class JsonLogger(LoggerImpl):
 
         Args:
             log_stream: The stream to log to.
+            err_log_stream: The stream to log errors to.
             flush_immediately: Whether to flush the file after every write.
             open_mode: The file open mode.
             line_sep: The line separator to use.
@@ -42,14 +45,21 @@ class JsonLogger(LoggerImpl):
         super().__init__(log_interval_seconds)
 
         self.log_stream = log_stream
+        self.err_log_stream = err_log_stream
         self.flush_immediately = flush_immediately
         self.open_mode = open_mode
         self.line_sep = line_sep
         self.remove_unicode_from_namespaces = remove_unicode_from_namespaces
 
+        Toasts.register_callback(None, self.handle_toast)
+
     @property
     def fp(self) -> TextIO:
         return self.log_stream
+
+    @property
+    def err_fp(self) -> TextIO:
+        return self.err_log_stream
 
     def get_json(self, line: LogLine) -> str:
         data: dict = {"state": asdict(line.state)}
@@ -68,3 +78,9 @@ class JsonLogger(LoggerImpl):
         self.fp.write(self.line_sep)
         if self.flush_immediately:
             self.fp.flush()
+
+    def handle_toast(self, message: str) -> None:
+        self.err_fp.write(message)
+        self.err_fp.write(self.line_sep)
+        if self.flush_immediately:
+            self.err_fp.flush()

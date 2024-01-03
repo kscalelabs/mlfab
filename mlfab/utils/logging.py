@@ -2,7 +2,6 @@
 
 import logging
 import math
-import sys
 
 from mlfab.core.conf import load_user_config
 from mlfab.utils.experiments import Toasts
@@ -127,8 +126,6 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
     if rank is not None or world_size is not None:
         assert rank is not None and world_size is not None
     root_logger = logging.getLogger()
-    while root_logger.hasHandlers():
-        root_logger.removeHandler(root_logger.handlers[0])
 
     config = load_user_config().logging
 
@@ -144,39 +141,6 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
 
     # root_logger.addHandler(stream_handler)
     root_logger.addHandler(toast_handler)
-    root_logger.setLevel(logging._nameToLevel[config.log_level])
-
-    # Avoid junk logs from other libraries.
-    if config.hide_third_party_logs:
-        logging.getLogger("matplotlib").setLevel(logging.WARNING)
-        logging.getLogger("PIL").setLevel(logging.WARNING)
-        logging.getLogger("torch").setLevel(logging.WARNING)
-
-
-def configure_streaming_logging(*, rank: int | None = None, world_size: int | None = None) -> None:
-    """Instantiates print logging.
-
-    Args:
-        prefix: An optional prefix to add to the logger
-        rank: The current rank, or None if not using multiprocessing
-        world_size: The total world size, or None if not using multiprocessing
-    """
-    if rank is not None or world_size is not None:
-        assert rank is not None and world_size is not None
-    root_logger = logging.getLogger()
-    while root_logger.hasHandlers():
-        root_logger.removeHandler(root_logger.handlers[0])
-
-    config = load_user_config().logging
-
-    # Captures warnings from the warnings module.
-    logging.captureWarnings(True)
-
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setFormatter(ColoredFormatter(rank=rank, world_size=world_size))
-    stream_handler.addFilter(RankFilter(rank=rank))
-
-    root_logger.addHandler(stream_handler)
     root_logger.setLevel(logging._nameToLevel[config.log_level])
 
     # Avoid junk logs from other libraries.
