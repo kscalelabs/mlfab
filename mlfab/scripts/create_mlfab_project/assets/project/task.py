@@ -44,12 +44,6 @@ class MnistClassification(mlfab.Task[Config]):
             nn.Linear(128, 10),
         )
 
-    def set_loggers(self) -> None:
-        self.add_logger(
-            mlfab.StdoutLogger(),
-            mlfab.TensorboardLogger(self.exp_dir),
-        )
-
     def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
         root_dir = mlfab.get_data_dir() / "mnist"
         return MNIST(root=root_dir, train=phase == "train", download=not root_dir.exists())

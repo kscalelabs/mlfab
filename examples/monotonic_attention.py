@@ -133,12 +133,6 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
         self.tokenizer = Tokenizer(config.num_letters)
         self.model = MonotonicSeq2Seq(config.num_letters + 1, config.embedding_dims, config.use_rnn)
 
-    def set_loggers(self) -> None:
-        self.add_logger(
-            mlfab.StdoutLogger(log_interval_seconds=0.1),
-            mlfab.TensorboardLogger(self.exp_dir, log_interval_seconds=1.0),
-        )
-
     def get_dataset(self, phase: Phase) -> Dataset:
         return LettersDataset(self.tokenizer, self.config.seq_length)
 

@@ -19,7 +19,7 @@ import traceback
 from collections import defaultdict
 from logging import LogRecord
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal, TypeVar, cast
+from typing import Any, Callable, Iterable, Iterator, Literal, TypeVar, cast, get_args
 
 import git
 import torch
@@ -600,8 +600,12 @@ class _Toasts:
         self._max_width = max_width
         self._callbacks: dict[ToastKind, list[Callable[[str], None]]] = defaultdict(list)
 
-    def register_callback(self, kind: ToastKind, callback: Callable[[str], None]) -> None:
-        self._callbacks[kind].append(callback)
+    def register_callback(self, kind: ToastKind | None, callback: Callable[[str], None]) -> None:
+        if kind is None:
+            for kind in get_args(ToastKind):
+                self._callbacks[kind].append(callback)
+        else:
+            self._callbacks[kind].append(callback)
 
     def render_record(self, record: LogRecord) -> str:
         filename = record.filename
