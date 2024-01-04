@@ -198,7 +198,7 @@ class CosineDecayLRScheduler(BaseLRScheduler):
     """Defines a cosine decay learning rate schedule.
 
     This is like a cosine learning rate scheduler, but it decays the learning
-    rate over time. WHen using multiple resets, each reset will peak lower than
+    rate over time. When using multiple resets, each reset will peak lower than
     the previous one.
 
     Parameters:
@@ -250,3 +250,26 @@ class CosineDecayLRScheduler(BaseLRScheduler):
         sigma = (phase_steps - ramp_up) / phase
         lr_scale_no_decay = eta_min + (eta_max - eta_min) * (1 + math.cos(math.pi * sigma)) / 2
         return lr_scale_no_decay * decay
+
+
+class NoamLRScheduler(BaseLRScheduler):
+    """Defines the Noam learning rate scheduler.
+
+    This corresponds to increasing the learning rate linearly for the first
+    ``warmup_steps`` training steps, and decreasing it thereafter proportionally
+    to the inverse square root of the step number, scaled by the inverse square
+    root of the dimensionality of the model.
+
+    Parameters:
+        warmup_steps: The number of learning rate ramp up steps.
+        model_size: The dimensionality of the model.
+    """
+
+    def __init__(self, warmup_steps: int, model_size: int = 1024) -> None:
+        super().__init__()
+
+        self.warmup_steps = warmup_steps
+        self.model_size = model_size
+
+    def get_lr_scale(self, state: State) -> float:
+        return self.model_size**-0.5 * min(state.num_steps**-0.5, state.num_steps * self.warmup_steps**-1.5)
