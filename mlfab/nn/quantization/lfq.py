@@ -36,6 +36,30 @@ def entropy(prob: Tensor, eps: float = 1e-20) -> Tensor:
 
 
 class LookupFreeQuantization(nn.Module):
+    """Lookup-free quantization module.
+
+    As opposed to nearest-neighbor (or lookup-based) quantization, this method
+    first projects the input vector to the codebook dimension, then applies a
+    binary quantization, so that each codebook is either zero or one.
+    Representing this value as a binary number gives the codebook index.
+
+    During training, we actually convert the values to -1 and 1, then project
+    back to the original dimension. We train as a straight-through estimator,
+    with some additional loss terms to encourage diversity and commitment.
+
+    Parameters:
+        dim: The input dimension. If not specified, it will be inferred from
+            the codebook size as ``log2(codebook_size)``.
+        codebook_size: The size of the codebook. If not specified, it will
+            be inferred from the input dimension as ``2 ^ dim``. Must be a
+            power of 2.
+        entropy_loss_weight: The weight of the entropy loss.
+        commitment_loss_weight: The weight of the commitment loss.
+        diversity_gamma: The diversity gamma parameter.
+        num_codebooks: The number of codebooks to use.
+        codebook_scale: The codebook scale to use.
+    """
+
     def __init__(
         self,
         *,
