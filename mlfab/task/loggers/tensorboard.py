@@ -272,5 +272,5 @@ class TensorboardLogger(LoggerImpl):
             self.git_state = None
 
         if self.training_code is not None:
-            writer.add_text("training_code", self.training_code)
+            writer.add_text("code", self.training_code)
             self.training_code = None
