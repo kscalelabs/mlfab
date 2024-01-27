@@ -279,12 +279,10 @@ class TokenReader:
         return self._num_rows
 
     @overload
-    def __getitem__(self, index: int | tuple[int, slice]) -> list[int]:
-        ...
+    def __getitem__(self, index: int | tuple[int, slice]) -> list[int]: ...
 
     @overload
-    def __getitem__(self, index: slice) -> list[list[int]]:
-        ...
+    def __getitem__(self, index: slice) -> list[list[int]]: ...
 
     def __getitem__(self, index: int | tuple[int, slice] | slice) -> list[int] | list[list[int]]:
         if isinstance(index, int):
@@ -372,13 +370,11 @@ class token_file:  # noqa: N801
         mode: Literal["w"],
         num_tokens: int,
         overwrite_if_exists: bool = False,
-    ) -> TokenWriter:
-        ...
+    ) -> TokenWriter: ...
 
     @overload
     @classmethod
-    def open(cls, path: str | Path, mode: Literal["r"] = "r") -> TokenReader:
-        ...
+    def open(cls, path: str | Path, mode: Literal["r"] = "r") -> TokenReader: ...
 
     @classmethod
     def open(

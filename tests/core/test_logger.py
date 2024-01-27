@@ -5,7 +5,6 @@ log values with a canonical format, to avoid having to duplicate the munging
 in each of them.
 """
 
-
 import pytest
 import torch
 

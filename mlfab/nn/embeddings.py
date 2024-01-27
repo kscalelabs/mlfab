@@ -233,8 +233,7 @@ class RotaryEmbeddings(nn.Module):
 
 
 @overload
-def get_positional_embeddings(kind: Literal["identity"]) -> IdentityPositionalEmbeddings:
-    ...
+def get_positional_embeddings(kind: Literal["identity"]) -> IdentityPositionalEmbeddings: ...
 
 
 @overload
@@ -245,8 +244,7 @@ def get_positional_embeddings(
     embed_dim: int,
     weight_init: InitializationType = "normal",
     learnable: bool | None = None,
-) -> LearnedPositionalEmbeddings:
-    ...
+) -> LearnedPositionalEmbeddings: ...
 
 
 @overload
@@ -257,8 +255,7 @@ def get_positional_embeddings(
     embed_dim: int | None = None,
     learnable: bool | None = None,
     base: int = 10_000,
-) -> SinusoidalEmbeddings:
-    ...
+) -> SinusoidalEmbeddings: ...
 
 
 @overload
@@ -266,8 +263,7 @@ def get_positional_embeddings(
     kind: Literal["rotary"],
     *,
     base: int = 10_000,
-) -> RotaryEmbeddings:
-    ...
+) -> RotaryEmbeddings: ...
 
 
 @overload
@@ -279,8 +275,7 @@ def get_positional_embeddings(
     weight_init: InitializationType = "normal",
     learnable: bool | None = None,
     base: int = 10_000,
-) -> IdentityPositionalEmbeddings | LearnedPositionalEmbeddings | SinusoidalEmbeddings | RotaryEmbeddings:
-    ...
+) -> IdentityPositionalEmbeddings | LearnedPositionalEmbeddings | SinusoidalEmbeddings | RotaryEmbeddings: ...
 
 
 def get_positional_embeddings(

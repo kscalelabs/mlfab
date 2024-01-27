@@ -260,9 +260,11 @@ def render_text_blocks(
                 "│ "
                 + " │ ".join(
                     [
-                        " " * width
-                        if i >= len(block.lines)
-                        else colored(pad(block.lines[i], width, block.center), block.color, bold=block.bold)
+                        (
+                            " " * width
+                            if i >= len(block.lines)
+                            else colored(pad(block.lines[i], width, block.center), block.color, bold=block.bold)
+                        )
                         for block, width in zip(row, get_widths(row))
                     ]
                 )

@@ -339,8 +339,7 @@ class _GroupInfo:
         op: Any = ReduceOp.SUM,  # noqa: ANN401
         *,
         async_op: Literal[False] = False,
-    ) -> Tensor:
-        ...
+    ) -> Tensor: ...
 
     @overload
     def reduce(
@@ -349,8 +348,7 @@ class _GroupInfo:
         op: Any = ReduceOp.SUM,  # noqa: ANN401
         *,
         async_op: Literal[True],
-    ) -> Work:
-        ...
+    ) -> Work: ...
 
     def reduce(
         self,
@@ -398,12 +396,10 @@ class _GroupInfo:
         return tensor.narrow(dim, self.rank * slice_len, slice_len)
 
     @overload
-    def gather(self, tensor: Tensor, dim: int = -1, *, async_op: Literal[False] = False) -> Tensor:
-        ...
+    def gather(self, tensor: Tensor, dim: int = -1, *, async_op: Literal[False] = False) -> Tensor: ...
 
     @overload
-    def gather(self, tensor: Tensor, dim: int = -1, *, async_op: Literal[True]) -> Work:
-        ...
+    def gather(self, tensor: Tensor, dim: int = -1, *, async_op: Literal[True]) -> Work: ...
 
     def gather(self, tensor: Tensor, dim: int = -1, *, async_op: bool = False) -> Tensor | Work:
         """Gathers the tensor across all processes in the group.
