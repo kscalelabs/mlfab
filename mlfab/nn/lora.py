@@ -1239,11 +1239,23 @@ def lora(
 
 
 @overload
-def lora(module: nn.Linear, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraLinear: ...
+def lora(
+    module: nn.Linear,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraLinear: ...
 
 
 @overload
-def lora(module: nn.Conv1d, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraConv1d: ...
+def lora(
+    module: nn.Conv1d,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraConv1d: ...
 
 
 @overload
@@ -1257,7 +1269,13 @@ def lora(
 
 
 @overload
-def lora(module: nn.Conv2d, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraConv2d: ...
+def lora(
+    module: nn.Conv2d,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraConv2d: ...
 
 
 @overload
@@ -1271,21 +1289,43 @@ def lora(
 
 
 @overload
-def lora(module: nn.LSTM, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraLSTM: ...
-
-
-@overload
-def lora(module: nn.GRU, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraGRU: ...
+def lora(
+    module: nn.LSTM,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraLSTM: ...
 
 
 @overload
 def lora(
-    module: nn.LSTMCell, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False
+    module: nn.GRU,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraGRU: ...
+
+
+@overload
+def lora(
+    module: nn.LSTMCell,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
 ) -> LoraLSTMCell: ...
 
 
 @overload
-def lora(module: nn.GRUCell, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> LoraGRUCell: ...
+def lora(
+    module: nn.GRUCell,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> LoraGRUCell: ...
 
 
 @overload
@@ -1328,7 +1368,13 @@ def lora(
 ) -> nn.Module: ...
 
 
-def lora(module: SupportedModule, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False) -> nn.Module:
+def lora(
+    module: SupportedModule,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
+) -> nn.Module:
     """Wraps a module with LoRA.
 
     This function takes a base module and returns the LoRA version of that
