@@ -73,8 +73,7 @@ def get_attention_mask(
     tsz_k: int,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
-) -> Tensor:
-    ...
+) -> Tensor: ...
 
 
 @overload
@@ -85,8 +84,7 @@ def get_attention_mask(
     tsz_k: int | None = None,
     device: torch.device | None = None,
     dtype: torch.dtype | None = None,
-) -> Tensor:
-    ...
+) -> Tensor: ...
 
 
 def get_attention_mask(

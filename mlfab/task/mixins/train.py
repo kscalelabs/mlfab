@@ -94,7 +94,7 @@ class TrainConfig(
         None,
         help=(
             "A schedule for splitting batches into chunks. The batches in the first segment will have "
-            "`batch_size / 2 ** (N - 1)` elements, the second will have `batch_size / 2 ** (N - 2)` elements, until "
+            "`batch_size / (N + 1)` elements, the second will have `batch_size / N` elements, until "
             "the last segment has `batch_size` elements."
         ),
     )
@@ -434,7 +434,7 @@ class TrainMixin(
         if (schedule := self.batch_chunks_schedule()) is None:
             return 1
         step = self.get_step(state)
-        i = bisect.bisect_left(schedule, step)
+        i = bisect.bisect_left(schedule, step + 1)
         return len(schedule) - i + 1
 
     def is_valid_step(self, state: State) -> bool:
@@ -537,8 +537,8 @@ class TrainMixin(
                         self.on_epoch_start(state)
 
                     def batch_splitter() -> Iterator[Batch]:
-                        num_chunks = self.get_batch_chunks(state)
                         for batch in train_pf:
+                            num_chunks = self.get_batch_chunks(state)
                             yield from recursive_chunk(batch, num_chunks, dim=self.config.batch_dim)
 
                     train_pf_iter: Iterator = batch_splitter()
