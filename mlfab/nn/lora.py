@@ -1230,7 +1230,11 @@ class LoraRowParallelLinear(RowParallelLinear, _Lora):
 
 @overload
 def lora(
-    module: nn.Embedding, r: int, alpha: float = 1.0, dropout: float = 0.0, merge: bool = False
+    module: nn.Embedding,
+    r: int,
+    alpha: float = 1.0,
+    dropout: float = 0.0,
+    merge: bool = False,
 ) -> LoraEmbedding: ...
 
 
