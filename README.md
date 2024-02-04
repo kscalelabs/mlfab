@@ -12,7 +12,7 @@
 
 <br />
 
-## What is this?
+## What is this framework?
 
 This is a framework for trying out machine learning ideas.
 
