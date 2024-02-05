@@ -452,7 +452,7 @@ NAME_MAP: dict[str, str] = {
     "TensorboardLogger": "task.loggers.tensorboard",
     "TorchCompileOptions": "task.mixins.compile",
     "CPUStatsOptions": "task.mixins.cpu_stats",
-    "DataLoaderConfig": "task.mixins.data_loader",
+    "DataloaderConfig": "task.mixins.data_loader",
     "GPUStatsOptions": "task.mixins.gpu_stats",
     "ProfilerOptions": "task.mixins.profiler",
     "Script": "task.script",
