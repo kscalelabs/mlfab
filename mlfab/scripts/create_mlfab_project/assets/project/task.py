@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import mlfab
 import torch.nn.functional as F
-from dpshdl.dataset import Dataset
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
@@ -44,7 +43,7 @@ class MnistClassification(mlfab.Task[Config]):
             nn.Linear(128, 10),
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
+    def get_dataset(self, phase: mlfab.Phase) -> MNIST:
         root_dir = mlfab.get_data_dir() / "mnist"
         return MNIST(root_dir=root_dir, train=phase == "train")
 

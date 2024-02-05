@@ -6,7 +6,7 @@ Run this example with `python -m examples.mnist`.
 from dataclasses import dataclass
 
 import torch.nn.functional as F
-from dpshdl.dataset import Dataset
+from dpshdl.dataloader import Dataloader
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
@@ -45,9 +45,8 @@ class MnistClassification(mlfab.Task[Config]):
             nn.Linear(128, 10),
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
-        root_dir = mlfab.get_data_dir() / "mnist"
-        return MNIST(root_dir=root_dir, train=phase == "train")
+    def get_dataset(self, phase: mlfab.Phase) -> MNIST:
+        return MNIST(root_dir=mlfab.get_data_dir() / "mnist", train=phase == "train", dtype="float32")
 
     def build_optimizer(self) -> Optimizer:
         return mlfab.Adam.get(self, lr=1e-3)
@@ -57,16 +56,16 @@ class MnistClassification(mlfab.Task[Config]):
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
         x, y = batch
-        yhat = self(x)
+        yhat = self(x.unsqueeze(1))
         self.log_step(batch, yhat, state)
-        return F.cross_entropy(yhat, y.squeeze(-1).long())
+        return F.cross_entropy(yhat, y.long())
 
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
         (x, y), yhat = batch, output
 
         def get_label_strings() -> list[str]:
-            ytrue, ypred = y.squeeze(-1), yhat.argmax(-1)
-            return [f"ytrue={ytrue[i]}, ypred={ypred[i]}" for i in range(len(ytrue))]
+            ypred = yhat.argmax(-1)
+            return [f"ytrue={y[i]}, ypred={ypred[i]}" for i in range(len(y))]
 
         self.log_labeled_images("images", lambda: (x, get_label_strings()))
 

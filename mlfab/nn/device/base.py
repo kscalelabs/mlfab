@@ -85,6 +85,7 @@ class base_device(ABC):  # noqa: N801
                 self.dtype if t.is_floating_point() else t.dtype,
                 non_blocking=allow_nonblocking_transfer(t.device, self.device),
             ),
+            numpy_to_tensor=True,
         )
 
     def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc]:
