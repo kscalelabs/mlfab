@@ -5,11 +5,12 @@ Run this example with `python -m [[PROJECT NAME]].task`.
 
 from dataclasses import dataclass
 
-import mlfab
 import torch.nn.functional as F
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
+
+import mlfab
 
 
 @dataclass
