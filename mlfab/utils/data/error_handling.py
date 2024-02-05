@@ -179,8 +179,6 @@ class ErrorHandlingIterableDataset(IterableDataset[BatchT]):
         self.exc_summary = ExceptionSummary()
         self.iter: Iterator[BatchT] | None = None
 
-        self._configured_logging = False
-
     def __iter__(self) -> Iterator[BatchT]:
         self.iter = self.dataset.__iter__()
         self.iteration = 0

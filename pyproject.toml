@@ -55,6 +55,11 @@ profile = "black"
 
 [tool.ruff]
 
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+
 select = ["ANN", "D", "E", "F", "I", "N", "PGH", "PLC", "PLE", "PLR", "PLW", "W"]
 
 ignore = [
@@ -65,19 +70,17 @@ ignore = [
     "PLW0603", "PLW2901",
 ]
 
-line-length = 120
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-target-version = "py310"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 
 "__init__.py" = ["E402", "F401", "F403", "F811"]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 
 known-first-party = ["mlfab", "tests"]
 combine-as-imports = true
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 
 convention = "google"

@@ -20,26 +20,30 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
-def recursive_apply(item: Any, func: Callable[[Tensor], Tensor]) -> Any:  # noqa: ANN401
+def recursive_apply(item: Any, func: Callable[[Tensor], Tensor], numpy_to_tensor: bool = False) -> Any:  # noqa: ANN401
     """Applies a function recursively to tensors in an item.
 
     Args:
         item: The item to apply the function to
         func: The function to apply (for the tensor)
+        numpy_to_tensor: Whether to convert Numpy arrays to tensors before
+            applying the function
 
     Returns:
         The same item, with the function applied
     """
+    if isinstance(item, np.ndarray) and numpy_to_tensor:
+        return func(torch.from_numpy(item))
     if isinstance(item, (str, int, float)):
         return item
     if isinstance(item, Tensor):
         return func(item)
     if is_dataclass(item):
-        return item.__class__(**{k: recursive_apply(v, func) for k, v in item.__dict__.items()})
+        return item.__class__(**{k: recursive_apply(v, func, numpy_to_tensor) for k, v in item.__dict__.items()})
     if isinstance(item, Mapping):
-        return {k: recursive_apply(v, func) for k, v in item.items()}
+        return {k: recursive_apply(v, func, numpy_to_tensor) for k, v in item.items()}
     if isinstance(item, Sequence):
-        return [recursive_apply(i, func) for i in item]
+        return [recursive_apply(i, func, numpy_to_tensor) for i in item]
     return item
 
 

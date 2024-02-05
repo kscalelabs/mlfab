@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 import torch
+from dpshdl.dataset import Dataset
 from torch import Tensor, nn
-from torch.utils.data.dataset import Dataset
 
 import mlfab
 
@@ -22,12 +22,12 @@ class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
 
 
-class DummyDataset(Dataset[tuple[Tensor, Tensor]]):
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
+class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
+    def next(self) -> tuple[Tensor, Tensor]:
         return torch.randn(3, 8), torch.randint(0, 9, (3,))
 
-    def __len__(self) -> int:
-        return 10
+    def collate(self, items: list[tuple[Tensor, Tensor]]) -> tuple[Tensor, Tensor]:
+        return mlfab.collate_non_null(items)
 
 
 class DummyTask(mlfab.Task[Config]):
@@ -55,7 +55,7 @@ class DummyTask(mlfab.Task[Config]):
         o = self(*batch).sum()
         return o
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset:
+    def get_dataset(self, phase: mlfab.Phase) -> DummyDataset:
         return DummyDataset()
 
 
@@ -70,7 +70,7 @@ def test_e2e_training(tmpdir: Path) -> None:
         Config(
             num_layers=2,
             batch_size=2,
-            train_dl=mlfab.DataLoaderConfig(
+            train_dl=mlfab.DataloaderConfig(
                 num_workers=0,
             ),
             max_steps=10,
@@ -91,7 +91,7 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
         Config(
             num_layers=2,
             batch_size=2,
-            train_dl=mlfab.DataLoaderConfig(
+            train_dl=mlfab.DataloaderConfig(
                 num_workers=0,
             ),
             max_steps=10,

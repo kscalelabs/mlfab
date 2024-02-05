@@ -5,12 +5,12 @@ Run this example with `python -m [[PROJECT NAME]].task`.
 
 from dataclasses import dataclass
 
-import mlfab
 import torch.nn.functional as F
+from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
-from torch.utils.data.dataset import Dataset
-from torchvision.datasets import MNIST
+
+import mlfab
 
 
 @dataclass
@@ -44,9 +44,9 @@ class MnistClassification(mlfab.Task[Config]):
             nn.Linear(128, 10),
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
+    def get_dataset(self, phase: mlfab.Phase) -> MNIST:
         root_dir = mlfab.get_data_dir() / "mnist"
-        return MNIST(root=root_dir, train=phase == "train", download=not root_dir.exists())
+        return MNIST(root_dir=root_dir, train=phase == "train")
 
     def build_optimizer(self) -> Optimizer:
         return mlfab.Adam.get(self, lr=1e-3)

@@ -10,10 +10,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytest
-import torch
+from dpshdl.collate import collate_non_null
+from dpshdl.dataset import Dataset
 from torch import Tensor, nn
-from torch.utils.data.dataset import Dataset
 
 import mlfab
 
@@ -23,12 +24,12 @@ class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
 
 
-class DummyDataset(Dataset[tuple[Tensor, Tensor]]):
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
-        return torch.randn(3, 8), torch.randint(0, 9, (3,))
+class DummyDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]):
+    def next(self) -> tuple[np.ndarray, np.ndarray]:
+        return np.random.randn(3, 8), np.random.randint(0, 9, (3,))
 
-    def __len__(self) -> int:
-        return 10
+    def collate(self, items: list[tuple[np.ndarray, np.ndarray]]) -> tuple[np.ndarray, np.ndarray]:
+        return collate_non_null(items)
 
 
 class DummyTask(mlfab.Task[Config]):
@@ -56,7 +57,7 @@ class DummyTask(mlfab.Task[Config]):
         o = self(*batch).sum()
         return o
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset:
+    def get_dataset(self, phase: mlfab.Phase) -> DummyDataset:
         return DummyDataset()
 
 

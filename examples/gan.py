@@ -2,14 +2,14 @@
 
 import logging
 from dataclasses import dataclass
-from typing import cast
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as V
+from dpshdl.dataset import TensorDataset
+from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
-from torch.utils.data.dataset import Dataset, TensorDataset
-from torchvision.datasets import MNIST
 
 import mlfab
 from mlfab.core.state import State
@@ -49,19 +49,14 @@ class MnistGan(mlfab.Task[Config]):
             nn.Conv2d(config.embed_dim, 1, 1),
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor]]:
+    def get_dataset(self, phase: mlfab.Phase) -> TensorDataset[tuple[np.ndarray]]:
         root_dir = mlfab.get_data_dir() / "mnist"
-        mnist = MNIST(
-            root=root_dir,
-            train=phase == "train",
-            download=not root_dir.exists(),
-        )
-
-        data = mnist.data.float()
+        mnist = MNIST(root_dir=root_dir, train=phase == "train", dtype="float32")
+        data = torch.from_numpy(mnist.images)
         data = V.pad(data, [2, 2])
-        data = (data - 127.5) / 127.5
+        data = data - 0.5
         data = data.unsqueeze(1)
-        return cast(Dataset[tuple[Tensor]], TensorDataset(data))
+        return TensorDataset(data.numpy())
 
     def build_optimizer(self) -> mlfab.OptType:
         assert (max_steps := self.config.max_steps) is not None, "`max_steps` must be set"
