@@ -51,16 +51,12 @@ class MnistGan(mlfab.Task[Config]):
 
     def get_dataset(self, phase: mlfab.Phase) -> TensorDataset[tuple[np.ndarray]]:
         root_dir = mlfab.get_data_dir() / "mnist"
-        mnist = MNIST(
-            root_dir=root_dir,
-            train=phase == "train",
-        )
-
-        data = mnist.data.float()
+        mnist = MNIST(root_dir=root_dir, train=phase == "train", dtype="float32")
+        data = torch.from_numpy(mnist.images)
         data = V.pad(data, [2, 2])
-        data = (data - 127.5) / 127.5
+        data = data - 0.5
         data = data.unsqueeze(1)
-        return TensorDataset(data)
+        return TensorDataset(data.numpy())
 
     def build_optimizer(self) -> mlfab.OptType:
         assert (max_steps := self.config.max_steps) is not None, "`max_steps` must be set"

@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from typing import get_args
 
 import numpy as np
+import torch
 import torchvision.transforms.functional as V
 from dpshdl.dataset import TensorDataset
+from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
-from torchvision.datasets import MNIST
 
 import mlfab
 from mlfab.core.state import State
@@ -55,24 +56,14 @@ class ConditionalDiffusion(mlfab.Task[Config]):
             input_embedding_dim=config.embed_dim,
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> TensorDataset[tuple[np.ndarray, np.ndarray]]:
+    def get_dataset(self, phase: mlfab.Phase) -> TensorDataset[tuple[np.ndarray]]:
         root_dir = mlfab.get_data_dir() / "mnist"
-        mnist = MNIST(
-            root=root_dir,
-            train=phase == "train",
-            download=not root_dir.exists(),
-        )
-
-        # Loads the images into RAM.
-        data = mnist.data.float()
+        mnist = MNIST(root_dir=root_dir, train=phase == "train", dtype="float32")
+        data = torch.from_numpy(mnist.images)
         data = V.pad(data, [2, 2])
-        data = (data - 127.5) / 127.5
+        data = data - 0.5
         data = data.unsqueeze(1)
-
-        # Loads the labels into RAM.
-        labels = mnist.targets
-
-        return TensorDataset(data, labels)
+        return TensorDataset(data.numpy(), mnist.labels.astype(np.int64))
 
     def build_optimizer(self) -> Optimizer:
         return mlfab.Adam.get(self, lr=1e-3)

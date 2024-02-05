@@ -21,9 +21,9 @@ def get_default_email() -> str:
 
 
 def cleanup_url(s: str) -> str:
+    s = s.replace(":", "/")
     s = s.replace("git@", "https://")
     s = s.replace(".git", "")
-    s = s.replace(":", "/")
     return s
 
 
