@@ -6,7 +6,6 @@ Run this example with `python -m examples.mnist`.
 from dataclasses import dataclass
 
 import torch.nn.functional as F
-from dpshdl.dataloader import Dataloader
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
