@@ -3,86 +3,23 @@
 import contextlib
 import functools
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ContextManager, Generic, Iterable, Iterator, TypeVar
+from typing import Callable, ContextManager, TypeVar
 
 import numpy as np
 import torch
+from dpshdl.dataloader import Dataloader
+from dpshdl.prefetcher import Prefetcher
 from torch import Tensor, nn
-from torch.utils.data.dataloader import DataLoader, _BaseDataLoaderIter
 
 from mlfab.core.conf import load_user_config, parse_dtype
 from mlfab.nn.functions import recursive_apply
 
 T = TypeVar("T")
-T_co = TypeVar("T_co", covariant=True)
+Tc = TypeVar("Tc")
 
 
 def allow_nonblocking_transfer(device_a: torch.device, device_b: torch.device) -> bool:
     return device_a.type in ("cpu", "cuda") and device_b.type in ("cpu", "cuda")
-
-
-class Prefetcher(Iterable[T_co], Generic[T_co]):
-    """Helper class for pre-loading samples into device memory."""
-
-    def __init__(
-        self,
-        to_device_func: Callable[[Any], Any],
-        dataloader: DataLoader[T_co],
-        raise_stop_iter: bool = False,
-    ) -> None:
-        super().__init__()
-
-        self.to_device_func = to_device_func
-        self.dataloader = dataloader
-        self.raise_stop_iter = raise_stop_iter
-        self.next_sample = None
-        self._dataloader_iter: _BaseDataLoaderIter | None = None
-
-    def infinite(self) -> "InfinitePrefetcher[T_co]":
-        return InfinitePrefetcher(self)
-
-    @property
-    def dataloader_iter(self) -> _BaseDataLoaderIter:
-        if self._dataloader_iter is None:
-            self._dataloader_iter = iter(self.dataloader)
-        return self._dataloader_iter
-
-    def prefetch(self) -> None:
-        try:
-            next_sample = next(self.dataloader_iter)
-            self.next_sample = self.to_device_func(next_sample)
-        except StopIteration:
-            self.next_sample = None
-
-    def __iter__(self) -> Iterator[T_co]:
-        # Yields one sample quickly.
-        next_sample = next(self.dataloader_iter)
-        yield self.to_device_func(next_sample)
-
-        try:
-            self.prefetch()
-            while True:
-                if self.next_sample is None:
-                    raise StopIteration
-                sample = self.next_sample
-                self.prefetch()
-                yield sample
-
-        except StopIteration:
-            # Resets the dataloader if the iteration has completed.
-            self._dataloader_iter = iter(self.dataloader)
-            if self.raise_stop_iter:
-                raise
-
-
-class InfinitePrefetcher(Iterable[T_co]):
-    def __init__(self, prefetcher: Prefetcher[T_co]) -> None:
-        self.prefetcher = prefetcher
-
-    def __iter__(self) -> Iterator[T_co]:
-        while True:
-            for batch in self.prefetcher:
-                yield batch
 
 
 class base_device(ABC):  # noqa: N801
@@ -140,7 +77,7 @@ class base_device(ABC):  # noqa: N801
             return dtype
         return self._get_floating_point_type()
 
-    def sample_to_device(self, sample: T) -> T:
+    def sample_to_device(self, sample: Tc) -> Tc:
         return recursive_apply(
             sample,
             lambda t: t.to(
@@ -150,7 +87,7 @@ class base_device(ABC):  # noqa: N801
             ),
         )
 
-    def get_prefetcher(self, dataloader: DataLoader[T_co]) -> Prefetcher[T_co]:
+    def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc]:
         return Prefetcher(self.sample_to_device, dataloader)
 
     def module_to(self, module: nn.Module, with_dtype: bool = False) -> None:

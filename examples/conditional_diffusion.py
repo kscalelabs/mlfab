@@ -2,12 +2,13 @@
 
 import logging
 from dataclasses import dataclass
-from typing import cast, get_args
+from typing import get_args
 
+import numpy as np
 import torchvision.transforms.functional as V
+from dpshdl.dataset import TensorDataset
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
-from torch.utils.data.dataset import Dataset, TensorDataset
 from torchvision.datasets import MNIST
 
 import mlfab
@@ -54,7 +55,7 @@ class ConditionalDiffusion(mlfab.Task[Config]):
             input_embedding_dim=config.embed_dim,
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
+    def get_dataset(self, phase: mlfab.Phase) -> TensorDataset[tuple[np.ndarray, np.ndarray]]:
         root_dir = mlfab.get_data_dir() / "mnist"
         mnist = MNIST(
             root=root_dir,
@@ -71,7 +72,7 @@ class ConditionalDiffusion(mlfab.Task[Config]):
         # Loads the labels into RAM.
         labels = mnist.targets
 
-        return cast(Dataset[tuple[Tensor, Tensor]], TensorDataset(data, labels))
+        return TensorDataset(data, labels)
 
     def build_optimizer(self) -> Optimizer:
         return mlfab.Adam.get(self, lr=1e-3)

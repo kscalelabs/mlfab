@@ -192,7 +192,7 @@ __all__ = [
     "TensorboardLogger",
     "TorchCompileOptions",
     "CPUStatsOptions",
-    "DataLoaderConfig",
+    "DataloaderConfig",
     "GPUStatsOptions",
     "ProfilerOptions",
     "Script",
@@ -730,7 +730,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.loggers.tensorboard import TensorboardLogger
     from mlfab.task.mixins.compile import TorchCompileOptions
     from mlfab.task.mixins.cpu_stats import CPUStatsOptions
-    from mlfab.task.mixins.data_loader import DataLoaderConfig
+    from mlfab.task.mixins.data_loader import DataloaderConfig
     from mlfab.task.mixins.gpu_stats import GPUStatsOptions
     from mlfab.task.mixins.optimizer import OptType
     from mlfab.task.mixins.profiler import ProfilerOptions

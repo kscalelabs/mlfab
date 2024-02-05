@@ -10,18 +10,17 @@ Run this example using `python -m examples.monotonic_attention`.
 
 import random
 from dataclasses import dataclass
-from typing import Any, Iterator
 
+import numpy as np
 import torch
 import torch.nn.functional as F
+from dpshdl.dataset import Dataset
 from torch import Tensor, nn
-from torch.utils.data.dataset import Dataset, IterableDataset
 
 import mlfab
 from mlfab.core.state import Phase, State
 from mlfab.task.mixins.optimizer import OptType
 from mlfab.task.mixins.train import Batch, Loss, Output
-from mlfab.utils.data.collate import CollateMode
 
 PADDING_IDX = 0
 
@@ -46,17 +45,14 @@ class Tokenizer:
         return self.num_letters + 1
 
 
-class LettersDataset(IterableDataset[tuple[Tensor, Tensor]]):
+class LettersDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[Tensor, Tensor]]):
     def __init__(self, tokenizer: Tokenizer, seq_length: int) -> None:
         super().__init__()
 
         self.tokenizer = tokenizer
         self.seq_length = seq_length
 
-    def __iter__(self) -> Iterator[tuple[Tensor, Tensor]]:
-        return self
-
-    def __next__(self) -> tuple[Tensor, Tensor]:
+    def next(self) -> tuple[np.ndarray, np.ndarray]:
         tokens_in: list[int] = []
         tokens_out: list[int] = []
         prev_letter: int | None = None
@@ -67,20 +63,20 @@ class LettersDataset(IterableDataset[tuple[Tensor, Tensor]]):
             tokens_in.extend([letter] * min(self.seq_length - len(tokens_in), random.randint(2, 15)))
             tokens_out.extend([letter])
 
-        tokens_in_t = torch.tensor(tokens_in)
-        tokens_out_t = torch.tensor(tokens_out)
+        tokens_in_t = torch.tensor(tokens_in).numpy()
+        tokens_out_t = torch.tensor(tokens_out).numpy()
         return tokens_in_t, tokens_out_t
 
-    def collate_fn(self, items: list[tuple[Tensor, Tensor]]) -> tuple[Tensor, Tensor]:
+    def collate(self, items: list[tuple[np.ndarray, np.ndarray]]) -> tuple[Tensor, Tensor]:
         tokens_in, tokens_out = zip(*items)
 
         # Pads the output tokens and creates a mask.
         max_out_len = max(len(t) for t in tokens_out)
         tokens_out_t = torch.full((len(tokens_out), max_out_len), fill_value=PADDING_IDX, dtype=torch.long)
         for i, token_out in enumerate(tokens_out):
-            tokens_out_t[i, : len(token_out)] = token_out
+            tokens_out_t[i, : len(token_out)] = torch.from_numpy(token_out)
 
-        return torch.stack(tokens_in), tokens_out_t
+        return torch.stack([torch.from_numpy(t) for t in tokens_in]), tokens_out_t
 
 
 class MonotonicSeq2Seq(nn.Module):
@@ -158,18 +154,6 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
         letters_out = " ".join(self.tokenizer.detokenize(tokens_out[0]).split())
         attn_matrix = self.model.get_attention_matrix(tokens_in[:1], tokens_out[:1])[0, 0, 0].exp()
         self.log_labeled_image("attention", (attn_matrix, f"In: {letters_in}\nOut: {letters_out}"))
-
-    @classmethod
-    def collate_fn(cls, items: list[Any], *, mode: CollateMode = "stack") -> Any | None:  # noqa: ANN401
-        tokens_in, tokens_out = zip(*items)
-
-        # Pads the output tokens and creates a mask.
-        max_out_len = max(len(t) for t in tokens_out)
-        tokens_out_t = torch.full((len(tokens_out), max_out_len), fill_value=PADDING_IDX, dtype=torch.long)
-        for i, token_out in enumerate(tokens_out):
-            tokens_out_t[i, : len(token_out)] = token_out
-
-        return torch.stack(tokens_in), tokens_out_t
 
 
 if __name__ == "__main__":

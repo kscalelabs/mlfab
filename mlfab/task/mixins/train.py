@@ -26,7 +26,7 @@ from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
-from mlfab.task.mixins.data_loader import DataLoadersConfig, DataLoadersMixin
+from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.mixed_precision import MixedPrecisionConfig, MixedPrecisionMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
@@ -47,11 +47,9 @@ logger = logging.getLogger(__name__)
 
 # Batch = TypeVar("Batch")
 # Output = TypeVar("Output")
-# Input = TypeVar("Input")
 
 Batch = Any
 Output = Any
-Input = Any
 
 Loss = Tensor | dict[str, Tensor] | list[Tensor] | list[dict[str, Tensor]]
 
@@ -71,7 +69,7 @@ class TrainConfig(
     OptimizerConfig,
     CompileConfig,
     MixedPrecisionConfig,
-    DataLoadersConfig,
+    DataloadersConfig,
     DeviceConfig,
     ProfilerConfig,
     StepContextConfig,
@@ -111,7 +109,7 @@ class TrainMixin(
     OptimizerMixin[Config],
     CompileMixin[Config],
     MixedPrecisionMixin[Config],
-    DataLoadersMixin[Config],
+    DataloadersMixin[Config],
     DeviceMixin[Config],
     ProfilerMixin[Config],
     StepContextMixin[Config],
@@ -515,7 +513,6 @@ class TrainMixin(
         with self.step_context("get_prefetcher"):
             train_pf = self.device.get_prefetcher(train_dl)
             valid_pf = self.device.get_prefetcher(valid_dl)
-            valid_pf_iter = iter(valid_pf.infinite())
 
         self.on_training_start(state)
 
@@ -528,6 +525,8 @@ class TrainMixin(
         try:
             with contextlib.ExitStack() as ctx:
                 ctx.enter_context(self)
+                ctx.enter_context(train_pf)
+                ctx.enter_context(valid_pf)
 
                 if (profile := self.get_profile()) is not None:
                     ctx.enter_context(profile)
@@ -560,7 +559,7 @@ class TrainMixin(
                             raise TrainingFinishedError
 
                         if self.is_valid_step(state):
-                            self.val_step(next(valid_pf_iter), state)
+                            self.val_step(next(valid_pf), state)
 
                         with self.step_context("on_step_start"):
                             self.on_step_start(state)
