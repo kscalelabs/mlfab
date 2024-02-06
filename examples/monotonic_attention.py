@@ -157,4 +157,8 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    MonotonicAttentionTask.launch(Config(batch_size=16, num_dataloader_workers=0, valid_every_n_seconds=10))
+    cfg = Config()
+    cfg.batch_size = 61
+    cfg.valid_every_n_seconds = 10
+    cfg.train_dl.num_workers = 1
+    MonotonicAttentionTask.launch(cfg)
