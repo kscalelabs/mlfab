@@ -1,4 +1,7 @@
-"""Trains a GAN on the MNIST dataset."""
+"""Trains a GAN on the MNIST dataset.
+
+Run this example with `python -m examples.gan`.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -105,7 +108,6 @@ class MnistGan(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    # python -m examples.gan
     MnistGan.launch(
         Config(
             batch_size=32,

@@ -200,7 +200,7 @@ __all__ = [
     "Config",
     "Task",
     "collate",
-    "collate_non_null",
+    "collate_nullable",
     "pad_all",
     "pad_sequence",
     "SmallDataset",
@@ -460,7 +460,7 @@ NAME_MAP: dict[str, str] = {
     "Config": "task.task",
     "Task": "task.task",
     "collate": "utils.data.collate",
-    "collate_non_null": "utils.data.collate",
+    "collate_nullable": "utils.data.collate",
     "pad_all": "utils.data.collate",
     "pad_sequence": "utils.data.collate",
     "SmallDataset": "utils.data.dataset",
@@ -736,7 +736,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.profiler import ProfilerOptions
     from mlfab.task.script import Script, ScriptConfig
     from mlfab.task.task import Config, Task
-    from mlfab.utils.data.collate import CollateMode, collate, collate_non_null, pad_all, pad_sequence
+    from mlfab.utils.data.collate import CollateMode, collate, collate_nullable, pad_all, pad_sequence
     from mlfab.utils.data.dataset import SmallDataset
     from mlfab.utils.data.error_handling import (
         ErrorHandlingDataset,

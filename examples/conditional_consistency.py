@@ -1,4 +1,7 @@
-"""Trains a conditional consistency model on the MNIST dataset."""
+"""Trains a conditional consistency model on the MNIST dataset.
+
+Run this example with `python -m examples.conditional_consistency`.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -118,7 +121,6 @@ class ConditionalConsistency(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    # python -m examples.conditional_consistency
     ConditionalConsistency.launch(
         Config(
             batch_size=256,

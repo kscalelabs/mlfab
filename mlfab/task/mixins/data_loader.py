@@ -22,44 +22,19 @@ Batch = TypeVar("Batch")
 
 @dataclass
 class DataloaderConfig:
-    batch_size: int = field(MISSING, help="Size of each batch")
-    batch_size_multiplier: float = field(MISSING, help="Batch size multiplier")
-    shuffle: bool = field(MISSING, help="Should the batches be shuffled on each iteration")
     num_workers: int = field(MISSING, help="Number of workers for loading samples")
-    pin_memory: bool = field(MISSING, help="Should memory be pinned to it's GPU location")
-    drop_last: bool = field(MISSING, help="Should the last batch be dropped if not full")
-    timeout: float = field(0, help="How long to wait for a sample to be ready")
     prefetch_factor: int = field(2, help="Number of items to pre-fetch on each worker")
-    persistent_workers: bool = field(False, help="Persist worker processes between epochs")
-    seed: int = field(1337, help="Dataloader random seed")
 
 
 @dataclass
 class DataloadersConfig(ProcessConfig, BaseConfig):
     batch_size: int = field(MISSING, help="Size of each batch")
-    num_dataloader_workers: int = field(II("mlfab.num_workers:-1"), help="Default number of dataloader workers")
     train_dl: DataloaderConfig = field(
-        DataloaderConfig(
-            batch_size=II("batch_size"),
-            batch_size_multiplier=1.0,
-            shuffle=True,
-            num_workers=II("num_dataloader_workers"),
-            pin_memory=True,
-            drop_last=True,
-            persistent_workers=True,
-        ),
+        DataloaderConfig(num_workers=II("mlfab.num_workers:-1")),
         help="Train dataloader config",
     )
     test_dl: DataloaderConfig = field(
-        DataloaderConfig(
-            batch_size=II("batch_size"),
-            batch_size_multiplier=II("train_dl.batch_size_multiplier"),
-            shuffle=True,
-            num_workers=0,
-            pin_memory=False,
-            drop_last=False,
-            persistent_workers=False,
-        ),
+        DataloaderConfig(num_workers=1),
         help="Valid dataloader config",
     )
     debug_dataloader: bool = field(False, help="Debug dataloaders")
@@ -70,9 +45,7 @@ Config = TypeVar("Config", bound=DataloadersConfig)
 
 class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
     def __init__(self, config: Config) -> None:
-        if is_missing(config, "batch_size") and (
-            is_missing(config.train_dl, "batch_size") or is_missing(config.test_dl, "batch_size")
-        ):
+        if is_missing(config, "batch_size"):
             config.batch_size = self.get_batch_size()
 
         super().__init__(config)
@@ -115,11 +88,17 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
         return Dataloader(
             dataset=dataset,
             num_workers=0 if debugging else cfg.num_workers,
-            batch_size=round(cfg.batch_size * cfg.batch_size_multiplier),
+            batch_size=self.config.batch_size,
             prefetch_factor=cfg.prefetch_factor,
             ctx=self.multiprocessing_context,
+            dataloader_worker_init_fn=self.dataloader_worker_init_fn,
+            collate_worker_init_fn=self.collate_worker_init_fn,
         )
 
     @classmethod
-    def worker_init_fn(cls, worker_id: int) -> None:
+    def dataloader_worker_init_fn(cls, worker_id: int, num_workers: int) -> None:
         set_random_seed(offset=worker_id)
+
+    @classmethod
+    def collate_worker_init_fn(cls) -> None:
+        set_random_seed(offset=-1)
