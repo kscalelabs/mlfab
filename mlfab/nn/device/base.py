@@ -88,7 +88,7 @@ class base_device(ABC):  # noqa: N801
             numpy_to_tensor=True,
         )
 
-    def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc]:
+    def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc, Tc]:
         return Prefetcher(self.sample_to_device, dataloader)
 
     def module_to(self, module: nn.Module, with_dtype: bool = False) -> None:
