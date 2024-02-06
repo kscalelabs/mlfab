@@ -1,4 +1,7 @@
-"""Trains a conditional diffusion model on the MNIST dataset."""
+"""Trains a conditional diffusion model on the MNIST dataset.
+
+Run this example with `python -m examples.conditional_diffusion`.
+"""
 
 import logging
 from dataclasses import dataclass
@@ -112,7 +115,6 @@ class ConditionalDiffusion(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    # python -m examples.conditional_diffusion
     ConditionalDiffusion.launch(
         Config(
             batch_size=256,
