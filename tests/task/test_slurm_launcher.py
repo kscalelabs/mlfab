@@ -12,7 +12,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from dpshdl.collate import collate_non_null
 from dpshdl.dataset import Dataset
 from torch import Tensor, nn
 
@@ -24,12 +23,12 @@ class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
 
 
-class DummyDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]):
+class DummyDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[Tensor, Tensor]]):
     def next(self) -> tuple[np.ndarray, np.ndarray]:
         return np.random.randn(3, 8), np.random.randint(0, 9, (3,))
 
-    def collate(self, items: list[tuple[np.ndarray, np.ndarray]]) -> tuple[np.ndarray, np.ndarray]:
-        return collate_non_null(items)
+    def collate(self, items: list[tuple[np.ndarray, np.ndarray]]) -> tuple[Tensor, Tensor]:
+        return mlfab.collate(items)
 
 
 class DummyTask(mlfab.Task[Config]):

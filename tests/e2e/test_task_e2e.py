@@ -27,7 +27,7 @@ class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
         return torch.randn(3, 8), torch.randint(0, 9, (3,))
 
     def collate(self, items: list[tuple[Tensor, Tensor]]) -> tuple[Tensor, Tensor]:
-        return mlfab.collate_non_null(items)
+        return mlfab.collate(items)
 
 
 class DummyTask(mlfab.Task[Config]):
