@@ -5,7 +5,7 @@ import logging
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Generic, Self, TypeVar, cast
+from typing import Callable, Generic, Self, TypeVar, cast
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -81,6 +81,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         map_location: MAP_LOCATION = None,
         weights_only: bool = False,
         mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> Self:
         state_dict = cls.read_state_dict(
             path,
@@ -91,7 +92,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
-        cfg = cls.get_config(OmegaConf.create(raw_config), use_cli=use_cli)
+        cfg = cls.get_config(config_fn(OmegaConf.create(raw_config)), use_cli=use_cli)
         task = cls(cfg)
         task.load_task_state_dict(state_dict, strict=strict, assign=assign)
         return task
