@@ -146,19 +146,19 @@ def collate_nullable(
 
     # All Numpy arrays are converted to tensors.
     if isinstance(item, np.ndarray):
-        return collate([torch.from_numpy(i) for i in items], mode=mode, pad=pad)
+        return collate_nullable([torch.from_numpy(i) for i in items], mode=mode, pad=pad)
 
     # All images are converted to tensors.
     if isinstance(item, PILImage):
-        return collate([pil_to_tensor(i) for i in items], mode=mode, pad=pad)
+        return collate_nullable([pil_to_tensor(i) for i in items], mode=mode, pad=pad)
 
     # Numbers are converted to a list of tensors.
     if isinstance(item, bool):
-        return collate([torch.BoolTensor([i]) for i in items], mode=mode, pad=pad)
+        return collate_nullable([torch.BoolTensor([i]) for i in items], mode=mode, pad=pad)
     if isinstance(item, int):
-        return collate([torch.IntTensor([i]) for i in items], mode=mode, pad=pad)
+        return collate_nullable([torch.IntTensor([i]) for i in items], mode=mode, pad=pad)
     if isinstance(item, float):
-        return collate([torch.FloatTensor([i]) for i in items], mode=mode, pad=pad)
+        return collate_nullable([torch.FloatTensor([i]) for i in items], mode=mode, pad=pad)
 
     # Tensors are either concatenated or stacked.
     if isinstance(item, Tensor):
@@ -181,16 +181,16 @@ def collate_nullable(
         output_dict = {}
         item_keys = set(item.keys())
         for key in item_keys:
-            output_dict[key] = collate([i[key] for i in items], mode=mode, pad=pad)
+            output_dict[key] = collate_nullable([i[key] for i in items], mode=mode, pad=pad)
         return output_dict
 
     # Collate lists and tuples if they have the same lengths.
     if isinstance(item, (list, tuple)) and all(len(i) == len(item) for i in items):
         output_list = []
         for j in range(len(item)):
-            output_list.append(collate([i[j] for i in items], mode=mode, pad=pad))
+            output_list.append(collate_nullable([i[j] for i in items], mode=mode, pad=pad))
         if is_named_tuple(item):
-            return type(item)(*output_list)
+            return type(item)(*output_list)  # type: ignore[arg-type]
         if isinstance(item, tuple):
             return tuple(output_list)
         return output_list
@@ -200,7 +200,7 @@ def collate_nullable(
         output_dict = {}
         item_keys = item.__dict__.keys()
         for key in item_keys:
-            output_dict[key] = collate([getattr(i, key) for i in items], mode=mode, pad=pad)
+            output_dict[key] = collate_nullable([getattr(i, key) for i in items], mode=mode, pad=pad)
         return item.__class__(**output_dict)
 
     # By default, don't do anything.
@@ -213,6 +213,6 @@ def collate(
     mode: CollateMode | Callable[[list[Tensor]], Tensor] = "stack",
     pad: bool | Callable[[list[Tensor]], list[Tensor]] = False,
 ) -> Any:  # noqa: ANN401
-    collated = collate(items, mode=mode, pad=pad)
+    collated = collate_nullable(items, mode=mode, pad=pad)
     assert collated is not None
     return collated
