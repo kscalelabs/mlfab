@@ -46,7 +46,7 @@ class MnistClassification(mlfab.Task[Config]):
 
     def get_dataset(self, phase: mlfab.Phase) -> MNIST:
         root_dir = mlfab.get_data_dir() / "mnist"
-        return MNIST(root_dir=root_dir, train=phase == "train")
+        return MNIST(root_dir=root_dir, train=phase == "train", dtype="float32", one_hot=False)
 
     def build_optimizer(self) -> Optimizer:
         return mlfab.Adam.get(self, lr=1e-3)
@@ -56,7 +56,7 @@ class MnistClassification(mlfab.Task[Config]):
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
         x, y = batch
-        yhat = self(x)
+        yhat = self(x.unsqueeze(1))
         self.log_step(batch, yhat, state)
         return F.cross_entropy(yhat, y.squeeze(-1).long())
 
@@ -67,7 +67,7 @@ class MnistClassification(mlfab.Task[Config]):
             ytrue, ypred = y.squeeze(-1), yhat.argmax(-1)
             return [f"ytrue={ytrue[i]}, ypred={ypred[i]}" for i in range(len(ytrue))]
 
-        self.log_labeled_images("images", lambda: (x, get_label_strings()))
+        self.log_labeled_images("images", lambda: (x.float(), get_label_strings()))
 
 
 if __name__ == "__main__":
