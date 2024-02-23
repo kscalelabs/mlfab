@@ -22,11 +22,8 @@ def cast_phase(raw_phase: str) -> Phase:
 
 @dataclass
 class State:
-    num_epochs: int = field(MISSING, help="Number of epochs so far")
     num_steps: int = field(MISSING, help="Number of steps so far")
-    num_epoch_steps: int = field(MISSING, help="Number of steps in the current epoch")
     num_samples: int = field(MISSING, help="Number of sample so far")
-    num_epoch_samples: int = field(MISSING, help="Number of samples in the current epoch")
     num_valid_steps: int = field(MISSING, help="Number of validation steps so far")
     num_test_steps: int = field(MISSING, help="Number of test steps so far")
     start_time_s: float = field(MISSING, help="Start time of training")
@@ -44,11 +41,8 @@ class State:
     @classmethod
     def init_state(cls) -> "State":
         return cls(
-            num_epochs=0,
             num_steps=0,
-            num_epoch_steps=0,
             num_samples=0,
-            num_epoch_samples=0,
             num_valid_steps=0,
             num_test_steps=0,
             start_time_s=time.time(),
