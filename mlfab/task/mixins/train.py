@@ -34,7 +34,6 @@ from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
 from mlfab.utils.experiments import (
-    EpochDoneError,
     StateTimer,
     TrainingFinishedError,
     add_toast,
@@ -53,7 +52,7 @@ Output = Any
 
 Loss = Tensor | dict[str, Tensor] | list[Tensor] | list[dict[str, Tensor]]
 
-StepKind = Literal["step", "epoch", "sample", "second"]
+StepKind = Literal["step", "sample", "second"]
 
 PRINT_FINISH_TIME_EVERY_N_SECONDS = 60 * 2
 
@@ -138,15 +137,6 @@ class TrainMixin(
     def on_step_end(self, state: State, loss_dict: dict[str, Tensor]) -> None:
         super().on_step_end(state, loss_dict)
         state.elapsed_time_s = time.time() - state.start_time_s
-
-    def on_epoch_start(self, state: State) -> None:
-        super().on_epoch_start(state)
-        state.num_epoch_steps = 0
-        state.num_epoch_samples = 0
-
-    def on_epoch_end(self, state: State) -> None:
-        super().on_epoch_end(state)
-        state.num_epochs += 1
 
     def log_train_step(self, batch: Batch, output: Output, state: State) -> None:
         """Override this function to do logging during the training phase.
@@ -268,8 +258,6 @@ class TrainMixin(
         match self.__step_kind:
             case "step":
                 return state.num_steps
-            case "epoch":
-                return state.num_epochs
             case "sample":
                 return state.num_samples
             case "second":
@@ -361,10 +349,8 @@ class TrainMixin(
             self.write_logs(state)
         with self.step_context("update_state"):
             state.num_steps += 1
-            state.num_epoch_steps += 1
             if total_bsz is not None:
                 state.num_samples += total_bsz
-                state.num_epoch_samples += total_bsz
         return loss_dict
 
     def val_step(self, batch: Batch, state: State) -> None:
@@ -532,8 +518,6 @@ class TrainMixin(
                     ctx.enter_context(profile)
 
                 while True:
-                    with self.step_context("on_epoch_start"):
-                        self.on_epoch_start(state)
 
                     def batch_splitter() -> Iterator[Batch]:
                         for batch in train_pf:
@@ -543,10 +527,7 @@ class TrainMixin(
                     train_pf_iter: Iterator = batch_splitter()
 
                     def batch_iterator() -> Iterator[Batch]:
-                        try:
-                            yield next(train_pf_iter)
-                        except StopIteration:
-                            raise EpochDoneError
+                        yield next(train_pf_iter)
 
                         for _ in range(self.get_batches_per_step(state) - 1):
                             try:
@@ -564,11 +545,7 @@ class TrainMixin(
                         with self.step_context("on_step_start"):
                             self.on_step_start(state)
 
-                        try:
-                            loss_dict = self.train_step(batch_iterator(), state)
-
-                        except EpochDoneError:
-                            break
+                        loss_dict = self.train_step(batch_iterator(), state)
 
                         if self.should_checkpoint(state):
                             with self.step_context("save_checkpoint"):
@@ -580,16 +557,12 @@ class TrainMixin(
                         with self.step_context("on_step_end"):
                             self.on_step_end(state, loss_dict)
 
-                    with self.step_context("on_epoch_end"):
-                        self.on_epoch_end(state)
-
         except TrainingFinishedError:
             with self.step_context("save_checkpoint"):
                 self.save_checkpoint(state)
             if is_master():
                 show_info(
-                    f"Finished training after {state.num_epochs} epochs, "
-                    f"{state.num_steps} steps, {state.num_samples} samples",
+                    f"Finished training after {state.num_steps} steps, {state.num_samples} samples",
                     important=True,
                 )
 

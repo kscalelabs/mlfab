@@ -19,8 +19,6 @@ StepType = Literal[
     "load_checkpoint",
     "log_losses",
     "model_to_device",
-    "on_epoch_end",
-    "on_epoch_start",
     "on_step_end",
     "on_step_start",
     "save_checkpoint",

@@ -81,12 +81,6 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_step_end(self, state: State, loss_dict: dict[str, Tensor]) -> None:
         pass
 
-    def on_epoch_start(self, state: State) -> None:
-        pass
-
-    def on_epoch_end(self, state: State) -> None:
-        pass
-
     def on_training_start(self, state: State) -> None:
         pass
 

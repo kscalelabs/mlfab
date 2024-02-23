@@ -100,8 +100,6 @@ class StdoutLogger(LoggerImpl):
             "Samples": f"{line.state.num_samples}",
             "Elapsed Time": f"{elapsed_time}",
         }
-        if line.state.num_epochs > 0:
-            state_info["Epochs"] = f"{line.state.num_epochs}"
 
         colored_prefix = colored("Phase: ", "grey", bold=True)
         colored_phase = colored(line.state.phase, "green" if line.state.phase == "train" else "yellow", bold=True)
