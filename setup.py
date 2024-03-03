@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """Setup mlfab."""
 
-import os
 import re
 
 from setuptools import setup
@@ -30,13 +29,6 @@ with open("README.md", "r", encoding="utf-8") as f:
     long_description: str = f.read()
 
 
-with open("mlfab/scripts/create_mlfab_project/assets.txt") as f:
-    files = [line.strip() for line in f if line]
-create_mlfab_project_assets = [f"scripts/create_mlfab_project/assets/{file}" for file in files]
-missing_files = [file for file in create_mlfab_project_assets if not os.path.exists(f"mlfab/{file}")]
-assert not missing_files, f"Could not find all assets: {missing_files}"
-
-
 setup(
     name="mlfab",
     version=version,
@@ -56,16 +48,11 @@ setup(
     install_requires=requirements,
     tests_require=DEV_REQUIREMENTS,
     extras_require={"dev": DEV_REQUIREMENTS},
-    entry_points={
-        "console_scripts": [
-            "create-mlfab-project=mlfab.scripts.create_mlfab_project.__main__:main",
-        ],
-    },
     package_data={
         "mlfab": [
             "py.typed",
             "requirements*.txt",
-        ]
-        + create_mlfab_project_assets,
+        ],
     },
 )
+g
