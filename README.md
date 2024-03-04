@@ -24,6 +24,12 @@ Install the package using:
 pip install mlfab
 ```
 
+Or, to install the latest branch:
+
+```bash
+pip install 'mlfab @ git+https://github.com/kscalelabs/mlfab.git@master'
+```
+
 ### Simple Example
 
 This framework provides an abstraction for quickly implementing and training PyTorch models. The workhorse for doing this is `mlfab.Task`, which wraps all of the training logic into a single cohesive unit. We can override functions on that method to get special functionality, but the default functionality is often good enough. Here's an example for training an MNIST model:
