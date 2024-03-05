@@ -13,7 +13,7 @@ from torch import Tensor, nn
 from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 
 from mlfab.core.conf import load_user_config, parse_dtype
-from mlfab.nn.functions import recursive_apply
+from mlfab.nn.functions import recursive_apply, recursive_from_numpy
 
 T = TypeVar("T")
 Tc = TypeVar("Tc")
@@ -78,18 +78,17 @@ class base_device(ABC):  # noqa: N801
             return dtype
         return self._get_floating_point_type()
 
-    def sample_to_device(self, sample: Tc) -> Tc:
+    def sample_to_device(self, sample: Tc, pin_memory: bool = False) -> Tc:
         return recursive_apply(
-            sample,
+            recursive_from_numpy(sample, pin_memory=pin_memory),
             lambda t: t.to(
                 self.device,
                 self.dtype if t.is_floating_point() else t.dtype,
                 non_blocking=allow_nonblocking_transfer(t.device, self.device),
             ),
-            numpy_to_tensor=True,
         )
 
-    def get_prefetcher(self, dataloader: Dataloader[T, Tc] | PytorchDataloader[Tc]) -> Prefetcher[Tc, Tc]:
+    def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc, Tc]:
         if isinstance(dataloader, Dataloader):
             return Prefetcher(self.sample_to_device, dataloader)
         if isinstance(dataloader, PytorchDataloader):

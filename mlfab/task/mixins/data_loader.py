@@ -3,16 +3,15 @@
 import functools
 import logging
 from dataclasses import dataclass
-from typing import Callable, Generic, Self, TypeVar, cast
+from typing import Generic, TypeVar
 
+from dpshdl.dataloader import Dataloader
 from dpshdl.dataset import Dataset, ErrorHandlingDataset
 from omegaconf import II, MISSING
-from torch.utils.data.dataloader import DataLoader
-from torch.utils.data.dataset import IterableDataset as PytorchIterableDataset
 
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
-from mlfab.nn.functions import recursive_apply, set_random_seed
+from mlfab.nn.functions import recursive_from_numpy, set_random_seed
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -23,24 +22,6 @@ Batch = TypeVar("Batch")
 
 T = TypeVar("T")
 Tc = TypeVar("Tc")
-
-
-class DatasetWrapper(PytorchIterableDataset[T], Generic[T, Tc]):
-    def __init__(self, dataset: Dataset[T, Tc]) -> None:
-        super().__init__()
-
-        self.dataset = dataset
-
-    def __iter__(self) -> Self:
-        self.dataset.__iter__()
-        return self
-
-    def __next__(self) -> T:
-        return self.dataset.next()
-
-
-def collate_to_tensors(items: list[T], collate_fn: Callable[[list[T]], Tc]) -> Tc:
-    return recursive_apply(collate_fn(items), lambda t: t, numpy_to_tensor=True)
 
 
 @dataclass
@@ -105,7 +86,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
         self,
         dataset: Dataset[Sample, Batch],
         phase: Phase,
-    ) -> DataLoader[Batch]:
+    ) -> Dataloader[Sample, Batch]:
         debugging = self.config.debug_dataloader
         if debugging:
             logger.warning("Parallel dataloaders disabled in debugging mode")
@@ -125,17 +106,21 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
         cfg = self.dataloader_config(phase)
 
-        return DataLoader(
-            dataset=cast(DatasetWrapper[Batch, Batch], DatasetWrapper(dataset)),
+        return Dataloader(
+            dataset=dataset,
             num_workers=0 if debugging else cfg.num_workers,
-            collate_fn=functools.partial(collate_to_tensors, collate_fn=dataset.collate),
             batch_size=self.config.batch_size,
-            prefetch_factor=None if debugging or cfg.num_workers < 1 else cfg.prefetch_factor,
-            multiprocessing_context=None if debugging or cfg.num_workers < 1 else self.multiprocessing_context,
-            worker_init_fn=self.pytorch_worker_init_fn,
-            pin_memory=not debugging,
+            prefetch_factor=cfg.prefetch_factor,
+            mp_manager=None if debugging or cfg.num_workers < 1 else self.multiprocessing_manager,
+            collate_worker_init_fn=self.collate_worker_init_fn,
+            dataloader_worker_init_fn=self.data_worker_init_fn,
+            post_collate_fn=functools.partial(recursive_from_numpy, pin_memory=not debugging),
         )
 
     @classmethod
-    def pytorch_worker_init_fn(cls, worker_id: int) -> None:
+    def data_worker_init_fn(cls, worker_id: int, num_workers: int) -> None:
         set_random_seed(offset=worker_id + 1)
+
+    @classmethod
+    def collate_worker_init_fn(cls) -> None:
+        set_random_seed(offset=0)
