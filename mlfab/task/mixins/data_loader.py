@@ -130,8 +130,8 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
             num_workers=0 if debugging else cfg.num_workers,
             collate_fn=functools.partial(collate_to_tensors, collate_fn=dataset.collate),
             batch_size=self.config.batch_size,
-            prefetch_factor=cfg.prefetch_factor,
-            multiprocessing_context=self.multiprocessing_context,
+            prefetch_factor=None if debugging or cfg.num_workers < 1 else cfg.prefetch_factor,
+            multiprocessing_context=None if debugging or cfg.num_workers < 1 else self.multiprocessing_context,
             worker_init_fn=self.pytorch_worker_init_fn,
             pin_memory=not debugging,
         )
