@@ -122,7 +122,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
                 num_workers=0 if debugging else cfg.num_workers,
                 batch_size=self.config.batch_size,
                 prefetch_factor=cfg.prefetch_factor,
-                manager=self.multiprocessing_manager,
+                mp_manager=self.multiprocessing_manager,
                 dataloader_worker_init_fn=self.dataloader_worker_init_fn,
                 collate_worker_init_fn=self.collate_worker_init_fn,
             )

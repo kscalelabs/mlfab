@@ -39,14 +39,3 @@ class ProcessMixin(BaseTask[Config], Generic[Config]):
     @property
     def multiprocessing_manager(self) -> SyncManager:
         return self._mp_manager
-
-    def on_training_start(self, state: State) -> None:
-        super().on_training_start(state)
-
-        self._mp_manager = mp.Manager()
-
-    def on_training_end(self, state: State) -> None:
-        super().on_training_end(state)
-
-        self._mp_manager.shutdown()
-        self._mp_manager.join()
