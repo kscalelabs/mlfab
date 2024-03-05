@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from dpshdl.dataloader import Dataloader
-from dpshdl.dataset import Dataset
+from dpshdl.dataset import Dataset, ErrorHandlingDataset
 from omegaconf import II, MISSING
+from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 
-from mlfab.core.conf import field, is_missing
+from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
 from mlfab.nn.functions import set_random_seed
+from mlfab.nn.parallel import get_data_worker_info
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -38,6 +40,7 @@ class DataloadersConfig(ProcessConfig, BaseConfig):
         help="Valid dataloader config",
     )
     debug_dataloader: bool = field(False, help="Debug dataloaders")
+    use_pytorch_dataloader: bool = field(False, help="If set, use PyTorch dataloaders")
 
 
 Config = TypeVar("Config", bound=DataloadersConfig)
@@ -78,27 +81,61 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
         """
         raise NotImplementedError("The task should implement `get_dataset`")
 
-    def get_dataloader(self, dataset: Dataset[Sample, Batch], phase: Phase) -> Dataloader[Sample, Batch]:
+    def get_dataloader(
+        self,
+        dataset: Dataset[Sample, Batch],
+        phase: Phase,
+    ) -> Dataloader[Sample, Batch] | PytorchDataloader[Batch]:
         debugging = self.config.debug_dataloader
         if debugging:
             logger.warning("Parallel dataloaders disabled in debugging mode")
 
+        conf = load_user_config()
+        if conf.error_handling.enabled:
+            dataset = ErrorHandlingDataset(
+                dataset,
+                sleep_backoff=conf.error_handling.sleep_backoff,
+                sleep_backoff_power=conf.error_handling.sleep_backoff_power,
+                maximum_exceptions=conf.error_handling.maximum_exceptions,
+                backoff_after=conf.error_handling.backoff_after,
+                traceback_depth=conf.error_handling.exception_location_traceback_depth,
+                flush_every_n_seconds=conf.error_handling.flush_exception_summary_every,
+                flush_every_n_steps=conf.error_handling.flush_exception_summary_every,
+            )
+
         cfg = self.dataloader_config(phase)
 
-        return Dataloader(
-            dataset=dataset,
-            num_workers=0 if debugging else cfg.num_workers,
-            batch_size=self.config.batch_size,
-            prefetch_factor=cfg.prefetch_factor,
-            ctx=self.multiprocessing_context,
-            dataloader_worker_init_fn=self.dataloader_worker_init_fn,
-            collate_worker_init_fn=self.collate_worker_init_fn,
-        )
+        if self.config.use_pytorch_dataloader:
+            return PytorchDataloader(
+                dataset=dataset,  # type: ignore[arg-type]
+                num_workers=0 if debugging else cfg.num_workers,
+                collate_fn=dataset.collate,
+                batch_size=self.config.batch_size,
+                prefetch_factor=cfg.prefetch_factor,
+                multiprocessing_context=self.multiprocessing_context,
+                worker_init_fn=self.pytorch_worker_init_fn,
+            )
+
+        else:
+            return Dataloader(
+                dataset=dataset,
+                num_workers=0 if debugging else cfg.num_workers,
+                batch_size=self.config.batch_size,
+                prefetch_factor=cfg.prefetch_factor,
+                manager=self.multiprocessing_manager,
+                dataloader_worker_init_fn=self.dataloader_worker_init_fn,
+                collate_worker_init_fn=self.collate_worker_init_fn,
+            )
+
+    @classmethod
+    def pytorch_worker_init_fn(cls, worker_id: int) -> None:
+        info = get_data_worker_info()
+        cls.dataloader_worker_init_fn(info.worker_id, info.num_workers)
 
     @classmethod
     def dataloader_worker_init_fn(cls, worker_id: int, num_workers: int) -> None:
-        set_random_seed(offset=worker_id)
+        set_random_seed(offset=worker_id + 1)
 
     @classmethod
     def collate_worker_init_fn(cls) -> None:
-        set_random_seed(offset=-1)
+        set_random_seed(offset=0)

@@ -4,6 +4,7 @@ import logging
 import multiprocessing as mp
 from dataclasses import dataclass
 from multiprocessing.context import BaseContext
+from multiprocessing.managers import SyncManager
 from typing import Generic, TypeVar
 
 from mlfab.core.conf import load_user_config
@@ -34,6 +35,10 @@ class ProcessMixin(BaseTask[Config], Generic[Config]):
     @property
     def multiprocessing_context(self) -> BaseContext:
         return self._mp_ctx
+
+    @property
+    def multiprocessing_manager(self) -> SyncManager:
+        return self._mp_manager
 
     def on_training_start(self, state: State) -> None:
         super().on_training_start(state)
