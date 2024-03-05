@@ -159,11 +159,14 @@ def configure_logging(prefix: str | None = None, *, rank: int | None = None, wor
     # Captures warnings from the warnings module.
     logging.captureWarnings(True)
 
-    filter = RankFilter(rank=rank)
+    # Clears all existing handlers.
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
 
+    # Adds new handler.
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(ColoredFormatter(prefix=prefix, rank=rank, world_size=world_size))
-    stream_handler.addFilter(filter)
+    stream_handler.addFilter(RankFilter(rank=rank))
     root_logger.addHandler(stream_handler)
 
     root_logger.setLevel(logging._nameToLevel[config.log_level])

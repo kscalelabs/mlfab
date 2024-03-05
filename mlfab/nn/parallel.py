@@ -507,7 +507,7 @@ def init_parallelism(
     data_parallelism = world_size // (model_parallelism * pipeline_parallelism)
 
     logger.info(
-        "Initializing\n ↪ %s parallelism %s\n ↪ %s parallelism %s\n ↪ %s parallelism %s",
+        "Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s\n ↪ %s parallelism %s",
         colored("Model", "light-green"),
         colored(str(model_parallelism), "light-cyan", bold=True),
         colored("Pipeline", "light-green"),
