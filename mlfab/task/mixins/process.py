@@ -8,7 +8,6 @@ from multiprocessing.managers import SyncManager
 from typing import Generic, TypeVar
 
 from mlfab.core.conf import load_user_config
-from mlfab.core.state import State
 from mlfab.task.base import BaseConfig, BaseTask
 
 logger: logging.Logger = logging.getLogger(__name__)
