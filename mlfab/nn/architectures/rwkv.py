@@ -604,7 +604,17 @@ class RwkvStack(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.blocks = nn.ModuleList([RwkvBlock(emb_dim, pre_norm=i == 0, wkv_key=wkv_key) for i in range(num_layers)])
+        self.blocks = nn.ModuleList(
+            [
+                RwkvBlock(
+                    emb_dim,
+                    pre_norm=i == 0,
+                    wkv_key=wkv_key,
+                    feedforward_factor=feedforward_factor,
+                )
+                for i in range(num_layers)
+            ]
+        )
 
     def forward(self, x: Tensor, state: list[RwkvState] | None = None) -> tuple[Tensor, list[RwkvState]]:
         state_out: list[RwkvState] = []
