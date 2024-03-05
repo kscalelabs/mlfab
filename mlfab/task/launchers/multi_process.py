@@ -6,13 +6,23 @@ from typing import TYPE_CHECKING
 import torch
 
 from mlfab.nn.device.gpu import gpu_device
-from mlfab.nn.parallel import MultiProcessConfig, launch_subprocesses
+from mlfab.nn.parallel import MultiProcessConfig, get_rank, get_world_size, launch_subprocesses
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
-from mlfab.task.launchers.single_process import run_single_process_training
+from mlfab.utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from mlfab.task.mixins.runnable import Config, RunnableMixin
+
+
+def run_training_worker(
+    task: "type[RunnableMixin[Config]]",
+    *cfgs: RawConfigType,
+    use_cli: bool | list[str] = True,
+) -> None:
+    configure_logging(rank=get_rank(), world_size=get_world_size())
+    task_obj = task.get_task(*cfgs, use_cli=use_cli)
+    task_obj.run()
 
 
 def get_num_processes() -> int:
@@ -41,5 +51,5 @@ class MultiProcessLauncher(BaseLauncher):
         use_cli: bool | list[str] = True,
     ) -> None:
         cfg = MultiProcessConfig(world_size=self.num_processes)
-        train_fn = functools.partial(run_single_process_training, task, *cfgs, use_cli=use_cli)
+        train_fn = functools.partial(run_training_worker, task, *cfgs, use_cli=use_cli)
         launch_subprocesses(train_fn, cfg)

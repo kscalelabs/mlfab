@@ -136,10 +136,6 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
             pin_memory=not debugging,
         )
 
-    def collate(self, items: list[Sample], dataset: Dataset[Sample, Batch]) -> Batch:
-        sample = dataset.collate(items)
-        return self.device.sample_to_device(sample)
-
     @classmethod
     def pytorch_worker_init_fn(cls, worker_id: int) -> None:
         set_random_seed(offset=worker_id + 1)
