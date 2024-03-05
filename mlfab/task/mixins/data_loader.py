@@ -43,7 +43,8 @@ class DatasetWrapper(PytorchIterableDataset[T], Generic[T, Tc]):
 @dataclass
 class DataloaderConfig:
     num_workers: int = field(MISSING, help="Number of workers for loading samples")
-    prefetch_factor: int = field(2, help="Number of items to pre-fetch on each worker")
+    host_prefetch_factor: int = field(2, help="Number of items to pre-fetch on the host")
+    device_prefetch_factor: int = field(2, help="Number of items to pre-fetch to the device")
 
 
 @dataclass
@@ -129,7 +130,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
                 num_workers=0 if debugging else cfg.num_workers,
                 collate_fn=dataset.collate,
                 batch_size=self.config.batch_size,
-                prefetch_factor=cfg.prefetch_factor,
+                prefetch_factor=cfg.host_prefetch_factor,
                 multiprocessing_context=self.multiprocessing_context,
                 worker_init_fn=self.pytorch_worker_init_fn,
             )
@@ -139,7 +140,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
                 dataset=dataset,
                 num_workers=0 if debugging else cfg.num_workers,
                 batch_size=self.config.batch_size,
-                prefetch_factor=cfg.prefetch_factor,
+                prefetch_factor=cfg.host_prefetch_factor,
                 mp_manager=self.multiprocessing_manager,
                 dataloader_worker_init_fn=self.dataloader_worker_init_fn,
                 collate_worker_init_fn=self.collate_worker_init_fn,
