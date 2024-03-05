@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Generic, Self, TypeVar
+from typing import Generic, Self, TypeVar, cast
 
 from dpshdl.dataloader import Dataloader
 from dpshdl.dataset import Dataset, ErrorHandlingDataset
@@ -103,7 +103,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
         self,
         dataset: Dataset[Sample, Batch],
         phase: Phase,
-    ) -> Dataloader[Sample, Batch] | PytorchDataloader[Batch]:
+    ) -> Dataloader[Sample, Batch] | PytorchDataloader[Sample]:
         debugging = self.config.debug_dataloader
         if debugging:
             logger.warning("Parallel dataloaders disabled in debugging mode")

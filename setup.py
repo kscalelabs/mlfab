@@ -1,3 +1,4 @@
+# mypy: disable-error-code="import-untyped"
 #!/usr/bin/env python
 """Setup mlfab."""
 
