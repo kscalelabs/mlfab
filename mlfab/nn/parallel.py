@@ -87,7 +87,7 @@ from torch.distributed.fsdp.api import ShardingStrategy
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
-from mlfab.core.conf import field
+from mlfab.core.conf import field, load_user_config
 from mlfab.nn.device.gpu import gpu_device
 from mlfab.nn.init import InitializationType, init_
 from mlfab.utils.logging import INFOALL, configure_logging
@@ -1030,14 +1030,15 @@ def split_n_items_across_workers(n: int, worker_id: int, num_workers: int) -> tu
 
 
 def num_workers(default: int) -> int:
+    max_workers = load_user_config().experiment.max_workers
     if hasattr(os, "sched_getaffinity"):
         try:
-            return len(os.sched_getaffinity(0))
+            return min(len(os.sched_getaffinity(0)), max_workers)
         except Exception:
             pass
     if (cpu_count := os.cpu_count()) is not None:
-        return cpu_count
-    return default
+        return min(cpu_count, max_workers)
+    return min(default, max_workers)
 
 
 OmegaConf.register_new_resolver("mlfab.num_workers", num_workers, replace=True)
