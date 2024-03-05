@@ -8,11 +8,11 @@ from typing import Callable, ContextManager, TypeVar
 import numpy as np
 import torch
 from dpshdl.dataloader import Dataloader
-from dpshdl.prefetcher import Prefetcher
 from torch import Tensor, nn
 from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 
 from mlfab.core.conf import load_user_config, parse_dtype
+from mlfab.nn.device.prefetcher import Prefetcher
 from mlfab.nn.functions import recursive_apply
 
 T = TypeVar("T")
