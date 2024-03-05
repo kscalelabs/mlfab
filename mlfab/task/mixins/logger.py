@@ -10,6 +10,7 @@ from torch import Tensor
 
 from mlfab.core.conf import Device as BaseDeviceConfig, field
 from mlfab.core.state import State
+from mlfab.nn.parallel import is_master
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.logger import ChannelSelectMode, Logger, LoggerImpl, Number
 from mlfab.task.loggers.json import JsonLogger
@@ -47,12 +48,13 @@ class LoggerMixin(BaseTask[Config], Generic[Config]):
         self.logger.add_logger(*logger)
 
     def set_loggers(self) -> None:
-        self.add_logger(StdoutLogger() if is_interactive_session() else JsonLogger())
-        if isinstance(self, ArtifactsMixin):
-            self.add_logger(
-                StateLogger(self.exp_dir),
-                TensorboardLogger(self.exp_dir),
-            )
+        if is_master():
+            self.add_logger(StdoutLogger() if is_interactive_session() else JsonLogger())
+            if isinstance(self, ArtifactsMixin):
+                self.add_logger(
+                    StateLogger(self.exp_dir),
+                    TensorboardLogger(self.exp_dir),
+                )
 
     def write_logs(self, state: State) -> None:
         self.logger.write(state)
