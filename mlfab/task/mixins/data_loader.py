@@ -103,7 +103,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
         self,
         dataset: Dataset[Sample, Batch],
         phase: Phase,
-    ) -> Dataloader[Sample, Batch] | PytorchDataloader[Sample]:
+    ) -> Dataloader[Sample, Batch] | PytorchDataloader[Batch]:
         debugging = self.config.debug_dataloader
         if debugging:
             logger.warning("Parallel dataloaders disabled in debugging mode")
@@ -125,7 +125,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
         if self.config.use_pytorch_dataloader:
             return PytorchDataloader(
-                dataset=DatasetWrapper(dataset),
+                dataset=cast(DatasetWrapper[Batch, Batch], DatasetWrapper(dataset)),
                 num_workers=0 if debugging else cfg.num_workers,
                 collate_fn=dataset.collate,
                 batch_size=self.config.batch_size,
