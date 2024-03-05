@@ -13,6 +13,7 @@ import functools
 import logging
 import math
 import re
+import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
@@ -849,6 +850,37 @@ class Logger:
         self.clear()
         for logger in (logger for logger, should_log in zip(self.loggers, should_log) if should_log):
             logger.write(line)
+
+    def write_error_summary(self, error_summary: str) -> None:
+        summary = LogErrorSummary(error_summary)
+        for logger in self.loggers:
+            logger.write_error_summary(summary)
+
+    def write_error(self, message: str, location: str | None = None) -> None:
+        for logger in self.loggers:
+            logger.write_error(LogError(message, location))
+
+    def write_status(
+        self,
+        message: str,
+        filename: str | None = None,
+        lineno: int | None = None,
+        created: float | None = None,
+    ) -> None:
+        status = LogStatus(message, time.time() if created is None else created, filename, lineno)
+        for logger in self.loggers:
+            logger.write_status(status)
+
+    def write_ping(
+        self,
+        message: str,
+        filename: str | None = None,
+        lineno: int | None = None,
+        created: float | None = None,
+    ) -> None:
+        ping = LogPing(message, time.time() if created is None else created, filename, lineno)
+        for logger in self.loggers:
+            logger.write_ping(ping)
 
     def resolve_namespace(self, namespace: str | None = None) -> str:
         return "_".join([self.default_namespace if namespace is None else namespace] + NAMESPACE_STACK)
