@@ -19,6 +19,7 @@ import psutil
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
+from mlfab.nn.parallel import is_master
 from mlfab.task.base import BaseConfig
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
@@ -211,25 +212,31 @@ class CPUStatsMixin(ProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-        self._cpu_stats_monitor = CPUStatsMonitor(
-            ping_interval=self.config.cpu_stats.ping_interval,
-            manager=self._mp_manager,
-        )
+        self._cpu_stats_monitor: CPUStatsMonitor | None = None
+        if is_master():
+            self._cpu_stats_monitor = CPUStatsMonitor(
+                ping_interval=self.config.cpu_stats.ping_interval,
+                manager=self._mp_manager,
+            )
 
     def on_training_start(self, state: State) -> None:
         super().on_training_start(state)
 
-        self._cpu_stats_monitor.start()
+        if self._cpu_stats_monitor is not None:
+            self._cpu_stats_monitor.start()
 
     def on_training_end(self, state: State) -> None:
         super().on_training_end(state)
 
-        self._cpu_stats_monitor.stop()
+        if self._cpu_stats_monitor is not None:
+            self._cpu_stats_monitor.stop()
 
     def on_step_start(self, state: State) -> None:
         super().on_step_start(state)
 
-        monitor = self._cpu_stats_monitor
+        if (monitor := self._cpu_stats_monitor) is None:
+            return
+
         stats = monitor.get_if_set() if self.config.cpu_stats.only_log_once else monitor.get()
 
         if stats is not None:

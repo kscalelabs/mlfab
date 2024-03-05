@@ -17,12 +17,12 @@ from typing import Any, Generic, Iterator, Literal, Mapping, Sequence, TypeVar, 
 import numpy as np
 import torch
 from omegaconf import DictConfig
-from torch import Tensor
+from torch import Tensor, nn
 
 from mlfab.core.conf import field
 from mlfab.core.state import Phase, State
 from mlfab.nn.functions import recursive_chunk
-from mlfab.nn.parallel import is_master
+from mlfab.nn.parallel import ParallelConfig, dp, is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
@@ -36,10 +36,10 @@ from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
 from mlfab.utils.experiments import (
     StateTimer,
     TrainingFinishedError,
-    add_toast,
     get_git_state,
     get_training_code,
 )
+from mlfab.utils.logging import LOG_STATUS
 from mlfab.utils.text import highlight_exception_message, show_info
 
 logger = logging.getLogger(__name__)
@@ -98,9 +98,20 @@ class TrainConfig(
     batch_dim: int = field(0, help="The batch dimension, for splitting batches into chunks")
     max_steps: int | None = field(None, help="Maximum number of steps to run")
     step_kind: str = field("step", help=f"How to measure a step; one of [{', '.join(get_args(StepKind))}]")
+    parallel: ParallelConfig = field(ParallelConfig())
 
 
 Config = TypeVar("Config", bound=TrainConfig)
+
+
+class TrainableModule(nn.Module):
+    def __init__(self, mod: "TrainMixin") -> None:
+        super().__init__()
+
+        self.mod = mod
+
+    def forward(self, batch: Batch, state: State) -> Loss:
+        return self.mod.get_loss(batch, state)
 
 
 class TrainMixin(
@@ -300,7 +311,7 @@ class TrainMixin(
             for k, v in d.items():
                 self.log_scalar(k, v, namespace=ns)
 
-    def train_step(self, batches: Iterator[Batch], state: State) -> dict[str, Tensor]:
+    def train_step(self, mod: nn.Module, batches: Iterator[Batch], state: State) -> dict[str, Tensor]:
         with self.step_context("change_mode"):
             state.set_phase(self, "train")
         total_bsz: int | None = None
@@ -314,7 +325,7 @@ class TrainMixin(
                 if bsz is not None:
                     total_bsz = bsz if total_bsz is None else total_bsz + bsz
                 with self.step_context("forward"):
-                    loss = self.get_loss(batch, state)
+                    loss = mod(batch, state)
                 with self.step_context("get_single_loss"):
                     single_losses = self.get_single_losses(loss)
                 with self.step_context("backward"):
@@ -353,12 +364,12 @@ class TrainMixin(
                 state.num_samples += total_bsz
         return loss_dict
 
-    def val_step(self, batch: Batch, state: State) -> None:
+    def val_step(self, mod: nn.Module, batch: Batch, state: State) -> None:
         with torch.no_grad():
             with self.step_context("change_mode"):
                 state.set_phase(self, "valid")
             with self.step_context("forward"), self.autocast_context:
-                loss = self.get_loss(batch, state)
+                loss = mod(batch, state)
             with self.step_context("get_single_loss"):
                 single_losses = self.get_single_losses(loss)
             with self.step_context("log_losses"):
@@ -450,8 +461,8 @@ class TrainMixin(
         return False
 
     def log_state(self) -> None:
-        add_toast("status", self.task_path)
-        add_toast("info", self.task_name)
+        logger.log(LOG_STATUS, self.task_path)
+        logger.log(LOG_STATUS, self.task_name)
         self.logger.log_git_state(get_git_state(self))
         self.logger.log_training_code(get_training_code(self))
         self.logger.log_config(cast(DictConfig, self.config))
@@ -474,7 +485,9 @@ class TrainMixin(
         self.set_loggers()
 
         with self.step_context("model_to_device"):
-            self.device.module_to(self)
+            mod = TrainableModule(self)
+            self.device.module_to(mod)
+            mod = dp(mod, self.config.parallel)
 
         with self.step_context("create_optimizers"):
             self.set_optimizers()
@@ -539,12 +552,12 @@ class TrainMixin(
                         raise TrainingFinishedError
 
                     if self.is_valid_step(state):
-                        self.val_step(next(valid_pf_iter), state)
+                        self.val_step(mod, next(valid_pf_iter), state)
 
                     with self.step_context("on_step_start"):
                         self.on_step_start(state)
 
-                    loss_dict = self.train_step(batch_iterator(), state)
+                    loss_dict = self.train_step(mod, batch_iterator(), state)
 
                     if self.should_checkpoint(state):
                         with self.step_context("save_checkpoint"):

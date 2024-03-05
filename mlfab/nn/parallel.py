@@ -90,7 +90,7 @@ from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 from mlfab.core.conf import field, load_user_config
 from mlfab.nn.device.gpu import gpu_device
 from mlfab.nn.init import InitializationType, init_
-from mlfab.utils.logging import INFOALL, configure_logging
+from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import colored
 
 logger = logging.getLogger(__name__)
@@ -1174,7 +1174,7 @@ def init_process_group_from_backend(backend: str | dist.Backend | None = None) -
         backend = get_distributed_backend()
     init_method, world_size, rank = get_init_method(), get_world_size(), get_rank()
 
-    logger.log(INFOALL, "Initializing %d / %d using %s - %s", rank, world_size, init_method, backend)
+    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", rank, world_size, init_method, backend)
     dist.init_process_group(backend=backend, init_method=init_method, world_size=world_size, rank=rank)
 
     if gpu_device.has_device():

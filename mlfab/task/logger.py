@@ -29,6 +29,7 @@ from torchvision.transforms import InterpolationMode
 
 from mlfab.core.state import Phase, State
 from mlfab.utils.experiments import IntervalTicker
+from mlfab.utils.logging import LOG_ERROR_SUMMARY, LOG_PING, LOG_STATUS
 
 logger = logging.getLogger(__name__)
 
@@ -206,11 +207,13 @@ def standardize_images(
     Raises:
         ValueError: If the image shape is invalid
     """
-    if normalize and images.is_floating_point():
-        minv, maxv = _aminmax(images)
-        maxv.clamp_min_(1.0)
-        minv.clamp_max_(0.0)
-        images = torch.clamp((images.detach() - minv) / (maxv - minv), 0.0, 1.0)
+    if images.is_floating_point():
+        if normalize:
+            minv, maxv = _aminmax(images)
+            maxv.clamp_min_(1.0)
+            minv.clamp_max_(0.0)
+            images = torch.clamp((images.detach() - minv) / (maxv - minv), 0.0, 1.0)
+        images = images.float()
 
     if images.ndim == 3:
         images = images.unsqueeze(1)
@@ -627,6 +630,40 @@ class LogLine:
     point_cloud: dict[str, dict[str, LogPointCloud]]
 
 
+@dataclass
+class LogErrorSummary:
+    message: str
+
+
+@dataclass
+class LogError:
+    message: str
+    location: str | None = None
+
+    @property
+    def message_with_location(self) -> str:
+        message = self.message
+        if self.location is not None:
+            message += f" ({self.location})"
+        return message
+
+
+@dataclass
+class LogStatus:
+    message: str
+    created: float
+    filename: str | None = None
+    lineno: int | None = None
+
+
+@dataclass
+class LogPing:
+    message: str
+    created: float
+    filename: str | None = None
+    lineno: int | None = None
+
+
 class LoggerImpl(ABC):
     def __init__(self, log_interval_seconds: float = 1.0) -> None:
         """Defines some default behavior for loggers.
@@ -655,6 +692,34 @@ class LoggerImpl(ABC):
 
         Args:
             line: The line to write.
+        """
+
+    def write_error_summary(self, error_summary: LogErrorSummary) -> None:
+        """Handles writing an error summary.
+
+        Args:
+            error_summary: The error summary to write.
+        """
+
+    def write_error(self, error: LogError) -> None:
+        """Handles writing an error line.
+
+        Args:
+            error: The error information to write.
+        """
+
+    def write_status(self, status: LogStatus) -> None:
+        """Handles writing a status line.
+
+        Args:
+            status: The status to write.
+        """
+
+    def write_ping(self, ping: LogPing) -> None:
+        """Handles writing a ping line.
+
+        Args:
+            ping: The ping to write.
         """
 
     def log_git_state(self, git_state: str) -> None:
@@ -690,6 +755,40 @@ class LoggerImpl(ABC):
         return self.tickers[state.phase].tick(state.elapsed_time_s)
 
 
+class ToastHandler(logging.Handler):
+    def __init__(self, logger: "Logger") -> None:
+        super().__init__()
+
+        self.logger = logger
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            if record.levelno == LOG_ERROR_SUMMARY:
+                self.logger.write_error_summary(record.getMessage())
+            elif record.levelno == LOG_STATUS:
+                self.logger.write_status(record.getMessage(), record.filename, record.lineno)
+            elif record.levelno in (LOG_PING, logging.WARNING):
+                self.logger.write_ping(record.getMessage(), record.filename, record.lineno)
+            elif record.levelno in (logging.ERROR, logging.CRITICAL, logging.WARNING):
+                self.logger.write_error(record.getMessage(), f"{record.filename}:{record.lineno}")
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
+
+    def add_for_logger(self, logger: logging.Logger) -> None:
+        # Removes existing ToastHandler.
+        handlers_to_remove = []
+        for handler in logger.handlers:
+            if isinstance(handler, ToastHandler):
+                handlers_to_remove.append(handler)
+        for handler in handlers_to_remove:
+            logger.removeHandler(handler)
+
+        # Adds the new ToastHandler.
+        logger.addHandler(self)
+
+
 class Logger:
     """Defines an intermediate container which holds values to log somewhere else."""
 
@@ -703,6 +802,10 @@ class Logger:
         self.point_clouds: dict[str, dict[str, Callable[[], tuple[Tensor, Tensor | None]]]] = defaultdict(dict)
         self.default_namespace = default_namespace
         self.loggers: list[LoggerImpl] = []
+
+        # Registers a logging handler to route log messages to the logger.
+        root_logger = logging.getLogger()
+        ToastHandler(self).add_for_logger(root_logger)
 
     def add_logger(self, *logger: LoggerImpl) -> None:
         """Add the logger, so that it gets called when `write` is called.

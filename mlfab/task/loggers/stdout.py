@@ -1,7 +1,6 @@
 """Defines a logger that logs to stdout."""
 
 import datetime
-import functools
 import logging
 import sys
 from collections import deque
@@ -9,8 +8,7 @@ from typing import Any, Deque, TextIO
 
 from torch import Tensor
 
-from mlfab.task.logger import LoggerImpl, LogLine
-from mlfab.utils.experiments import ToastKind, Toasts
+from mlfab.task.logger import LogError, LogErrorSummary, LoggerImpl, LogLine, LogPing, LogStatus
 from mlfab.utils.text import Color, colored, format_timedelta
 
 
@@ -39,7 +37,6 @@ class StdoutLogger(LoggerImpl):
         log_perf: bool = False,
         log_optim: bool = False,
         log_fp: bool = False,
-        max_toasts: int = 5,
         log_interval_seconds: float = 1.0,
         remove_temporary_after: datetime.timedelta = datetime.timedelta(seconds=10),
     ) -> None:
@@ -52,7 +49,6 @@ class StdoutLogger(LoggerImpl):
             log_perf: Whether to log performance metrics.
             log_optim: Whether to log optimizer parameters.
             log_fp: Whether to log floating point parameters.
-            max_toasts: The maximum number of toasts to display.
             log_interval_seconds: The interval between successive log lines.
             remove_temporary_after: The time after which temporary toasts
                 are removed.
@@ -68,27 +64,17 @@ class StdoutLogger(LoggerImpl):
         self.remove_temporary_after = remove_temporary_after
         self.logger = logging.getLogger("stdout")
 
-        self.persistent_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque()
-        self.temporary_toast_queue: Deque[tuple[str, ToastKind, datetime.datetime]] = deque(maxlen=max_toasts)
-
-        Toasts.register_callback("error", functools.partial(self.handle_toast, persistent=False, kind="error"))
-        Toasts.register_callback("warning", functools.partial(self.handle_toast, persistent=False, kind="warning"))
-        Toasts.register_callback("info", functools.partial(self.handle_toast, persistent=False, kind="info"))
-        Toasts.register_callback("status", functools.partial(self.handle_toast, persistent=True, kind="status"))
+        self.statuses: Deque[tuple[str, datetime.datetime]] = deque()
+        self.pings: Deque[tuple[str, datetime.datetime]] = deque()
+        self.errors: Deque[tuple[str, datetime.datetime]] = deque()
+        self.error_summary: tuple[str, datetime.datetime] | None = None
 
     def start(self) -> None:
         return super().start()
 
     def stop(self) -> None:
-        self.write_queue_windows()
+        self.write_queues()
         return super().stop()
-
-    def handle_toast(self, msg: str, persistent: bool, kind: ToastKind) -> None:
-        current_time = datetime.datetime.now()
-        if persistent:
-            self.persistent_toast_queue.append((msg, kind, current_time))
-        else:
-            self.temporary_toast_queue.append((msg, kind, current_time))
 
     def write_separator(self) -> None:
         self.write_fp.write("\033[2J\033[H")
@@ -109,7 +95,8 @@ class StdoutLogger(LoggerImpl):
 
     def write_log_window(self, line: LogLine) -> None:
         namespace_to_lines: dict[str, dict[str, str]] = {}
-        for log in (line.scalars, line.strings):
+
+        def add_logs(log: dict[str, dict[str, Any]], namespace_to_lines: dict[str, dict[str, str]]) -> None:
             for namespace, values in log.items():
                 if not self.log_timers and namespace.startswith("⏰"):
                     continue
@@ -125,6 +112,8 @@ class StdoutLogger(LoggerImpl):
                     v_str = as_str(v, self.precision)
                     namespace_to_lines[namespace][k] = v_str
 
+        add_logs(line.scalars, namespace_to_lines)
+        add_logs(line.strings, namespace_to_lines)
         if not namespace_to_lines:
             return
 
@@ -134,39 +123,48 @@ class StdoutLogger(LoggerImpl):
             for k, v in lines.items():
                 self.write_fp.write(f" ↪ {k}: {v}\n")
 
-    def write_queue_window(self, title: str, q: Deque[tuple[str, ToastKind, datetime.datetime]], remove: bool) -> None:
+    def write_queue(self, title: str, q: Deque[tuple[str, datetime.datetime]], remove: bool, color: Color) -> None:
         if not q:
             return
 
-        def get_color(kind: ToastKind) -> Color:
-            match kind:
-                case "error":
-                    return "red"
-                case "warning":
-                    return "yellow"
-                case "info":
-                    return "cyan"
-                case "status":
-                    return "green"
-                case _:
-                    return "magenta"
-
         self.write_fp.write(f"\n{colored(title, 'grey', bold=True)}\n")
-        self.write_fp.write("\n".join(f" ✦ {colored(msg, get_color(kind))}" for msg, kind, _ in reversed(q)))
+        self.write_fp.write("\n".join(f" ✦ {colored(msg, color)}" for msg, _ in reversed(q)))
         self.write_fp.write("\n")
 
         if remove:
             now = datetime.datetime.now()
-            while q and now - q[0][2] > self.remove_temporary_after:
+            while q and now - q[0][1] > self.remove_temporary_after:
                 q.popleft()
 
-    def write_queue_windows(self) -> None:
-        self.write_queue_window("Status", self.persistent_toast_queue, False)
-        self.write_queue_window("Alerts", self.temporary_toast_queue, True)
+    def write_queues(self) -> None:
+        self.write_queue("Status", self.statuses, False, "green")
+        self.write_queue("Pings", self.pings, True, "cyan")
+        self.write_queue("Errors", self.errors, False, "red")
+
+    def write_error_summary_to_screen(self) -> None:
+        if self.error_summary is not None:
+            summary, timestamp = self.error_summary
+            timestamp_string = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            self.write_fp.write(f"\n{colored('Exception summary', 'grey', bold=True)}")
+            self.write_fp.write(f" {colored(timestamp_string, 'grey')}")
+            self.write_fp.write(f"\n{summary}")
 
     def write(self, line: LogLine) -> None:
         self.write_separator()
         self.write_state_window(line)
         self.write_log_window(line)
-        self.write_queue_windows()
+        self.write_queues()
+        self.write_error_summary_to_screen()
         sys.stdout.flush()
+
+    def write_error_summary(self, error_summary: LogErrorSummary) -> None:
+        self.error_summary = error_summary.message, datetime.datetime.now()
+
+    def write_error(self, error: LogError) -> None:
+        self.errors.append((error.message_with_location, datetime.datetime.now()))
+
+    def write_status(self, status: LogStatus) -> None:
+        self.statuses.append((status.message, datetime.datetime.now()))
+
+    def write_ping(self, ping: LogPing) -> None:
+        self.pings.append((ping.message, datetime.datetime.now()))

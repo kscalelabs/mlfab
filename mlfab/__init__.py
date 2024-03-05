@@ -219,7 +219,6 @@ __all__ = [
     "square_crop",
     "square_resize_crop",
     "upper_left_crop",
-    "add_toast",
     "check_md5",
     "check_sha256",
     "ensure_downloaded",
@@ -232,7 +231,6 @@ __all__ = [
     "write_gif",
     "ColoredFormatter",
     "configure_logging",
-    "configure_stream_logging",
     "TextBlock",
     "colored",
     "format_datetime",
@@ -250,7 +248,6 @@ __all__ = [
 
 __all__ += [
     "ActivationType",
-    "add_toast",
     "CollateMode",
     "EmbeddingKind",
     "NormType",
@@ -261,7 +258,6 @@ __all__ += [
     "RwkvAttentionState",
     "RwkvFeedForwardState",
     "RwkvState",
-    "Toasts",
 ]
 
 import os
@@ -479,7 +475,6 @@ NAME_MAP: dict[str, str] = {
     "square_crop": "utils.data.transforms",
     "square_resize_crop": "utils.data.transforms",
     "upper_left_crop": "utils.data.transforms",
-    "add_toast": "utils.experiments",
     "check_md5": "utils.experiments",
     "check_sha256": "utils.experiments",
     "ensure_downloaded": "utils.experiments",
@@ -492,7 +487,6 @@ NAME_MAP: dict[str, str] = {
     "write_gif": "utils.io",
     "ColoredFormatter": "utils.logging",
     "configure_logging": "utils.logging",
-    "configure_stream_logging": "utils.logging",
     "TextBlock": "utils.text",
     "colored": "utils.text",
     "format_datetime": "utils.text",
@@ -512,7 +506,6 @@ NAME_MAP: dict[str, str] = {
 NAME_MAP.update(
     {
         "ActivationType": "nn.activations",
-        "add_toast": "utils.experiments",
         "CollateMode": "utils.data.collate",
         "EmbeddingKind": "nn.embeddings",
         "NormType": "nn.norms",
@@ -523,7 +516,6 @@ NAME_MAP.update(
         "RwkvAttentionState": "nn.architectures.rwkv",
         "RwkvFeedForwardState": "nn.architectures.rwkv",
         "RwkvState": "nn.architectures.rwkv",
-        "Toasts": "utils.experiments",
     },
 )
 
@@ -758,8 +750,6 @@ if IMPORT_ALL or TYPE_CHECKING:
         upper_left_crop,
     )
     from mlfab.utils.experiments import (
-        Toasts,
-        add_toast,
         check_md5,
         check_sha256,
         ensure_downloaded,
@@ -770,7 +760,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         test_dataset,
     )
     from mlfab.utils.io import read_gif, write_gif
-    from mlfab.utils.logging import ColoredFormatter, configure_logging, configure_stream_logging
+    from mlfab.utils.logging import ColoredFormatter, configure_logging
     from mlfab.utils.text import (
         TextBlock,
         colored,

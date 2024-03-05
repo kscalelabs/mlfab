@@ -2,16 +2,24 @@
 
 import logging
 import math
+import socket
 import sys
-from typing import Callable, TextIO
 
 from mlfab.core.conf import load_user_config
-from mlfab.utils.experiments import ToastKind, Toasts
 from mlfab.utils.text import Color, color_parts, colored
 
 # Logging level to show on all ranks.
-INFOALL: int = logging.INFO + 1
-DEBUGALL: int = logging.DEBUG + 1
+LOG_INFO_ALL: int = logging.INFO + 1
+LOG_DEBUG_ALL: int = logging.DEBUG + 1
+
+# Show as a transient message.
+LOG_PING: int = logging.INFO + 2
+
+# Show as a persistent status message.
+LOG_STATUS: int = logging.INFO + 3
+
+# Reserved for error summary.
+LOG_ERROR_SUMMARY: int = logging.INFO + 4
 
 
 class RankFilter(logging.Filter):
@@ -26,12 +34,29 @@ class RankFilter(logging.Filter):
         self.rank = rank
 
         # Log using INFOALL to show on all ranks.
-        logging.addLevelName(INFOALL, "INFOALL")
-        logging.addLevelName(DEBUGALL, "DEBUGALL")
-        levels_to_log_all_ranks = (DEBUGALL, INFOALL, logging.CRITICAL, logging.ERROR, logging.WARNING)
-        self.log_all_ranks = {logging.getLevelName(level) for level in levels_to_log_all_ranks}
+        logging.addLevelName(LOG_INFO_ALL, "INFOALL")
+        logging.addLevelName(LOG_DEBUG_ALL, "DEBUGALL")
+        logging.addLevelName(LOG_PING, "PING")
+        logging.addLevelName(LOG_STATUS, "STATUS")
+        logging.addLevelName(LOG_ERROR_SUMMARY, "ERROR_SUMMARY")
+
+        self.log_all_ranks = {
+            logging.getLevelName(level)
+            for level in (
+                LOG_DEBUG_ALL,
+                LOG_INFO_ALL,
+                LOG_STATUS,
+                logging.CRITICAL,
+                logging.ERROR,
+                logging.WARNING,
+            )
+        }
+
+        self.log_no_ranks = {logging.getLevelName(level) for level in (LOG_ERROR_SUMMARY,)}
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelname in self.log_no_ranks:
+            return False
         if self.rank is None or self.rank == 0:
             return True
         if record.levelname in self.log_all_ranks:
@@ -55,6 +80,8 @@ class ColoredFormatter(logging.Formatter):
         "CRITICAL": "yellow",
         "FATAL": "red",
         "ERROR": "red",
+        "STATUS": "green",
+        "PING": "magenta",
     }
 
     def __init__(
@@ -66,13 +93,30 @@ class ColoredFormatter(logging.Formatter):
         use_color: bool = True,
     ) -> None:
         asc_start, asc_end = color_parts("grey")
-        message = "{levelname:^19s} " + asc_start + "{asctime}" + asc_end + " [{name}] {message}"
+        name_start, name_end = color_parts("blue", bold=True)
+
+        message_pre = [
+            "{levelname:^19s}",
+            asc_start,
+            "{asctime}",
+            asc_end,
+            " [",
+            name_start,
+            "{name}",
+            name_end,
+            "]",
+        ]
+        message_post = [" {message}"]
+
         if prefix is not None:
-            message = colored(prefix, "white") + " " + message
+            message_pre += [" ", colored(prefix, "magenta", bold=True)]
+
         if rank is not None or world_size is not None:
             assert rank is not None and world_size is not None
             digits = int(math.log10(world_size) + 1)
-            message = "[" + colored(f"{rank:>{digits}}", "blue", bold=True) + "] " + message
+            message_pre += [f" [{rank:0{digits}d}/{world_size}]"]
+        message = "".join(message_pre + message_post)
+
         super().__init__(message, style="{", datefmt="%Y-%m-%d %H:%M:%S")
 
         self.rank = rank
@@ -94,30 +138,7 @@ class ColoredFormatter(logging.Formatter):
         return logging.Formatter.format(self, record)
 
 
-class ToastHandler(logging.Handler):
-    def __init__(self) -> None:
-        super().__init__()
-
-        self.toasts = Toasts
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            match record.levelname:
-                case "ERROR":
-                    self.toasts.add("error", record)
-                case "WARNING":
-                    self.toasts.add("warning", record)
-                case "INFO" | "INFOALL":
-                    self.toasts.add("info", record)
-                case _:
-                    self.toasts.add("other", record)
-        except RecursionError:
-            raise
-        except Exception:
-            self.handleError(record)
-
-
-def configure_logging(*, rank: int | None = None, world_size: int | None = None) -> None:
+def configure_logging(prefix: str | None = None, *, rank: int | None = None, world_size: int | None = None) -> None:
     """Instantiates logging.
 
     This captures logs and reroutes them to the Toasts module, which is
@@ -133,28 +154,18 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
         assert rank is not None and world_size is not None
     root_logger = logging.getLogger()
 
-    # Removes any existing ToastHandler.
-    handlers_to_remove = []
-    for handler in root_logger.handlers:
-        if isinstance(handler, ToastHandler):
-            handlers_to_remove.append(handler)
-    for handler in handlers_to_remove:
-        root_logger.removeHandler(handler)
-
     config = load_user_config().logging
 
     # Captures warnings from the warnings module.
     logging.captureWarnings(True)
 
-    # stream_handler = logging.StreamHandler(sys.stdout)
-    # stream_handler.setFormatter(ColoredFormatter(rank=rank, world_size=world_size))
-    # stream_handler.addFilter(RankFilter(rank=rank))
+    filter = RankFilter(rank=rank)
 
-    toast_handler = ToastHandler()
-    toast_handler.addFilter(RankFilter(rank=rank))
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(ColoredFormatter(prefix=prefix, rank=rank, world_size=world_size))
+    stream_handler.addFilter(filter)
+    root_logger.addHandler(stream_handler)
 
-    # root_logger.addHandler(stream_handler)
-    root_logger.addHandler(toast_handler)
     root_logger.setLevel(logging._nameToLevel[config.log_level])
 
     # Avoid junk logs from other libraries.
@@ -164,34 +175,20 @@ def configure_logging(*, rank: int | None = None, world_size: int | None = None)
         logging.getLogger("torch").setLevel(logging.WARNING)
 
 
-def configure_stream_logging(
-    stream: TextIO = sys.stdout,
-    *,
-    rank: int | None = None,
-    world_size: int | None = None,
-) -> None:
-    """Configures logging to a stream.
+def port_is_busy(port: int) -> int:
+    """Checks whether a port is busy.
 
     Args:
-        stream: The stream to log to.
-        rank: The current rank, or None if not using multiprocessing
-        world_size: The total world size, or None if not using multiprocessing
+        port: The port to check.
+
+    Returns:
+        Whether the port is busy.
     """
-    configure_logging(rank=rank, world_size=world_size)
-
-    kinds: dict[ToastKind, Color] = {
-        "status": "green",
-        "info": "cyan",
-        "warning": "yellow",
-        "error": "red",
-        "other": "grey",
-    }
-
-    def get_callback(kind: ToastKind, color: Color) -> Callable[[str], None]:
-        def callback(msg: str) -> None:
-            stream.write(colored(kind, color) + ": " + msg + "\n")
-
-        return callback
-
-    for kind, color in kinds.items():
-        Toasts.register_callback(kind, get_callback(kind, color))
+    sock = socket.socket()
+    try:
+        sock.bind(("", port))
+        return False
+    except OSError:
+        return True
+    finally:
+        sock.close()

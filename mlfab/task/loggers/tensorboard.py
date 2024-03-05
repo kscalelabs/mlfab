@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from mlfab.core.state import Phase
 from mlfab.nn.parallel import is_master, port_is_busy
 from mlfab.task.logger import TARGET_FPS, LoggerImpl, LogLine
-from mlfab.utils.experiments import add_toast
+from mlfab.utils.logging import LOG_STATUS
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class TensorboardLogger(LoggerImpl):
                 line_str = line.decode("utf-8")
                 if line_str.startswith("TensorBoard"):
                     line_str = parse_url(make_localhost(line_str))
-                    add_toast("status", line_str)
+                    logger.log(LOG_STATUS, line_str)
                     break
                 lines.append(line_str)
             else:
