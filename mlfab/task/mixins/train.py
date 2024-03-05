@@ -517,45 +517,44 @@ class TrainMixin(
                 if (profile := self.get_profile()) is not None:
                     ctx.enter_context(profile)
 
+                def batch_splitter() -> Iterator[Batch]:
+                    for batch in train_pf:
+                        num_chunks = self.get_batch_chunks(state)
+                        yield from recursive_chunk(batch, num_chunks, dim=self.config.batch_dim)
+
+                train_pf_iter: Iterator = batch_splitter()
+                valid_pf_iter: Iterator = iter(valid_pf)
+
+                def batch_iterator() -> Iterator[Batch]:
+                    yield next(train_pf_iter)
+
+                    for _ in range(self.get_batches_per_step(state) - 1):
+                        try:
+                            yield next(train_pf_iter)
+                        except StopIteration:
+                            pass
+
                 while True:
+                    if self.is_training_over(state):
+                        raise TrainingFinishedError
 
-                    def batch_splitter() -> Iterator[Batch]:
-                        for batch in train_pf:
-                            num_chunks = self.get_batch_chunks(state)
-                            yield from recursive_chunk(batch, num_chunks, dim=self.config.batch_dim)
+                    if self.is_valid_step(state):
+                        self.val_step(next(valid_pf_iter), state)
 
-                    train_pf_iter: Iterator = batch_splitter()
+                    with self.step_context("on_step_start"):
+                        self.on_step_start(state)
 
-                    def batch_iterator() -> Iterator[Batch]:
-                        yield next(train_pf_iter)
+                    loss_dict = self.train_step(batch_iterator(), state)
 
-                        for _ in range(self.get_batches_per_step(state) - 1):
-                            try:
-                                yield next(train_pf_iter)
-                            except StopIteration:
-                                pass
+                    if self.should_checkpoint(state):
+                        with self.step_context("save_checkpoint"):
+                            self.save_checkpoint(state)
 
-                    while True:
-                        if self.is_training_over(state):
-                            raise TrainingFinishedError
+                    if profile is not None:
+                        profile.step()
 
-                        if self.is_valid_step(state):
-                            self.val_step(next(valid_pf), state)
-
-                        with self.step_context("on_step_start"):
-                            self.on_step_start(state)
-
-                        loss_dict = self.train_step(batch_iterator(), state)
-
-                        if self.should_checkpoint(state):
-                            with self.step_context("save_checkpoint"):
-                                self.save_checkpoint(state)
-
-                        if profile is not None:
-                            profile.step()
-
-                        with self.step_context("on_step_end"):
-                            self.on_step_end(state, loss_dict)
+                    with self.step_context("on_step_end"):
+                        self.on_step_end(state, loss_dict)
 
         except TrainingFinishedError:
             with self.step_context("save_checkpoint"):
