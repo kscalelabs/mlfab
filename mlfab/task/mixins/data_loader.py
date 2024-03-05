@@ -59,7 +59,7 @@ class DataloadersConfig(ProcessConfig, BaseConfig):
         help="Valid dataloader config",
     )
     debug_dataloader: bool = field(False, help="Debug dataloaders")
-    use_pytorch_dataloader: bool = field(False, help="If set, use PyTorch dataloaders")
+    use_pytorch_dataloader: bool = field(True, help="If set, use PyTorch dataloaders")
 
 
 Config = TypeVar("Config", bound=DataloadersConfig)
@@ -133,6 +133,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
                 prefetch_factor=cfg.host_prefetch_factor,
                 multiprocessing_context=self.multiprocessing_context,
                 worker_init_fn=self.pytorch_worker_init_fn,
+                pin_memory=not debugging,
             )
 
         else:
