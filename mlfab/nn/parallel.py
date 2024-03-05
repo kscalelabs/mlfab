@@ -1166,7 +1166,7 @@ class MultiProcessConfig:
     model_parallel_backend: str | None = field(None, help="The model parallel backend")
     pipeline_parallel_backend: str | None = field(None, help="The pipeline parallel backend")
     data_parallel_backend: str | None = field(None, help="The data parallel backend")
-    launch_method: str = field("forkserver", help="The launch method for multiprocessing")
+    launch_method: str = field("spawn", help="The launch method for multiprocessing")
 
 
 def init_process_group_from_backend(backend: str | dist.Backend | None = None) -> None:

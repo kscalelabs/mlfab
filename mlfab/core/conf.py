@@ -112,7 +112,7 @@ class Triton:
 class Experiment:
     default_random_seed: int = field(1337, help="The default random seed to use")
     max_workers: int = field(32, help="Maximum number of workers to use")
-    multiprocessing_start_method: str | None = field("spawn", help="The multiprocessing start method to use")
+    multiprocessing_start_method: str | None = field("forkserver", help="The multiprocessing start method to use")
 
 
 @dataclass
