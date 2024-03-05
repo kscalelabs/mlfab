@@ -16,10 +16,8 @@ import tempfile
 import textwrap
 import time
 import traceback
-from collections import defaultdict
-from logging import LogRecord
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal, TypeVar, cast, get_args
+from typing import Any, Callable, Iterable, Iterator, TypeVar, cast
 
 import git
 import torch
@@ -577,41 +575,6 @@ def get_training_code(obj: object) -> str:
             return f.read()
     except Exception:
         return traceback.format_exc()
-
-
-ToastKind = Literal["status", "info", "warning", "error", "other"]
-
-
-class _Toasts:
-    def __init__(self, max_width: int = 120) -> None:
-        self._max_width = max_width
-        self._callbacks: dict[ToastKind, list[Callable[[str], None]]] = defaultdict(list)
-
-    def register_callback(self, kind: ToastKind | None, callback: Callable[[str], None]) -> None:
-        if kind is None:
-            for kind in get_args(ToastKind):
-                self._callbacks[kind].append(callback)
-        else:
-            self._callbacks[kind].append(callback)
-
-    def render_record(self, record: LogRecord) -> str:
-        filename = record.filename
-        msg = f"{record.getMessage()} ({filename}:{record.lineno})"
-        return msg
-
-    def add(self, kind: ToastKind, text: str | LogRecord | Any) -> None:  # noqa: ANN401
-        if isinstance(text, LogRecord):
-            text = self.render_record(text)
-        elif not isinstance(text, str):
-            text = str(text)
-        for callback in self._callbacks[kind]:
-            callback(text)
-
-
-# Global singleton for registering all toasts.
-Toasts = _Toasts()
-
-add_toast = Toasts.add
 
 
 def test_dataset(

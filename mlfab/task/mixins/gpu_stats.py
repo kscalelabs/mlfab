@@ -19,6 +19,7 @@ from typing import Generic, Iterable, Pattern, TypeVar
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
+from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -223,7 +224,7 @@ class GPUStatsMixin(ProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
         super().__init__(config)
 
         self._gpu_stats_monitor: GPUStatsMonitor | None = None
-        if shutil.which("nvidia-smi") is not None:
+        if is_master() and shutil.which("nvidia-smi") is not None:
             self._gpu_stats_monitor = GPUStatsMonitor(config.gpu_stats.ping_interval, self._mp_manager)
 
     def on_training_start(self, state: State) -> None:
