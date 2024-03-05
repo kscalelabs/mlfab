@@ -8,6 +8,7 @@ import torch
 
 from mlfab.core.conf import load_user_config
 from mlfab.nn.device.base import base_device
+from mlfab.nn.parallel import get_rank
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class gpu_device(base_device):  # noqa: N801
 
     @functools.lru_cache(maxsize=None)
     def _get_device(self) -> torch.device:
-        return torch.device("cuda")
+        return torch.device("cuda", get_rank())
 
     @functools.lru_cache(maxsize=None)
     def _get_floating_point_type(self) -> torch.dtype:

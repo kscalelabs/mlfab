@@ -88,7 +88,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
-from mlfab.nn.device.gpu import gpu_device
 from mlfab.nn.init import InitializationType, init_
 from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import colored
@@ -1091,7 +1090,7 @@ def port_is_busy(port: int) -> int:
 
 
 def get_device_count(default: int) -> int:
-    return torch.cuda.device_count() if gpu_device.has_device() else 1
+    return torch.cuda.device_count() if torch.cuda.is_available() else default
 
 
 OmegaConf.register_new_resolver("mlfab.device_count", get_device_count, replace=True)
@@ -1177,12 +1176,12 @@ def init_process_group_from_backend(backend: str | dist.Backend | None = None) -
     logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", rank, world_size, init_method, backend)
     dist.init_process_group(backend=backend, init_method=init_method, world_size=world_size, rank=rank)
 
-    if gpu_device.has_device():
+    if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         torch.cuda.set_device(rank % device_count)
 
     logger.info("Initialized process group; running dummy all-reduce")
-    dist.all_reduce(torch.zeros(1, device="cuda" if gpu_device.has_device() else "cpu"))
+    dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
     logger.info("Dummy all-reduce succeeded")
 
 
@@ -1214,7 +1213,7 @@ def init_dist(
 
 @functools.lru_cache(maxsize=None)
 def default_backend() -> str:
-    if gpu_device.has_device():
+    if torch.cuda.is_available():
         return "nccl"
     return "gloo"
 
