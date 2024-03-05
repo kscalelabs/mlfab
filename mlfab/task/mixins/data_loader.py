@@ -2,12 +2,13 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, Self, TypeVar
 
 from dpshdl.dataloader import Dataloader
 from dpshdl.dataset import Dataset, ErrorHandlingDataset
 from omegaconf import II, MISSING
 from torch.utils.data.dataloader import DataLoader as PytorchDataloader
+from torch.utils.data.dataset import IterableDataset as PytorchIterableDataset
 
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
@@ -20,6 +21,23 @@ logger = logging.getLogger(__name__)
 
 Sample = TypeVar("Sample")
 Batch = TypeVar("Batch")
+
+T = TypeVar("T")
+Tc = TypeVar("Tc")
+
+
+class DatasetWrapper(PytorchIterableDataset[T], Generic[T, Tc]):
+    def __init__(self, dataset: Dataset[T, Tc]) -> None:
+        super().__init__()
+
+        self.dataset = dataset
+
+    def __iter__(self) -> Self:
+        self.dataset.__iter__()
+        return self
+
+    def __next__(self) -> T:
+        return self.dataset.next()
 
 
 @dataclass
@@ -107,7 +125,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
         if self.config.use_pytorch_dataloader:
             return PytorchDataloader(
-                dataset=dataset,  # type: ignore[arg-type]
+                dataset=DatasetWrapper(dataset),
                 num_workers=0 if debugging else cfg.num_workers,
                 collate_fn=dataset.collate,
                 batch_size=self.config.batch_size,
