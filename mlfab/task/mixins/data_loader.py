@@ -11,6 +11,7 @@ from omegaconf import II, MISSING
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
 from mlfab.nn.functions import set_random_seed
+from mlfab.nn.parallel import get_rank, get_world_size
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -118,8 +119,10 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
     @classmethod
     def data_worker_init_fn(cls, worker_id: int, num_workers: int) -> None:
-        set_random_seed(offset=worker_id + 1)
+        rank, world_size = get_rank(), get_world_size()
+        set_random_seed(offset=(worker_id + 1) * world_size + rank)
 
     @classmethod
     def collate_worker_init_fn(cls) -> None:
-        set_random_seed(offset=0)
+        rank = get_rank()
+        set_random_seed(offset=rank)
