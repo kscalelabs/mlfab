@@ -3,10 +3,16 @@
 import functools
 import logging
 from dataclasses import dataclass
+<<<<<<< Updated upstream
 from typing import Generic, TypeVar
+=======
+from typing import Generic, TypeVar, Iterator
+>>>>>>> Stashed changes
 
 from dpshdl.dataloader import Dataloader
 from dpshdl.dataset import Dataset, ErrorHandlingDataset
+from torch.utils.data.dataset import IterableDataset
+from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 from omegaconf import II, MISSING
 
 from mlfab.core.conf import field, is_missing, load_user_config
@@ -24,6 +30,22 @@ T = TypeVar("T")
 Tc = TypeVar("Tc")
 
 
+<<<<<<< Updated upstream
+=======
+class DatasetAdapter(IterableDataset[Tc], Generic[T, Tc]):
+    def __init__(self, ds: Dataset[T, Tc]) -> None:
+        super().__init__()
+
+        self.ds = ds
+
+    def __iter__(self) -> Iterator[Tc]:
+        return self
+
+    def __next__(self) -> Tc:
+        return self.ds.next()
+
+
+>>>>>>> Stashed changes
 @dataclass
 class DataloaderConfig:
     num_workers: int = field(MISSING, help="Number of workers for loading samples")
@@ -42,6 +64,7 @@ class DataloadersConfig(ProcessConfig, BaseConfig):
         help="Valid dataloader config",
     )
     debug_dataloader: bool = field(False, help="Debug dataloaders")
+    use_pytorch_dataloader: bool = field(False, help="Use PyTorch dataloaders")
 
 
 Config = TypeVar("Config", bound=DataloadersConfig)
@@ -114,7 +137,6 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
             mp_manager=None if debugging or cfg.num_workers < 1 else self.multiprocessing_manager,
             collate_worker_init_fn=self.collate_worker_init_fn,
             dataloader_worker_init_fn=self.data_worker_init_fn,
-            post_collate_fn=functools.partial(recursive_from_numpy, pin_memory=not debugging),
         )
 
     @classmethod

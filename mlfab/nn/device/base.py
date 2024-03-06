@@ -90,9 +90,9 @@ class base_device(ABC):  # noqa: N801
 
     def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc, Tc]:
         if isinstance(dataloader, Dataloader):
-            return Prefetcher(self.sample_to_device, dataloader)
+            return Prefetcher(functools.partial(self.sample_to_device, pin_memory=True), dataloader)
         if isinstance(dataloader, PytorchDataloader):
-            return Prefetcher(self.sample_to_device, iter(dataloader))
+            return Prefetcher(functools.partial(self.sample_to_device, pin_memory=True), iter(dataloader))
         raise NotImplementedError(f"Unsupported dataloader type: {type(dataloader)}")
 
     def module_to(self, module: nn.Module, with_dtype: bool = False) -> None:
