@@ -1,6 +1,5 @@
 """Defines a mixin for instantiating dataloaders."""
 
-import functools
 import logging
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -11,7 +10,7 @@ from omegaconf import II, MISSING
 
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
-from mlfab.nn.functions import recursive_from_numpy, set_random_seed
+from mlfab.nn.functions import set_random_seed
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -42,6 +41,7 @@ class DataloadersConfig(ProcessConfig, BaseConfig):
         help="Valid dataloader config",
     )
     debug_dataloader: bool = field(False, help="Debug dataloaders")
+    use_pytorch_dataloader: bool = field(False, help="Use PyTorch dataloaders")
 
 
 Config = TypeVar("Config", bound=DataloadersConfig)
@@ -114,7 +114,6 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
             mp_manager=None if debugging or cfg.num_workers < 1 else self.multiprocessing_manager,
             collate_worker_init_fn=self.collate_worker_init_fn,
             dataloader_worker_init_fn=self.data_worker_init_fn,
-            post_collate_fn=functools.partial(recursive_from_numpy, pin_memory=not debugging),
         )
 
     @classmethod
