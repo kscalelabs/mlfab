@@ -15,6 +15,7 @@ from torch.nn.common_types import _size_1_t
 from mlfab.core.conf import load_user_config
 from mlfab.nn.activations import ActivationType, get_activation
 from mlfab.nn.norms import NormType, get_norm_1d
+from mlfab.nn.parallel import get_rank, get_world_size
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -102,7 +103,8 @@ def recursive_chunk(item: Any, num_chunks: int, dim: int = 0) -> Iterable[Any]: 
 def set_random_seed(seed: int | None = None, offset: int = 0) -> None:
     if seed is None:
         seed = load_user_config().experiment.default_random_seed
-    seed += offset
+    rank, world_size = get_rank(), get_world_size()
+    seed += offset * world_size + rank
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
