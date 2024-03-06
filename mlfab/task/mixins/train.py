@@ -519,7 +519,7 @@ class TrainMixin(
             self.save_checkpoint(state)
 
         # Handle user-defined interrupts during the training loop.
-        self.add_signal_handler(on_exit, signal.SIGUSR1, signal.SIGTERM)
+        self.add_signal_handler(on_exit, signal.SIGUSR1)
 
         try:
             with contextlib.ExitStack() as ctx:
