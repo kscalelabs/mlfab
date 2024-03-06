@@ -1,23 +1,16 @@
 """Defines a mixin for instantiating dataloaders."""
 
-import functools
 import logging
 from dataclasses import dataclass
-<<<<<<< Updated upstream
 from typing import Generic, TypeVar
-=======
-from typing import Generic, TypeVar, Iterator
->>>>>>> Stashed changes
 
 from dpshdl.dataloader import Dataloader
 from dpshdl.dataset import Dataset, ErrorHandlingDataset
-from torch.utils.data.dataset import IterableDataset
-from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 from omegaconf import II, MISSING
 
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
-from mlfab.nn.functions import recursive_from_numpy, set_random_seed
+from mlfab.nn.functions import set_random_seed
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -30,22 +23,6 @@ T = TypeVar("T")
 Tc = TypeVar("Tc")
 
 
-<<<<<<< Updated upstream
-=======
-class DatasetAdapter(IterableDataset[Tc], Generic[T, Tc]):
-    def __init__(self, ds: Dataset[T, Tc]) -> None:
-        super().__init__()
-
-        self.ds = ds
-
-    def __iter__(self) -> Iterator[Tc]:
-        return self
-
-    def __next__(self) -> Tc:
-        return self.ds.next()
-
-
->>>>>>> Stashed changes
 @dataclass
 class DataloaderConfig:
     num_workers: int = field(MISSING, help="Number of workers for loading samples")
