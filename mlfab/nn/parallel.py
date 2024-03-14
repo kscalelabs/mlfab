@@ -1267,7 +1267,6 @@ def _func_wrapped(
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
-    print("===================== HERE!")
     try:
         if setup is not None:
             setup()

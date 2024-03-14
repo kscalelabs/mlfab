@@ -80,6 +80,9 @@ def test_e2e_training(tmpdir: Path) -> None:
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
 
+    # Make sure a checkpoint was saved.
+    assert (exp_dir / "checkpoints" / "ckpt.pt").exists()
+
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
@@ -108,6 +111,9 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
+
+    # Make sure a checkpoint was saved.
+    assert (exp_dir / "checkpoints" / "ckpt.pt").exists()
 
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)
