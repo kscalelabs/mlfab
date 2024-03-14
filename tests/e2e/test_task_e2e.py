@@ -66,17 +66,25 @@ def test_e2e_training(tmpdir: Path) -> None:
 
     mlfab.configure_logging()
 
-    DummyTask.launch(
-        Config(
-            num_layers=2,
-            batch_size=2,
-            train_dl=mlfab.DataloaderConfig(
-                num_workers=0,
-            ),
-            max_steps=10,
+    config = Config(
+        num_layers=2,
+        batch_size=2,
+        train_dl=mlfab.DataloaderConfig(
+            num_workers=0,
         ),
-        use_cli=False,
+        max_steps=10,
     )
+
+    DummyTask.launch(config, use_cli=False)
+
+    exp_dir = tmpdir / "dummy_task" / "run_0"
+    assert exp_dir.exists()
+
+    # Run from the same experiment directory.
+    config.exp_dir = str(exp_dir)
+    config.max_steps = 20
+
+    DummyTask.launch(config, use_cli=False)
 
 
 @pytest.mark.slow

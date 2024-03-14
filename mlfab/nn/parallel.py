@@ -1267,6 +1267,7 @@ def _func_wrapped(
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
+    print("===================== HERE!")
     try:
         if setup is not None:
             setup()
@@ -1281,6 +1282,13 @@ def _func_wrapped(
         sys.exit(1)
 
     error_queue.put(None)
+
+
+def cleanup() -> None:
+    if dist.GroupMember.WORLD is not None:
+        dist.destroy_process_group()
+    clear_dist()
+    reset_parallelism()
 
 
 def launch_subprocesses(
@@ -1314,6 +1322,7 @@ def launch_subprocesses(
     if cfg.world_size <= 1:
         cfg.rank = 0
         init_and_run(func, cfg, *args, **kwargs)
+        cleanup()
         return
 
     logger.info("Launching %d training workers", cfg.world_size)
@@ -1346,10 +1355,7 @@ def launch_subprocesses(
         if error:
             raise RuntimeError(f"Process {rank} failed with error:\n{error}")
 
-    if dist.GroupMember.WORLD is not None:
-        dist.destroy_process_group()
-    clear_dist()
-    reset_parallelism()
+    cleanup()
 
 
 class _AllToAll(Function):
