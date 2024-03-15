@@ -74,7 +74,7 @@ class TensorboardLogger(LoggerImpl):
             return
 
         if is_master():
-            threading.Thread(target=self.worker_thread, daemon=True).start()
+            threading.Thread(target=self.worker_thread, daemon=False).start()
 
         self._started = True
 
@@ -82,6 +82,9 @@ class TensorboardLogger(LoggerImpl):
         time.sleep(self.wait_seconds)
 
         port = int(os.environ.get("TENSORBOARD_PORT", DEFAULT_TENSORBOARD_PORT))
+        if port < 1:
+            logger.warning("Tensorboard is disabled because TENSORBOARD_PORT is not positive")
+            return
 
         while port_is_busy(port):
             logger.warning(f"Port {port} is busy, waiting...")

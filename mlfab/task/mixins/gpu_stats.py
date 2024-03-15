@@ -6,14 +6,15 @@ This logs GPU memory and utilization in a background process using
 
 import functools
 import logging
-import multiprocessing as mp
 import os
 import re
 import shutil
 import subprocess
 from ctypes import Structure, c_double, c_uint32
 from dataclasses import dataclass
+from multiprocessing.context import DefaultContext, ForkContext, ForkServerContext, SpawnContext
 from multiprocessing.managers import SyncManager, ValueProxy
+from multiprocessing.process import BaseProcess
 from multiprocessing.synchronize import Event
 from typing import Generic, Iterable, Pattern, TypeVar
 
@@ -24,6 +25,8 @@ from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+Context = DefaultContext | ForkServerContext | SpawnContext | ForkContext
 
 
 @dataclass
@@ -148,8 +151,9 @@ def worker(
 
 
 class GPUStatsMonitor:
-    def __init__(self, ping_interval: float, manager: SyncManager) -> None:
+    def __init__(self, ping_interval: float, context: Context, manager: SyncManager) -> None:
         self._ping_interval = ping_interval
+        self._ctx = context
         self._manager = manager
 
         num_gpus = get_num_gpus()
@@ -170,7 +174,7 @@ class GPUStatsMonitor:
             for i in range(num_gpus)
         ]
         self._gpu_stats: dict[int, GPUStatsInfo] = {}
-        self._proc: mp.Process | None = None
+        self._proc: BaseProcess | None = None
 
     def get_if_set(self) -> dict[int, GPUStatsInfo]:
         gpu_stats: dict[int, GPUStatsInfo] = {}
@@ -197,10 +201,10 @@ class GPUStatsMonitor:
         if self._start_event.is_set():
             self._start_event.clear()
         self._gpu_stats.clear()
-        self._proc = mp.Process(
+        self._proc = self._ctx.Process(
             target=worker,
             args=(self._ping_interval, self._smems, self._main_event, self._events, self._start_event),
-            daemon=True,
+            daemon=False,
             name="mlfab-gpu-stats",
         )
         self._proc.start()
@@ -225,7 +229,11 @@ class GPUStatsMixin(ProcessMixin[Config], LoggerMixin[Config], Generic[Config]):
 
         self._gpu_stats_monitor: GPUStatsMonitor | None = None
         if is_master() and shutil.which("nvidia-smi") is not None:
-            self._gpu_stats_monitor = GPUStatsMonitor(config.gpu_stats.ping_interval, self._mp_manager)
+            self._gpu_stats_monitor = GPUStatsMonitor(
+                ping_interval=config.gpu_stats.ping_interval,
+                context=self.multiprocessing_context,
+                manager=self.multiprocessing_manager,
+            )
 
     def on_training_start(self, state: State) -> None:
         super().on_training_start(state)

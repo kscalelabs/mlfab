@@ -11,6 +11,7 @@ from omegaconf import II, MISSING
 from mlfab.core.conf import field, is_missing, load_user_config
 from mlfab.core.state import Phase
 from mlfab.nn.functions import set_random_seed
+from mlfab.nn.parallel import get_rank
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 
@@ -106,14 +107,20 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
         cfg = self.dataloader_config(phase)
 
+        # Creates a globally unique name for each dataloader.
+        rank = get_rank()
+        name = f"{phase}-{rank}"
+
         return Dataloader(
             dataset=dataset,
             num_workers=0 if debugging else cfg.num_workers,
             batch_size=self.config.batch_size,
             prefetch_factor=cfg.prefetch_factor,
+            mp_context=None if debugging or cfg.num_workers < 1 else self.multiprocessing_context,
             mp_manager=None if debugging or cfg.num_workers < 1 else self.multiprocessing_manager,
             collate_worker_init_fn=self.collate_worker_init_fn,
             dataloader_worker_init_fn=self.data_worker_init_fn,
+            name=name,
         )
 
     @classmethod

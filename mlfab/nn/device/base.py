@@ -10,7 +10,6 @@ import torch
 from dpshdl.dataloader import Dataloader
 from dpshdl.prefetcher import Prefetcher
 from torch import Tensor, nn
-from torch.utils.data.dataloader import DataLoader as PytorchDataloader
 
 from mlfab.core.conf import load_user_config, parse_dtype
 from mlfab.nn.functions import recursive_apply, recursive_from_numpy
@@ -78,7 +77,7 @@ class base_device(ABC):  # noqa: N801
             return dtype
         return self._get_floating_point_type()
 
-    def sample_to_device(self, sample: Tc, pin_memory: bool = False) -> Tc:
+    def sample_to_device(self, sample: Tc, pin_memory: bool = True) -> Tc:
         return recursive_apply(
             recursive_from_numpy(sample, pin_memory=pin_memory),
             lambda t: t.to(
@@ -89,11 +88,7 @@ class base_device(ABC):  # noqa: N801
         )
 
     def get_prefetcher(self, dataloader: Dataloader[T, Tc]) -> Prefetcher[Tc, Tc]:
-        if isinstance(dataloader, Dataloader):
-            return Prefetcher(functools.partial(self.sample_to_device, pin_memory=True), dataloader)
-        if isinstance(dataloader, PytorchDataloader):
-            return Prefetcher(functools.partial(self.sample_to_device, pin_memory=True), iter(dataloader))
-        raise NotImplementedError(f"Unsupported dataloader type: {type(dataloader)}")
+        return Prefetcher(self.sample_to_device, dataloader)
 
     def module_to(self, module: nn.Module, with_dtype: bool = False) -> None:
         if with_dtype:
