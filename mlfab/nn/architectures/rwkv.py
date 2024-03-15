@@ -724,13 +724,12 @@ class NextTokenWithEmbeddingsRwkv(nn.Module):
     def infer(
         self,
         emb_btc: Tensor,
-        bsz: int = 1,
         sampling_strategy: SamplingStrategy = "top-p",
         k: int | None = None,
         p: float | None = 0.95,
         temperature: float = 1.0,
     ) -> Tensor:
-        x_b1c: Tensor = self.init_emb.expand(bsz, 1, -1)
+        x_b1c: Tensor = self.init_emb.expand(emb_btc.size(0), 1, -1)
         x_b1c = x_b1c + emb_btc[:, :1]
         x_b1c, state = self.rwkv(x_b1c)
         logits_b1l = self.proj(x_b1c)
