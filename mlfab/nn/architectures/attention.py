@@ -58,6 +58,8 @@ from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
+SamplingStrategy = Literal["top-p", "top-k", "greedy"]
+
 
 def _bool_mask_as_dtype(mask: Tensor, dtype: torch.dtype | None) -> Tensor:
     if dtype == torch.bool:
@@ -261,129 +263,141 @@ class MultiheadAttention(nn.Module):
 
     def forward_matmuls(
         self,
-        query: Tq,
-        key: Tk,
-        value: Tv,
-        rotary_q: Tensor | None = None,
-        rotary_k: Tensor | None = None,
+        query_bqc: Tq,
+        key_bkc: Tk,
+        value_bkc: Tv,
+        rotary_q_2qc: Tensor | None = None,
+        rotary_k_2kc: Tensor | None = None,
     ) -> tuple[Tq, Tk, Tv]:
         # Gets the query, key, and value weights and biases.
-        qkw_splits = (self.embed_dim, self.kv_embed_dim, self.kv_embed_dim)
+        splits = (self.embed_dim, self.kv_embed_dim, self.kv_embed_dim)
         if self._qkv_same_embed_dim:
-            qw, kw, vw = self.in_proj_weight.split(qkw_splits, dim=0)
+            qw_cc, kw_cc, vw_cc = self.in_proj_weight.split(splits, dim=0)
         else:
-            qw, kw, vw = self.q_proj_weight, self.k_proj_weight, self.v_proj_weight
-        qb, kb, vb = (None, None, None) if self.in_proj_bias is None else self.in_proj_bias.split(qkw_splits, dim=0)
+            qw_cc, kw_cc, vw_cc = self.q_proj_weight, self.k_proj_weight, self.v_proj_weight
+        qb_c, kb_c, vb_c = (None, None, None) if self.in_proj_bias is None else self.in_proj_bias.split(splits, dim=0)
 
         # Computes the query projection.
-        if query is None:
-            xq = None
+        if query_bqc is None:
+            xq_bghqd = None
         else:
-            assert query.dim() == 3
-            xq = F.linear(query, qw, qb)
-            xq = xq.unflatten(-1, (self.gqa_factor, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
-            if rotary_q is not None:
-                xq = apply_rotary_embeddings(xq.flatten(0, 2), rotary_q).view(xq.shape)
+            assert query_bqc.dim() == 3
+            xq_bqc = F.linear(query_bqc, qw_cc, qb_c)
+            xq_bghqd = xq_bqc.unflatten(-1, (self.gqa_factor, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
+            if rotary_q_2qc is not None:
+                xq_bghqd = apply_rotary_embeddings(xq_bghqd.flatten(0, 2), rotary_q_2qc).view(xq_bghqd.shape)
 
         # Computes the key projection.
-        if key is None:
-            xk = None
+        if key_bkc is None:
+            xk_bghkd = None
         else:
-            assert key.dim() == 3
-            xk = F.linear(key, kw, kb)
-            xk = xk.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
-            if rotary_k is not None:
-                xk = apply_rotary_embeddings(xk.flatten(0, 2), rotary_k).view(xk.shape)
+            assert key_bkc.dim() == 3
+            xk_bkc = F.linear(key_bkc, kw_cc, kb_c)
+            xk_bghkd = xk_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
+            if rotary_k_2kc is not None:
+                xk_bghkd = apply_rotary_embeddings(xk_bghkd.flatten(0, 2), rotary_k_2kc).view(xk_bghkd.shape)
 
         # Computes the value projection.
-        if value is None:
-            xv = None
+        if value_bkc is None:
+            xv_bghkd = None
         else:
-            assert value.dim() == 3
-            xv = F.linear(value, vw, vb)
-            xv = xv.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
+            assert value_bkc.dim() == 3
+            xv_bkc = F.linear(value_bkc, vw_cc, vb_c)
+            xv_bghkd = xv_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
 
-        return xq, xk, xv
+        return xq_bghqd, xk_bghkd, xv_bghkd
 
     def forward_attn(
         self,
-        xq: Tensor,
-        xk: Tensor,
-        xv: Tensor,
+        xq_bghqd: Tensor,
+        xk_bghkd: Tensor,
+        xv_bghkd: Tensor,
         is_causal: bool = False,
-        mask: Tensor | None = None,
+        mask_bqk: Tensor | None = None,
     ) -> Tensor:
         # Computes attention
         dropout = self.dropout if self.training else 0.0
-        if mask is None:
-            xo = F.scaled_dot_product_attention(xq, xk, xv, dropout_p=dropout, is_causal=is_causal)
+        if mask_bqk is None:
+            xo_bghqc = F.scaled_dot_product_attention(
+                xq_bghqd,
+                xk_bghkd,
+                xv_bghkd,
+                dropout_p=dropout,
+                is_causal=is_causal,
+            )
         else:
-            xo = F.scaled_dot_product_attention(xq, xk, xv, attn_mask=mask[:, None, None], dropout_p=dropout)
+            xo_bghqc = F.scaled_dot_product_attention(
+                xq_bghqd,
+                xk_bghkd,
+                xv_bghkd,
+                attn_mask=mask_bqk[:, None, None],
+                dropout_p=dropout,
+            )
 
-        # Flattens (B, G, H, T, C) -> (B, T, G * H * C)
-        xo = xo.permute(0, 3, 1, 2, 4).flatten(2)
+        # Flattens (B, G, H, Tq, C) -> (B, Tq, G * H * C)
+        xo_bqc = xo_bghqc.permute(0, 3, 1, 2, 4).flatten(2)
 
         # Applies output projection
-        xo = self.out_proj(xo)
+        xo_bqc = self.out_proj(xo_bqc)
 
-        return xo
+        return xo_bqc
 
     def forward(
         self,
-        query: Tensor,
-        key: Tensor,
-        value: Tensor,
+        query_bqc: Tensor,
+        key_bkc: Tensor,
+        value_bkc: Tensor,
         is_causal: bool = False,
-        rotary_q: Tensor | None = None,
-        rotary_k: Tensor | None = None,
+        rotary_q_2qc: Tensor | None = None,
+        rotary_k_2kc: Tensor | None = None,
         mask: Tensor | None = None,
     ) -> Tensor:
-        xq, xk, xv = self.forward_matmuls(query, key, value, rotary_q, rotary_k)
-        xo = self.forward_attn(xq, xk, xv, is_causal, mask)
+        xq_bghqd, xk_bghkd, xv_bghkd = self.forward_matmuls(query_bqc, key_bkc, value_bkc, rotary_q_2qc, rotary_k_2kc)
+        xo = self.forward_attn(xq_bghqd, xk_bghkd, xv_bghkd, is_causal, mask)
         return xo
 
     def get_attn_matrix(
         self,
-        xq: Tensor,
-        xk: Tensor,
+        xq_bghqc: Tensor,
+        xk_bghkc: Tensor,
         is_causal: bool = False,
-        mask: Tensor | None = None,
+        mask_bqk: Tensor | None = None,
     ) -> Tensor:
         """Computes the attention matrix for a given query and key.
 
         This function can be used for visualization purposes.
 
         Args:
-            xq: The query embeddings, with shape ``(B, G, H, Tq, C)``
-            xk: The key embeddings, with shape ``(B, G, H, Tk, C)``
+            xq_bghqc: The query embeddings, with shape ``(B, G, H, Tq, C)``
+            xk_bghkc: The key embeddings, with shape ``(B, G, H, Tk, C)``
             state: The previous state tensor.
             is_causal: Whether to apply a causal mask to the attention matrix.
                 In this function, unlike in the forward pass, the mask is
                 explicitly created if not provided.
-            mask: The attention mask, of shape ``(B, Tq, Tk)``. If ``None``,
-                don't apply an attention mask.
+            mask_bqk: The attention mask, of shape ``(B, Tq, Tk)``. If
+                ``None``, don't apply an attention mask.
 
         Returns:
             The attention matrix, of shape ``(B, G, H, Tq, Tk)``.
         """
         # Computes the unnormalized attention scores.
-        attn = torch.einsum("bghqc,bghkc->bghqk", xq, xk)
+        attn_bghqk = torch.einsum("bghqc,bghkc->bghqk", xq_bghqc, xk_bghkc)
 
         # Applies a causal mask.
         if is_causal:
-            tsz_q, tsz_k, device, dtype = attn.size(-2), attn.size(-1), attn.device, attn.dtype
-            causal_mask = get_attention_mask("causal", tsz_q=tsz_q, tsz_k=tsz_k, device=device, dtype=dtype)
-            causal_mask = causal_mask.expand(attn.size(0), *causal_mask.shape)
-            attn = attn + causal_mask[:, None, None]
+            tsz_q, tsz_k, device, dtype = attn_bghqk.size(-2), attn_bghqk.size(-1), attn_bghqk.device, attn_bghqk.dtype
+            causal_mask_bqk = get_attention_mask("causal", tsz_q=tsz_q, tsz_k=tsz_k, device=device, dtype=dtype)
+            causal_mask_bqk = causal_mask_bqk.expand(attn_bghqk.size(0), *causal_mask_bqk.shape)
+            attn_bghqk = attn_bghqk + causal_mask_bqk[:, None, None]
 
         # Applies the additional attention mask, if provided.
-        if mask is not None:
-            attn = attn + mask[:, None, None]
+        if mask_bqk is not None:
+            attn_bghqk = attn_bghqk + mask_bqk[:, None, None]
 
         # Normalizes.
-        attn = F.softmax(attn, dim=-1)
+        attn_bghqk = F.softmax(attn_bghqk, dim=-1)
 
-        return attn
+        return attn_bghqk
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -410,20 +424,20 @@ class TransformerEncoderLayer(nn.Module):
             length.
 
     Inputs:
-        src: The input tensor, of shape ``(B, T, C)``.
+        src_btc: The input tensor, of shape ``(B, T, C)``.
         state: The previous state tensor, if applicable.
         is_causal: Whether to apply a causal mask to the attention matrix.
             Note that the "mask" is only applied implicitly and isn't actually
             instantiated as a tensor.
-        rotary_q: The rotary embeddings for the query tensor, of shape
-            ``(G, H, C // H)``. If ``None``, don't apply rotary embeddings.
-        rotary_k: The rotary embeddings for the key tensor, of shape
-            ``(G, H, C // H)``. If ``None``, don't apply rotary embeddings.
-        mask: The attention mask, of shape ``(B, Tq, Tk)``. If ``None``, don't
-            apply an attention mask.
+        rotary_q_2tc: The rotary embeddings for the query tensor, of shape
+            ``(2, T, C // H)``. If ``None``, don't apply rotary embeddings.
+        rotary_k_2tc: The rotary embeddings for the key tensor, of shape
+            ``(2, T, C // H)``. If ``None``, don't apply rotary embeddings.
+        mask_btt: The attention mask, of shape ``(B, T, T)``. If ``None``,
+            don't apply an attention mask.
 
     Outputs:
-        output: The output tensor, of shape ``(B, T, C)``.
+        output_btc: The output tensor, of shape ``(B, T, C)``.
         state: The next state tensor.
     """
 
@@ -468,34 +482,34 @@ class TransformerEncoderLayer(nn.Module):
 
     def forward(
         self,
-        src: Tensor,
+        src_btc: Tensor,
         state: Tensor | None = None,
         is_causal: bool = False,
-        rotary_q: Tensor | None = None,
-        rotary_k: Tensor | None = None,
-        mask: Tensor | None = None,
+        rotary_q_2tc: Tensor | None = None,
+        rotary_k_2tc: Tensor | None = None,
+        mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        x = src
+        x_btc = src_btc
         if self.norm_first:
-            xi = self.norm1(x)
-            xi, state = self._sa_block(xi, state, is_causal, rotary_q, rotary_k, mask)
-            x = x + xi
-            x = x + self._ff_block(self.norm2(x))
+            xi_btc = self.norm1(x_btc)
+            xi_btc, state = self._sa_block(xi_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            x_btc = x_btc + xi_btc
+            x_btc = x_btc + self._ff_block(self.norm2(x_btc))
         else:
-            xi, state = self._sa_block(x, state, is_causal, rotary_q, rotary_k, mask)
-            x = self.norm1(x + xi)
-            x = self.norm2(x + self._ff_block(x))
-        return x, state
+            xi_btc, state = self._sa_block(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            x_btc = self.norm1(x_btc + xi_btc)
+            x_btc = self.norm2(x_btc + self._ff_block(x_btc))
+        return x_btc, state
 
     def _get_qkv(
         self,
-        x: Tensor,
+        x_btc: Tensor,
         state: Tensor | None,
         is_causal: bool,
-        rotary_q: Tensor | None = None,
-        rotary_k: Tensor | None = None,
+        rotary_q_2tc: Tensor | None = None,
+        rotary_k_2tc: Tensor | None = None,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        xq, xk, xv = self.self_attn.forward_matmuls(x, x, x, rotary_q, rotary_k)
+        xq_btc, xk_btc, xv_btc = self.self_attn.forward_matmuls(x_btc, x_btc, x_btc, rotary_q_2tc, rotary_k_2tc)
 
         # Concatenates previous states
         if state is not None:
@@ -504,7 +518,7 @@ class TransformerEncoderLayer(nn.Module):
                     "Causal attention with state will lead to incorrect results. Instead, when unrolling the "
                     "attention component, set `is_causal=False` and pass samples one-at-a-time."
                 )
-            if x.shape[1] != 1:
+            if x_btc.size(1) != 1:
                 raise ValueError(
                     "Using a state implies that you are using causal attention, but you are passing multiple query "
                     "vectors. Instead, when unrolling the attention component, set `is_causal=False` and pass "
@@ -512,30 +526,30 @@ class TransformerEncoderLayer(nn.Module):
                 )
 
             prev_k, prev_v = state.unbind(0)
-            xk = torch.cat((prev_k, xk), dim=-2)
-            xv = torch.cat((prev_v, xv), dim=-2)
+            xk_btc = torch.cat((prev_k, xk_btc), dim=-2)
+            xv_btc = torch.cat((prev_v, xv_btc), dim=-2)
             if self.max_kv_cache_len is not None:
-                xk = xk[:, -self.max_kv_cache_len :]
-                xv = xv[:, -self.max_kv_cache_len :]
+                xk_btc = xk_btc[:, -self.max_kv_cache_len :]
+                xv_btc = xv_btc[:, -self.max_kv_cache_len :]
 
-        return xq, xk, xv
+        return xq_btc, xk_btc, xv_btc
 
     def _sa_block(
         self,
-        x: Tensor,
+        x_btc: Tensor,
         state: Tensor | None,
         is_causal: bool,
-        rotary_q: Tensor | None = None,
-        rotary_k: Tensor | None = None,
-        mask: Tensor | None = None,
+        rotary_q_2tc: Tensor | None = None,
+        rotary_k_2tc: Tensor | None = None,
+        mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        xq, xk, xv = self._get_qkv(x, state, is_causal, rotary_q, rotary_k)
-        x = self.self_attn.forward_attn(xq, xk, xv, is_causal, mask)
-        return self.dropout1(x), torch.stack((xk, xv), dim=0)
+        xq_btc, xk_btc, xv_btc = self._get_qkv(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc)
+        x_btc = self.self_attn.forward_attn(xq_btc, xk_btc, xv_btc, is_causal, mask_btt)
+        return self.dropout1(x_btc), torch.stack((xk_btc, xv_btc), dim=0)
 
-    def _ff_block(self, x: Tensor) -> Tensor:
-        x = self.linear2(self.dropout(self.activation(self.linear1(x))))
-        return self.dropout2(x)
+    def _ff_block(self, x_btc: Tensor) -> Tensor:
+        x_btc = self.linear2(self.dropout(self.activation(self.linear1(x_btc))))
+        return self.dropout2(x_btc)
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -561,18 +575,18 @@ class TransformerDecoderLayer(nn.Module):
             provided, defaults to ``d_model``.
 
     Inputs:
-        src: The input tensor, of shape ``(B, Tq, C)``.
-        memory: The memory tensor, of shape ``(B, Tk, C)``
+        src_bqc: The input tensor, of shape ``(B, Tq, C)``.
+        memory_bkc: The memory tensor, of shape ``(B, Tk, C)``
         state: The previous state tensor, if applicable.
-        rotary_q: The rotary embeddings for the query tensor, of shape
-            ``(G, H, C // H)``. If ``None``, don't apply rotary embeddings.
-        rotary_k: The rotary embeddings for the key tensor, of shape
-            ``(G, H, C // H)``. If ``None``, don't apply rotary embeddings.
-        mask: The attention mask, of shape ``(B, Tq, Tk)``. If ``None``, don't
+        rotary_q_2qc: The rotary embeddings for the query tensor, of shape
+            ``(2, Tq, C // H)``. If ``None``, don't apply rotary embeddings.
+        rotary_k_2qc: The rotary embeddings for the key tensor, of shape
+            ``(2, Tq, C // H)``. If ``None``, don't apply rotary embeddings.
+        mask_bqk: The attention mask, of shape ``(B, Tq, Tk)``. If ``None``, don't
             apply an attention mask.
 
     Outputs:
-        output: The output tensor, of shape ``(B, Tq, C)``.
+        output_bqc: The output tensor, of shape ``(B, Tq, C)``.
         state: The next state tensor.
     """
 
@@ -616,48 +630,48 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(
         self,
-        src: Tensor,
-        memory: Tensor,
+        src_bqc: Tensor,
+        memory_bkc: Tensor,
         state: Tensor | None = None,
-        mask: Tensor | None = None,
+        mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        x = src
+        x_bqc = src_bqc
         if self.norm_first:
-            xi = self.norm1(x)
-            xi, state = self._sa_block(xi, memory, state, mask)
-            x = x + xi
-            x = x + self._ff_block(self.norm2(x))
+            xi_bqc = self.norm1(x_bqc)
+            xi_bqc, state = self._sa_block(xi_bqc, memory_bkc, state, mask_bqk)
+            x_bqc = x_bqc + xi_bqc
+            x_bqc = x_bqc + self._ff_block(self.norm2(x_bqc))
         else:
-            xi, state = self._sa_block(x, memory, state, mask)
-            x = self.norm1(x + xi)
-            x = self.norm2(x + self._ff_block(x))
-        return x, state
+            xi_bqc, state = self._sa_block(x_bqc, memory_bkc, state, mask_bqk)
+            x_bqc = self.norm1(x_bqc + xi_bqc)
+            x_bqc = self.norm2(x_bqc + self._ff_block(x_bqc))
+        return x_bqc, state
 
-    def _get_qkv(self, x: Tensor, memory: Tensor, state: Tensor | None) -> tuple[Tensor, Tensor, Tensor]:
+    def _get_qkv(self, x_bqc: Tensor, memory_bkc: Tensor, state: Tensor | None) -> tuple[Tensor, Tensor, Tensor]:
         if state is None:
-            xq, xk, xv = self.cross_attn.forward_matmuls(x, memory, memory)
-            state = torch.stack((xk, xv))
+            xq_bqc, xk_bkc, xv_bkc = self.cross_attn.forward_matmuls(x_bqc, memory_bkc, memory_bkc)
+            state = torch.stack((xk_bkc, xv_bkc))
         else:
-            xq, _, _ = self.cross_attn.forward_matmuls(x, None, None)
-            xk, xv = state.unbind(0)
-        return xq, xk, xv
+            xq_bqc, _, _ = self.cross_attn.forward_matmuls(x_bqc, None, None)
+            xk_bkc, xv_bkc = state.unbind(0)
+        return xq_bqc, xk_bkc, xv_bkc
 
     def _sa_block(
         self,
-        x: Tensor,
-        memory: Tensor,
+        x_bqc: Tensor,
+        memory_bkc: Tensor,
         state: Tensor | None,
-        mask: Tensor | None = None,
+        mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        xq, xk, xv = self._get_qkv(x, memory, state)
-        x = self.cross_attn.forward_attn(xq, xk, xv, mask=mask)
+        xq_bqc, xk_bkc, xv_bkc = self._get_qkv(x_bqc, memory_bkc, state)
+        x_bqc = self.cross_attn.forward_attn(xq_bqc, xk_bkc, xv_bkc, mask_bqk=mask_bqk)
         if state is None:
-            state = torch.stack((xk, xv), dim=0)
-        return self.dropout1(x), state
+            state = torch.stack((xk_bkc, xv_bkc), dim=0)
+        return self.dropout1(x_bqc), state
 
-    def _ff_block(self, x: Tensor) -> Tensor:
-        x = self.linear2(self.dropout(self.activation(self.linear1(x))))
-        return self.dropout2(x)
+    def _ff_block(self, x_bqc: Tensor) -> Tensor:
+        x_bqc = self.linear2(self.dropout(self.activation(self.linear1(x_bqc))))
+        return self.dropout2(x_bqc)
 
 
 class TransformerEncoder(nn.Module):
@@ -754,34 +768,34 @@ class TransformerEncoder(nn.Module):
 
     def forward(
         self,
-        src: Tensor,
+        src_btc: Tensor,
         state: Tensor | None = None,
         is_causal: bool | None = None,
         use_rotary: bool | None = None,
-        mask: Tensor | None = None,
+        mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         is_causal = self._default(is_causal, self.is_causal, state is None)
         use_rotary = self._default(use_rotary, self.use_rotary)
 
-        output = src
+        output_btc = src_btc
         state_out = []
-        _, tsz, _ = src.shape
-        rotary_q, rotary_k = (
+        _, tsz, _ = src_btc.shape
+        rotary_q_2tc, rotary_k_2tc = (
             self._get_rotary_embeddings(
                 q_tsz=tsz,
                 k_tsz=tsz,
                 state=state,
-                device=src.device,
-                dtype=src.dtype,
+                device=src_btc.device,
+                dtype=src_btc.dtype,
             )
             if use_rotary
             else (None, None)
         )
         for i, layer in enumerate(self.layers):
             state_i = None if state is None else state[i]
-            output, state_out_i = layer.forward(output, state_i, is_causal, rotary_q, rotary_k, mask)
-            state_out.append(state_out_i)
-        return self.norm(output), torch.stack(state_out, dim=0)
+            output_btc, state_o_i = layer.forward(output_btc, state_i, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            state_out.append(state_o_i)
+        return self.norm(output_btc), torch.stack(state_out, dim=0)
 
 
 class TransformerDecoder(nn.Module):
@@ -799,21 +813,21 @@ class TransformerDecoder(nn.Module):
         rotary_base: The base value for rotary embeddings.
 
     Inputs:
-        src: The input tensor, of shape ``(B, Tq, C)``.
-        memory: The memory tensor, of shape ``(B, Tk, C)``.
+        src_bqc: The input tensor, of shape ``(B, Tq, C)``.
+        memory_bkc: The memory tensor, of shape ``(B, Tk, C)``.
         state: The previous state tensor, if applicable.
         is_causal: Whether to apply a causal mask to the attention matrix.
             Note that the "mask" is only applied implicitly and isn't actually
             instantiated as a tensor.
         use_rotary: If set, use rotary embeddings in the key-query matrix
             multiplication.
-        encoder_mask: The encoder attention mask, of shape ``(B, Tq, Tq)``.
+        encoder_mask_bqq: The encoder attention mask, of shape ``(B, Tq, Tq)``.
             If ``None``, don't apply an attention mask to the encoder.
-        decoder_mask: The decoder attention mask, of shape ``(B, Tq, Tk)``.
+        decoder_mask_bqk: The decoder attention mask, of shape ``(B, Tq, Tk)``.
             If ``None``, don't apply an attention mask to the decoder.
 
     Outputs:
-        output: The output tensor, of shape ``(B, Tq, C)``.
+        output_bqc: The output tensor, of shape ``(B, Tq, C)``.
         state: The previous state tensor, if applicable.
     """
 
@@ -880,52 +894,217 @@ class TransformerDecoder(nn.Module):
 
     def forward(
         self,
-        src: Tensor,
-        memory: Tensor,
+        src_bqc: Tensor,
+        memory_bkc: Tensor,
         state: tuple[Tensor, Tensor] | None = None,
         is_causal: bool | None = None,
         use_rotary: bool | None = None,
-        encoder_mask: Tensor | None = None,
-        decoder_mask: Tensor | None = None,
+        encoder_mask_bqq: Tensor | None = None,
+        decoder_mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor]]:
         is_causal = self._default(is_causal, self.is_causal, state is None)
         use_rotary = self._default(use_rotary, self.use_rotary)
 
-        output = src
+        output_bqc = src_bqc
         e_state_out = []
         d_state_out = []
-        _, tsz, _ = src.shape
-        rotary_q, rotary_k = (
+        _, tsz, _ = src_bqc.shape
+        rotary_q_2qc, rotary_k_2kc = (
             self._get_rotary_embeddings(
                 q_tsz=tsz,
                 k_tsz=tsz,
                 state=None if state is None else state[0],
-                device=src.device,
-                dtype=src.dtype,
+                device=src_bqc.device,
+                dtype=src_bqc.dtype,
             )
             if use_rotary
             else (None, None)
         )
         for i, (e_layer, d_layer) in enumerate(zip(self.encoder_layers, self.decoder_layers)):
             e_state_i, d_state_i = (None, None) if state is None else (state[0][i], state[1][i])
-            output, e_state_out_i = e_layer.forward(output, e_state_i, is_causal, rotary_q, rotary_k, encoder_mask)
+            output_bqc, e_state_out_i = e_layer.forward(
+                output_bqc,
+                e_state_i,
+                is_causal,
+                rotary_q_2qc,
+                rotary_k_2kc,
+                encoder_mask_bqq,
+            )
             e_state_out.append(e_state_out_i)
-            output, d_state_out_i = d_layer.forward(output, memory, d_state_i, decoder_mask)
+            output_bqc, d_state_out_i = d_layer.forward(output_bqc, memory_bkc, d_state_i, decoder_mask_bqk)
             d_state_out.append(d_state_out_i)
-        return self.norm(output), (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
+        return self.norm(output_bqc), (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
 
 
-def nucleus_sampling(logits: Tensor, p: float, temperature: float = 1.0, dim: int = -1) -> Tensor:
-    """Samples from a distribution using nucleus sampling.
+class NextTokenTransformer(nn.Module):
+    """Defines a next token prediction transformer module.
 
-    This is a modified version of ``torch.multinomial`` that uses nucleus
+    This seems to be the most popular architecture for solving a large number
+    of problems. This provides a tested implementation of the next token
+    prediction transformer.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_layers: int,
+        vocab_size: int,
+        head_dims: int = 64,
+        feedforward_factor: int = 4,
+        dropout: float = 0.1,
+        layer_norm_eps: float = 1e-5,
+        norm_first: bool = False,
+        gqa_factor: int = 1,
+        max_kv_cache_len: int | None = None,
+        norm: nn.LayerNorm | None = None,
+        use_rotary: bool = True,
+        rotary_base: int = 10_000,
+    ) -> None:
+        super().__init__()
+
+        self.init_emb = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.embeddings = nn.Embedding(vocab_size, d_model)
+        self.attn = TransformerEncoder(
+            encoder_layer=TransformerEncoderLayer(
+                d_model=d_model,
+                head_dims=head_dims,
+                feedforward_factor=feedforward_factor,
+                dropout=dropout,
+                layer_norm_eps=layer_norm_eps,
+                norm_first=norm_first,
+                gqa_factor=gqa_factor,
+                max_kv_cache_len=max_kv_cache_len,
+            ),
+            num_layers=num_layers,
+            norm=norm,
+            use_rotary=use_rotary,
+            rotary_base=rotary_base,
+        )
+        self.proj = nn.Linear(d_model, vocab_size)
+
+    def forward(self, tokens_bt: Tensor) -> Tensor:
+        x_btc = self.embeddings(tokens_bt[:, :-1])
+        x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
+        x_btc, _ = self.attn(x_btc, is_causal=True)
+        logits_btc = self.proj(x_btc)
+        return logits_btc
+
+    def infer(
+        self,
+        t: int,
+        bsz: int = 1,
+        sampling_strategy: SamplingStrategy = "top-p",
+        k: int | None = None,
+        p: float | None = 0.95,
+        temperature: float = 1.0,
+    ) -> Tensor:
+        x_b1c: Tensor = self.init_emb.expand(bsz, 1, -1)
+        x_b1c, state = self.attn(x_b1c)
+        logits_b1l = self.proj(x_b1c)
+        tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
+        tokens_b1 = tokens_bt[:, :1]
+
+        for _ in range(1, t):
+            x_b1c = self.embeddings(tokens_b1)
+            x_b1c, state = self.attn(x_b1c, state)
+            logits_b1l = self.proj(x_b1c)
+            tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
+            tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
+
+        return tokens_bt
+
+
+class NextTokenWithEmbeddingsTransformer(nn.Module):
+    """Defines a next token prediction transformer module, over base embeddings.
+
+    This is similar to the ``NextTokenTransformer`` except that each of the
+    input timesteps also has an associated embedding, which is added to the
+    input before the transformer.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        num_layers: int,
+        vocab_size: int,
+        head_dims: int = 64,
+        feedforward_factor: int = 4,
+        dropout: float = 0.1,
+        layer_norm_eps: float = 1e-5,
+        norm_first: bool = False,
+        gqa_factor: int = 1,
+        max_kv_cache_len: int | None = None,
+        norm: nn.LayerNorm | None = None,
+        use_rotary: bool = True,
+        rotary_base: int = 10_000,
+    ) -> None:
+        super().__init__()
+
+        self.init_emb = nn.Parameter(torch.randn(1, 1, d_model) * 0.02)
+        self.embeddings = nn.Embedding(vocab_size, d_model)
+        self.attn = TransformerEncoder(
+            encoder_layer=TransformerEncoderLayer(
+                d_model=d_model,
+                head_dims=head_dims,
+                feedforward_factor=feedforward_factor,
+                dropout=dropout,
+                layer_norm_eps=layer_norm_eps,
+                norm_first=norm_first,
+                gqa_factor=gqa_factor,
+                max_kv_cache_len=max_kv_cache_len,
+            ),
+            num_layers=num_layers,
+            norm=norm,
+            use_rotary=use_rotary,
+            rotary_base=rotary_base,
+        )
+        self.proj = nn.Linear(d_model, vocab_size)
+
+    def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> Tensor:
+        x_btc = self.embeddings(tokens_bt[:, :-1])
+        x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
+        x_btc = x_btc + emb_btc
+        x_btc, _ = self.attn(x_btc, is_causal=True)
+        logits_btc = self.proj(x_btc)
+        return logits_btc
+
+    def infer(
+        self,
+        emb_btc: Tensor,
+        bsz: int = 1,
+        sampling_strategy: SamplingStrategy = "top-p",
+        k: int | None = None,
+        p: float | None = 0.95,
+        temperature: float = 1.0,
+    ) -> Tensor:
+        x_b1c: Tensor = self.init_emb.expand(bsz, 1, -1)
+        x_b1c = x_b1c + emb_btc[:, :1]
+        x_b1c, state = self.attn(x_b1c)
+        logits_b1l = self.proj(x_b1c)
+        tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
+        tokens_b1 = tokens_bt[:, :1]
+
+        for t in range(1, emb_btc.size(1)):
+            x_b1c = self.embeddings(tokens_b1) + emb_btc[:, t : t + 1]
+            x_b1c, state = self.attn(x_b1c, state)
+            logits_b1l = self.proj(x_b1c)
+            tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
+            tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
+
+        return tokens_bt
+
+
+def top_p_sampling(logits_btc: Tensor, p: float, temperature: float = 1.0, dim: int = -1) -> Tensor:
+    """Samples from a distribution using top-P sampling.
+
+    This is a modified version of ``torch.multinomial`` that uses top-p
     sampling instead of top-k sampling. The difference is that top-k sampling
     sets the probability of all values outside the top-k to zero, whereas
-    nucleus sampling sets the probability of all values outside the top-p
+    top-p sampling sets the probability of all values outside the top-p
     to zero.
 
     Parameters:
-        logits: The input tensor, of shape ``(B, T, C)``.
+        logits_btc: The input tensor, of shape ``(B, T, C)``.
         p: The probability threshold.
         temperature: The temperature to apply to the logits.
         dim: The dimension to sample from. Defaults to ``-1``.
@@ -936,22 +1115,130 @@ def nucleus_sampling(logits: Tensor, p: float, temperature: float = 1.0, dim: in
     with torch.no_grad():
         assert 0.0 <= p <= 1.0, f"`{p=}` must be between 0 and 1"
         if dim != -1:
-            logits = logits.transpose(dim, -1)
-        orig_shape = logits.shape[:-1]
-        logits = logits.flatten(0, -2)
-        probs = F.softmax(logits / temperature, dim=-1)
-        sorted_probs, indices = torch.sort(probs, descending=True, dim=-1)
-        cum_sum_probs = torch.cumsum(sorted_probs, dim=-1)
-        nucleus = cum_sum_probs < p
-        nucleus[:, 1:] = nucleus[:, :-1].clone()
-        nucleus[:, 0] = 1
-        sorted_probs[~nucleus] = 0.0
-        sampled_sorted_indexes = torch.multinomial(sorted_probs, 1)
-        sample = torch.gather(indices, -1, sampled_sorted_indexes)
-        sample = sample.view(*orig_shape, 1)
+            logits_btc = logits_btc.transpose(dim, -1)
+        orig_shape = logits_btc.shape[:-1]
+        logits_nl = logits_btc.flatten(0, -2)
+        probs_nl = F.softmax(logits_nl / temperature, dim=-1)
+        sorted_probs_nl, indices_nl = torch.sort(probs_nl, descending=True, dim=-1)
+        cum_sum_probs_nl = torch.cumsum(sorted_probs_nl, dim=-1)
+        top_p_nl = cum_sum_probs_nl < p
+        top_p_nl[:, 1:] = top_p_nl[:, :-1].clone()
+        top_p_nl[:, 0] = 1
+        sorted_probs_nl[~top_p_nl] = 0.0
+        sampled_sorted_indexes_n1 = torch.multinomial(sorted_probs_nl, 1)
+        sample_b1 = torch.gather(indices_nl, -1, sampled_sorted_indexes_n1)
+        sample_btc1 = sample_b1.view(*orig_shape, 1)
         if dim != -1:
-            sample = sample.transpose(dim, -1)
-        return sample.squeeze(dim)
+            sample_btc1 = sample_btc1.transpose(dim, -1)
+        return sample_btc1.squeeze(dim)
+
+
+def top_k_sampling(logits_btc: Tensor, k: int, temperature: float = 1.0, dim: int = -1) -> Tensor:
+    """Samples from a distribution using top-k sampling.
+
+    This function is a modified version of ``torch.multinomial`` that uses
+    top-k sampling instead of top-p sampling. The difference is that top-k
+    sampling sets the probability of all values outside the top-k to zero,
+    whereas top-p sampling sets the probability of all values outside the
+    top-p to zero.
+
+    Parameters:
+        logits_btc: The input tensor, of shape ``(B, T, C)``.
+        k: The number of top values to consider.
+        temperature: The temperature to apply to the logits.
+        dim: The dimension to sample from. Defaults to ``-1``.
+
+    Returns:
+        The sampled indices, of shape ``(B, T)``.
+    """
+    with torch.no_grad():
+        if dim != -1:
+            logits_btc = logits_btc.transpose(dim, -1)
+        orig_shape = logits_btc.shape[:-1]
+        logits_nl = logits_btc.flatten(0, -2)
+        probs_nl = F.softmax(logits_nl / temperature, dim=-1)
+        sorted_probs_nl, indices_nl = torch.sort(probs_nl, descending=True, dim=-1)
+        sorted_probs_nl[:, k:] = 0.0
+        sorted_probs_nl = sorted_probs_nl / sorted_probs_nl.sum(dim=-1, keepdim=True)
+        sampled_sorted_indexes_n1 = torch.multinomial(sorted_probs_nl, 1)
+        sample_b1 = torch.gather(indices_nl, -1, sampled_sorted_indexes_n1)
+        sample_btc1 = sample_b1.view(*orig_shape, 1)
+        if dim != -1:
+            sample_btc1 = sample_btc1.transpose(dim, -1)
+        return sample_btc1.squeeze(dim)
+
+
+@overload
+def sample_from_logits(
+    logits_btc: Tensor,
+    strategy: Literal["top-p"],
+    *,
+    p: float,
+    temperature: float = 1.0,
+) -> Tensor: ...
+
+
+@overload
+def sample_from_logits(
+    logits_btc: Tensor,
+    strategy: Literal["top-k"],
+    *,
+    k: int,
+    temperature: float = 1.0,
+) -> Tensor: ...
+
+
+@overload
+def sample_from_logits(logits_btc: Tensor, strategy: Literal["greedy"]) -> Tensor: ...
+
+
+@overload
+def sample_from_logits(
+    logits_btc: Tensor,
+    strategy: SamplingStrategy,
+    *,
+    k: int | None = None,
+    p: float | None = None,
+    temperature: float = 1.0,
+) -> Tensor: ...
+
+
+def sample_from_logits(
+    logits_btc: Tensor,
+    strategy: SamplingStrategy,
+    *,
+    k: int | None = None,
+    p: float | None = None,
+    temperature: float = 1.0,
+) -> Tensor:
+    """Samples from a distribution using a given strategy.
+
+    This function is a wrapper around the various sampling strategies, such as
+    top-p sampling, top-k sampling, and greedy sampling.
+
+    Parameters:
+        logits_btc: The input tensor, of shape ``(B, T, C)``.
+        strategy: The sampling strategy to use.
+        k: The number of top values to consider, for top-k sampling.
+        p: The probability threshold, for top-p sampling.
+        temperature: The temperature to apply to the logits.
+
+    Returns:
+        The sampled indices, of shape ``(B, T)``.
+    """
+    match strategy:
+        case "top-p":
+            if p is None:
+                raise ValueError("Top-P sampling requires a probability threshold.")
+            return top_p_sampling(logits_btc, p, temperature)
+        case "top-k":
+            if k is None:
+                raise ValueError("Top-K sampling requires a number of top values to consider.")
+            return top_k_sampling(logits_btc, k, temperature)
+        case "greedy":
+            return torch.argmax(logits_btc, dim=-1)
+        case _:
+            raise ValueError(f"Invalid sampling strategy: {strategy}")
 
 
 T = TypeVar("T", bound=nn.Module)

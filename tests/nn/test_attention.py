@@ -10,8 +10,8 @@ import mlfab
 def test_nucleus_sampling() -> None:
     x = torch.randn(2, 10, 13, 32)
 
-    assert mlfab.nucleus_sampling(x, 0.5).shape == (2, 10, 13)
-    assert mlfab.nucleus_sampling(x, 0.5, dim=2).shape == (2, 10, 32)
+    assert mlfab.top_p_sampling(x, 0.5).shape == (2, 10, 13)
+    assert mlfab.top_p_sampling(x, 0.5, dim=2).shape == (2, 10, 32)
 
 
 @pytest.mark.parametrize("norm_first", [False, True])
@@ -152,3 +152,57 @@ def test_transformer_decoder_module(norm_first: bool, use_rotary: bool, gqa_fact
     y2 = torch.cat(y2s, dim=1)
     assert y2.shape == (bsz, 10, 16)
     assert torch.allclose(y1, y2)
+
+
+def test_next_token_transformer() -> None:
+    bsz, tsz = 2, 9
+
+    model = mlfab.NextTokenTransformer(
+        d_model=16,
+        num_layers=2,
+        vocab_size=32,
+        head_dims=8,
+        dropout=0.0,
+    )
+    model.double()
+    model.eval()
+
+    # Infers from the model.
+    x_infer_bt = model.infer(tsz, bsz=bsz, sampling_strategy="greedy")
+    assert x_infer_bt.shape == (bsz, tsz)
+
+    # Gets the training logits.
+    x_train_btl = model(x_infer_bt)
+    x_train_bt = x_train_btl.argmax(-1)
+    assert x_train_bt.shape == (bsz, tsz)
+
+    # Compares the training and inference results.
+    assert torch.allclose(x_infer_bt, x_train_bt)
+
+
+def test_next_token_with_embeddings_transformer() -> None:
+    bsz, tsz, d_model = 2, 9, 16
+
+    model = mlfab.NextTokenWithEmbeddingsTransformer(
+        d_model=d_model,
+        num_layers=2,
+        vocab_size=32,
+        head_dims=8,
+        dropout=0.0,
+    )
+    model.double()
+    model.eval()
+
+    emb_btc = torch.randn(bsz, tsz, d_model, dtype=torch.float64)
+
+    # Infers from the model.
+    x_infer_bt = model.infer(emb_btc, bsz=bsz, sampling_strategy="greedy")
+    assert x_infer_bt.shape == (bsz, tsz)
+
+    # Gets the training logits.
+    x_train_btl = model(x_infer_bt, emb_btc)
+    x_train_bt = x_train_btl.argmax(-1)
+    assert x_train_bt.shape == (bsz, tsz)
+
+    # Compares the training and inference results.
+    assert torch.allclose(x_infer_bt, x_train_bt)
