@@ -229,7 +229,8 @@ class RotaryEmbeddings(nn.Module):
         _, tsz, embed_dim = x_btc.shape
         max_tsz = max(tsz, 0 if times_bt is None else int(times_bt.max().item()) + 1) + offset
         if emb_2tc is None or emb_2tc.shape[-2] < max_tsz:
-            emb_2tc = self.embeddings = get_rotary_embeddings(max_tsz, embed_dim, x_btc.device, x_btc.dtype, 0, self.base)
+            emb_2tc = get_rotary_embeddings(max_tsz, embed_dim, x_btc.device, x_btc.dtype, 0, self.base)
+            self.embeddings = emb_2tc
         return apply_rotary_embeddings(x_btc, emb_2tc, offset, times_bt)
 
 
