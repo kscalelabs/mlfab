@@ -7,11 +7,18 @@ from torch import Tensor
 import mlfab
 
 
-def test_nucleus_sampling() -> None:
+def test_top_p_sampling() -> None:
     x = torch.randn(2, 10, 13, 32)
 
     assert mlfab.top_p_sampling(x, 0.5).shape == (2, 10, 13)
     assert mlfab.top_p_sampling(x, 0.5, dim=2).shape == (2, 10, 32)
+
+
+def test_top_k_sampling() -> None:
+    x = torch.randn(2, 10, 13, 32)
+
+    assert mlfab.top_k_sampling(x, 5).shape == (2, 10, 13)
+    assert mlfab.top_k_sampling(x, 5, dim=2).shape == (2, 10, 32)
 
 
 @pytest.mark.parametrize("norm_first", [False, True])
