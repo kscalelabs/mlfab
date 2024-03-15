@@ -498,10 +498,6 @@ class TrainMixin(
         with self.step_context("load_checkpoint"):
             state = self.load_initial_state()
 
-        # TODO: Remove
-        from mlfab.nn.parallel import get_rank
-        rank = get_rank()
-
         # Gets the datasets.
         with self.step_context("get_dataset"):
             train_ds = self.get_dataset("train")
