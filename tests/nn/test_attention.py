@@ -203,7 +203,7 @@ def test_next_token_with_embeddings_transformer() -> None:
     emb_btc = torch.randn(bsz, tsz, d_model, dtype=torch.float64)
 
     # Infers from the model.
-    x_infer_bt = model.infer(emb_btc, bsz=bsz, sampling_strategy="greedy")
+    x_infer_bt = model.infer(emb_btc, sampling_strategy="greedy")
     assert x_infer_bt.shape == (bsz, tsz)
 
     # Gets the training logits.
