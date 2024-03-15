@@ -31,7 +31,7 @@ class ArtifactsMixin(BaseTask[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-        self._exp_dir: Path | None = None
+        self.__exp_dir: Path | None = None
 
     @functools.cached_property
     def run_dir(self) -> Path:
@@ -55,16 +55,21 @@ class ArtifactsMixin(BaseTask[Config]):
         elif not missing_ok:
             raise RuntimeError(f"Lock file not found at {lock_file}")
 
-    def get_exp_dir(self) -> Path:
-        if self._exp_dir is not None:
-            return self._exp_dir
+    def set_exp_dir(self, exp_dir: Path) -> Self:
+        self.exp_dir = exp_dir
+        return self
+
+    @property
+    def exp_dir(self) -> Path:
+        if self.__exp_dir is not None:
+            return self.__exp_dir
 
         if self.config.exp_dir is not None:
             exp_dir = Path(self.config.exp_dir).expanduser().resolve()
             exp_dir.mkdir(parents=True, exist_ok=True)
-            self._exp_dir = exp_dir
-            logger.log(LOG_STATUS, self._exp_dir)
-            return self._exp_dir
+            self.__exp_dir = exp_dir
+            logger.log(LOG_STATUS, self.__exp_dir)
+            return self.__exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
             return self.run_dir / f"run_{run_id}"
@@ -78,17 +83,13 @@ class ArtifactsMixin(BaseTask[Config]):
         while (exp_dir := get_exp_dir(run_id)).is_dir() and has_lock_file(exp_dir):
             run_id += 1
         exp_dir.mkdir(exist_ok=True, parents=True)
-        self._exp_dir = exp_dir.expanduser().resolve()
-        logger.log(LOG_STATUS, self._exp_dir)
-        return self._exp_dir
+        self.__exp_dir = exp_dir.expanduser().resolve()
+        logger.log(LOG_STATUS, self.__exp_dir)
+        return self.__exp_dir
 
-    def set_exp_dir(self, exp_dir: Path) -> Self:
-        self._exp_dir = exp_dir
-        return self
-
-    @property
-    def exp_dir(self) -> Path:
-        return self.get_exp_dir()
+    @exp_dir.setter
+    def exp_dir(self, exp_dir: Path) -> None:
+        self.__exp_dir = exp_dir
 
     @functools.lru_cache(maxsize=None)
     def stage_environment(self) -> Path | None:
@@ -104,7 +105,7 @@ class ArtifactsMixin(BaseTask[Config]):
         super().on_training_end(state)
 
         if is_master():
-            if self._exp_dir is None:
+            if self.__exp_dir is None:
                 show_info("Exiting training job", important=True)
             else:
                 show_info(f"Exiting training job for {self.exp_dir}", important=True)

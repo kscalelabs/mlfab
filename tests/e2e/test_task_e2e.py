@@ -62,6 +62,7 @@ class DummyTask(mlfab.Task[Config]):
 @pytest.mark.slow
 def test_e2e_training(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
+    os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
     mlfab.configure_logging()
@@ -93,6 +94,7 @@ def test_e2e_training(tmpdir: Path) -> None:
 @pytest.mark.slow
 def test_e2e_training_mp(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
+    os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
@@ -119,12 +121,13 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
 
-    DummyTask.launch(config, use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
 
 
 @pytest.mark.slow
 def test_staged_training(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
+    os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
     mlfab.configure_logging()

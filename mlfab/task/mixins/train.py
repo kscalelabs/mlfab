@@ -493,7 +493,7 @@ class TrainMixin(
             self.set_optimizers()
 
         if is_master():
-            Thread(target=self.log_state, daemon=True).start()
+            Thread(target=self.log_state, daemon=False).start()
 
         with self.step_context("load_checkpoint"):
             state = self.load_initial_state()
@@ -523,20 +523,23 @@ class TrainMixin(
 
         try:
             with contextlib.ExitStack() as ctx:
-                ctx.enter_context(self)
+                # ctx.enter_context(self)
                 ctx.enter_context(train_pf)
                 ctx.enter_context(valid_pf)
 
                 if (profile := self.get_profile()) is not None:
                     ctx.enter_context(profile)
 
-                def batch_splitter() -> Iterator[Batch]:
+                def train_batches() -> Iterator[Batch]:
                     for batch in train_pf:
                         num_chunks = self.get_batch_chunks(state)
                         yield from recursive_chunk(batch, num_chunks, dim=self.config.batch_dim)
 
-                train_pf_iter: Iterator = batch_splitter()
-                valid_pf_iter: Iterator = iter(valid_pf)
+                def valid_batches() -> Iterator[Batch]:
+                    yield from valid_pf
+
+                train_pf_iter = train_batches()
+                valid_pf_iter = valid_batches()
 
                 def batch_iterator() -> Iterator[Batch]:
                     yield next(train_pf_iter)

@@ -98,10 +98,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return task
 
     def get_init_ckpt_path(self) -> Path | None:
-        if self._exp_dir is not None:
-            ckpt_path = self.get_ckpt_path()
-            if ckpt_path.exists():
-                return ckpt_path
+        ckpt_path = self.get_ckpt_path()
+        if ckpt_path.exists():
+            return ckpt_path
         if self.config.load_from_ckpt_path is not None:
             ckpt_path = Path(self.config.load_from_ckpt_path)
             assert ckpt_path.exists(), f"Checkpoint path {ckpt_path} does not exist."
