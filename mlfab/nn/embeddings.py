@@ -54,7 +54,7 @@ def cast_embedding_kind(k: str) -> EmbeddingKind:
 
 
 class IdentityPositionalEmbeddings(nn.Module):
-    def forward(self, x: Tensor, offset: int = 0, times: Tensor | None = None) -> Tensor:
+    def forward(self, x: Tensor, offset: int = 0, times_bt: Tensor | None = None) -> Tensor:
         return x
 
 
@@ -81,14 +81,17 @@ class LearnedPositionalEmbeddings(nn.Module):
         self.embed_dim = embed_dim
         self.weight_init = weight_init
 
-        self.embeddings = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
+        self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        init_(self.embeddings.data, None, self.weight_init)
+        init_(self.embeddings_tc.data, None, self.weight_init)
 
-    def forward(self, x: Tensor, offset: int = 0, times: Tensor | None = None) -> Tensor:
-        return x + (self.embeddings[None, offset : offset + x.size(1)] if times is None else self.embeddings[times])
+    def forward(self, x: Tensor, offset: int = 0, times_bt: Tensor | None = None) -> Tensor:
+        emb_btc = (
+            self.embeddings_tc[None, offset : offset + x.size(1)] if times_bt is None else self.embeddings_tc[times_bt]
+        )
+        return x + emb_btc
 
 
 class SinusoidalEmbeddings(nn.Module):
@@ -114,35 +117,40 @@ class SinusoidalEmbeddings(nn.Module):
         self.embed_dim = embed_dim
         self.base = base
 
-        self.embeddings: nn.Parameter | None = None
+        self.embeddings_tc: nn.Parameter | None = None
         if learnable:
             assert max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
-            self.embeddings = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
+            self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
             self.reset_parameters()
 
         self.embeddings_cached: Tensor | None = None
 
-    def forward(self, x: Tensor, offset: int = 0, times: Tensor | None = None) -> Tensor:
-        embeddings: Tensor | None = self.embeddings
-        _, tsz, xdim = x.shape
-        if embeddings is None:
-            max_tsz = max(tsz, 0 if times is None else int(times.max().item()) + 1) + offset
+    def forward(self, x_btc: Tensor, offset: int = 0, times_bt: Tensor | None = None) -> Tensor:
+        embeddings_tc: Tensor | None = self.embeddings_tc
+        _, tsz, xdim = x_btc.shape
+        if embeddings_tc is None:
+            max_tsz = max(tsz, 0 if times_bt is None else int(times_bt.max().item()) + 1) + offset
             if self.embeddings_cached is None:
-                self.embeddings_cached = self.get_embeddings(max_tsz, xdim, x.device, x.dtype)
+                self.embeddings_cached = self.get_embeddings(max_tsz, xdim, x_btc.device, x_btc.dtype)
             else:
                 embed_tsz, embed_dim = self.embeddings_cached.shape
                 embed_device, embed_dtype = self.embeddings_cached.device, self.embeddings_cached.dtype
-                if embed_tsz < max_tsz or embed_dim != xdim or embed_device != x.device or embed_dtype != x.dtype:
-                    self.embeddings_cached = self.get_embeddings(max_tsz, embed_dim, x.device, x.dtype)
-            embeddings = self.embeddings_cached
-        return x + (embeddings[None, offset : offset + tsz] if times is None else embeddings[times])
+                if (
+                    embed_tsz < max_tsz
+                    or embed_dim != xdim
+                    or embed_device != x_btc.device
+                    or embed_dtype != x_btc.dtype
+                ):
+                    self.embeddings_cached = self.get_embeddings(max_tsz, embed_dim, x_btc.device, x_btc.dtype)
+            embeddings_tc = self.embeddings_cached
+        return x_btc + (embeddings_tc[None, offset : offset + tsz] if times_bt is None else embeddings_tc[times_bt])
 
     def reset_parameters(self) -> None:
-        if self.embeddings is None:
+        if self.embeddings_tc is None:
             assert self.max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert self.embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
-            self.embeddings.data.copy_(self.get_embeddings(self.max_tsz, self.embed_dim))
+            self.embeddings_tc.data.copy_(self.get_embeddings(self.max_tsz, self.embed_dim))
 
     def get_embeddings(
         self,
