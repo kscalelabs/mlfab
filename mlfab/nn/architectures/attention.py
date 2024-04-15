@@ -1059,13 +1059,13 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         )
         self.proj = nn.Linear(d_model, vocab_size)
 
-    def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> Tensor:
+    def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])
         x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
         x_btc = x_btc + emb_btc
         x_btc, _ = self.attn(x_btc, is_causal=True)
         logits_btc = self.proj(x_btc)
-        return logits_btc
+        return logits_btc, x_btc
 
     def infer(
         self,
