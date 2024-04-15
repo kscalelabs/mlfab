@@ -207,7 +207,7 @@ def test_next_token_with_embeddings_transformer() -> None:
     assert x_infer_bt.shape == (bsz, tsz)
 
     # Gets the training logits.
-    x_train_btl = model(x_infer_bt, emb_btc)
+    x_train_btl, _ = model(x_infer_bt, emb_btc)
     x_train_bt = x_train_btl.argmax(-1)
     assert x_train_bt.shape == (bsz, tsz)
 
