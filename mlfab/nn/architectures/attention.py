@@ -1074,7 +1074,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         k: int | None = None,
         p: float | None = 0.95,
         temperature: float = 1.0,
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor]:
         x_b1c: Tensor = self.init_emb.expand(emb_btc.size(0), 1, -1)
         x_b1c = x_b1c + emb_btc[:, :1]
         x_b1c, state = self.attn(x_b1c)
@@ -1082,14 +1082,16 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
         tokens_b1 = tokens_bt[:, :1]
 
+        x_list_btc = [x_b1c]
         for t in range(1, emb_btc.size(1)):
             x_b1c = self.embeddings(tokens_b1) + emb_btc[:, t : t + 1]
             x_b1c, state = self.attn(x_b1c, state)
+            x_list_btc.append(x_b1c)
             logits_b1l = self.proj(x_b1c)
             tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
             tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
 
-        return tokens_bt
+        return tokens_bt, torch.cat(x_list_btc, dim=1)
 
 
 T = TypeVar("T", bound=nn.Module)
