@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Callable, Iterator, Literal, Self, Sequence, TypeVar, get_args
+from typing import Callable, Iterator, Literal, Self, Sequence, TypeVar, cast, get_args
 
 import torch
 import torch.nn.functional as F
@@ -423,7 +423,7 @@ def image_with_text(
         text = text[:max_num_lines]
     pil_image = V.to_pil_image(image)
     width, height = pil_image.size
-    font: ImageFont.ImageFont = ImageFont.load_default()
+    font = cast(ImageFont.ImageFont, ImageFont.load_default())
     _, _, _, line_height = font.getbbox(text[0])
     new_width, new_height = width, height + line_spacing + max_num_lines * (line_height + line_spacing)
     padded_image = Image.new(pil_image.mode, (new_width, new_height), 255)
