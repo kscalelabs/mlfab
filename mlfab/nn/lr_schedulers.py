@@ -167,7 +167,7 @@ class CosineLRScheduler(BaseLRScheduler):
 
     def __init__(
         self,
-        total_steps: int,
+        total_steps: int | None = None,
         num_resets: int = 0,
         phase: int | None = None,
         ramp_up_percent: float = 0.05,
@@ -178,6 +178,8 @@ class CosineLRScheduler(BaseLRScheduler):
         super().__init__()
 
         if phase is None:
+            if total_steps is None:
+                raise ValueError("If `total_steps` is not specified, then `phase` must be specified.")
             phase = int(total_steps / (num_resets + 1))
         if ramp_up_steps is None:
             assert 0.0 <= ramp_up_percent < 1.0
@@ -186,7 +188,6 @@ class CosineLRScheduler(BaseLRScheduler):
             assert ramp_up_steps < phase
 
         self.phase = phase
-        self.total_steps = total_steps
         self.ramp_up_steps = ramp_up_steps
         self.eta_min = eta_min
         self.eta_max = eta_max
