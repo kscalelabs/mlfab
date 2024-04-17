@@ -118,7 +118,7 @@ class LinearLRScheduler(BaseLRScheduler):
 
     def __init__(
         self,
-        total_steps: int,
+        total_steps: int | None = None,
         warmup_steps: int | None = None,
         warmup_percent: float = 0.01,
         min_scale: float = 1e-4,
@@ -127,6 +127,11 @@ class LinearLRScheduler(BaseLRScheduler):
         super().__init__()
 
         if warmup_steps is None:
+            if total_steps is None:
+                raise ValueError(
+                    "If `total_steps` is not specified, then `warmup_steps` cannot be inferred from `warmup_percent`. "
+                    "You should therefore specify the number of warmup steps explicitly."
+                )
             warmup_steps = round(total_steps * warmup_percent)
 
         self.total_steps = total_steps
@@ -139,6 +144,8 @@ class LinearLRScheduler(BaseLRScheduler):
         if state.num_steps < warmup:
             return state.num_steps / warmup
         if not self.decay:
+            return 1.0
+        if total is None:
             return 1.0
         if state.num_steps < total:
             return (1 - min_scale) * (total - state.num_steps) / (total - warmup) + min_scale
