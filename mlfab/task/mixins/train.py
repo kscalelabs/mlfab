@@ -287,10 +287,10 @@ class TrainMixin(
                 return loss.unsqueeze(0), ["loss"]
             if loss.ndim == 1:
                 return loss, ["loss"]
-            return loss.sum().unsqueeze(0) / loss.shape[0], ["loss"]
+            return loss.sum().unsqueeze(0) / loss.size(0), ["loss"]
         assert isinstance(loss, dict), f"Single loss should be a scalar or dictionary, not {type(loss)}"
         keys, values = (list(i) for i in zip(*sorted(loss.items())))
-        losses = [v.sum() / v.shape[0] if v.ndim > 0 else v for v in values]
+        losses = [v.sum() / v.size(0) if v.ndim > 0 else v for v in values]
         single_loss = torch.stack(losses, dim=0)
         return single_loss, keys
 
