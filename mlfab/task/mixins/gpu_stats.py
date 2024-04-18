@@ -204,7 +204,7 @@ class GPUStatsMonitor:
         self._proc = self._ctx.Process(
             target=worker,
             args=(self._ping_interval, self._smems, self._main_event, self._events, self._start_event),
-            daemon=False,
+            daemon=True,
             name="mlfab-gpu-stats",
         )
         self._proc.start()

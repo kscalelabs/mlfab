@@ -493,7 +493,7 @@ class TrainMixin(
             self.set_optimizers()
 
         if is_master():
-            Thread(target=self.log_state, daemon=False).start()
+            Thread(target=self.log_state, daemon=True).start()
 
         with self.step_context("load_checkpoint"):
             state = self.load_initial_state()
