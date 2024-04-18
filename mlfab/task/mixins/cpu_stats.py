@@ -192,7 +192,7 @@ class CPUStatsMonitor:
         self._proc = self._ctx.Process(
             target=worker,
             args=(self._ping_interval, self._cpu_stats_smem, self._monitor_event, self._start_event, os.getpid()),
-            daemon=False,
+            daemon=True,
             name="mlfab-cpu-stats",
         )
         self._proc.start()

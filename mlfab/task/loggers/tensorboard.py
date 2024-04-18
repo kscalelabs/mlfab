@@ -74,7 +74,7 @@ class TensorboardLogger(LoggerImpl):
             return
 
         if is_master():
-            threading.Thread(target=self.worker_thread, daemon=False).start()
+            threading.Thread(target=self.worker_thread, daemon=True).start()
 
         self._started = True
 
