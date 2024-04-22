@@ -579,6 +579,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.architectures.bifpn import BiFPN, BiFPNBlock
     from mlfab.nn.architectures.monotonic_attention import MonotonicAttention, monotonic_attention
     from mlfab.nn.architectures.next_token import sample_from_logits, top_k_sampling, top_p_sampling
+    from mlfab.nn.architectures.rnn import NextTokenGru, NextTokenWithEmbeddingsGru
     from mlfab.nn.architectures.rwkv import (
         NextTokenRwkv,
         NextTokenWithEmbeddingsRwkv,
@@ -781,7 +782,6 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import ColoredFormatter, configure_logging
-    from mlfab.nn.architectures.rnn import NextTokenGru, NextTokenWithEmbeddingsGru
     from mlfab.utils.text import (
         TextBlock,
         colored,
