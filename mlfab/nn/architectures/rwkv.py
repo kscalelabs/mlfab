@@ -630,7 +630,7 @@ class NextTokenRwkv(nn.Module):
 
     This seems to be the most popular architecture for solving a large number
     of problems. This provides a tested implementation of the next token
-    prediction transformer.
+    prediction RWKV module.
     """
 
     def __init__(
@@ -688,7 +688,7 @@ class NextTokenRwkv(nn.Module):
 class NextTokenWithEmbeddingsRwkv(nn.Module):
     """Defines a next token prediction RWKV module, over base embeddings.
 
-    This is similar to the ``NextTokenTransformer`` except that each of the
+    This is similar to the ``NextTokenRwkv`` except that each of the
     input timesteps also has an associated embedding, which is added to the
     input before the RWKV layers.
     """
