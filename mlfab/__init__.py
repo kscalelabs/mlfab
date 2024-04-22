@@ -46,6 +46,8 @@ __all__ = [
     "sample_from_logits",
     "top_k_sampling",
     "top_p_sampling",
+    "NextTokenGru",
+    "NextTokenWithEmbeddingsGru",
     "NextTokenRwkv",
     "NextTokenWithEmbeddingsRwkv",
     "RwkvAttention",
@@ -308,6 +310,8 @@ NAME_MAP: dict[str, str] = {
     "sample_from_logits": "nn.architectures.next_token",
     "top_k_sampling": "nn.architectures.next_token",
     "top_p_sampling": "nn.architectures.next_token",
+    "NextTokenGru": "nn.architectures.rnn",
+    "NextTokenWithEmbeddingsGru": "nn.architectures.rnn",
     "NextTokenRwkv": "nn.architectures.rwkv",
     "NextTokenWithEmbeddingsRwkv": "nn.architectures.rwkv",
     "RwkvAttention": "nn.architectures.rwkv",
@@ -777,6 +781,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import ColoredFormatter, configure_logging
+    from mlfab.nn.architectures.rnn import NextTokenGru, NextTokenWithEmbeddingsGru
     from mlfab.utils.text import (
         TextBlock,
         colored,
