@@ -29,6 +29,7 @@ from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
+from mlfab.utils.experiments import get_random_port
 from mlfab.utils.logging import configure_logging
 from mlfab.utils.text import show_info
 
@@ -134,7 +135,7 @@ class SlurmLauncher(StagedLauncher):
         time_limit: str | None = None,
         num_jobs: int = 1,
         comment: str | None = None,
-        master_port: int = DEFAULT_MASTER_PORT,
+        master_port: int | None = None,
         model_parallelism: int = 1,
         pipeline_parallelism: int = 1,
         backend: str | None = None,
@@ -171,7 +172,7 @@ class SlurmLauncher(StagedLauncher):
         self.time_limit = time_limit
         self.num_jobs = num_jobs
         self.comment = comment
-        self.master_port = master_port
+        self.master_port = get_random_port(DEFAULT_MASTER_PORT) if master_port is None else master_port
         self.model_parallelism = model_parallelism
         self.pipeline_parallelism = pipeline_parallelism
         self.backend = backend
