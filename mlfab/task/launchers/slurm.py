@@ -92,10 +92,10 @@ def parse_sinfo_output() -> list[PartitionInfo]:
         cpus_per_node, gres, name, time_limit = line.split()
 
         # Parses GPUs per node from gres.
-        gpus_per_node_re = re.search(r"gpu:(.+:)?(\d+)", gres)
+        gpus_per_node_re = re.search(r"gpu:(?:[^:]*:)?(\d+)", gres)
         if gpus_per_node_re is None:
             continue
-        gpus_per_node = int(gpus_per_node_re.group(2))
+        gpus_per_node = int(gpus_per_node_re.group(1))
 
         # Cleans up partition name.
         name = name.replace("*", "")
@@ -159,7 +159,7 @@ class SlurmLauncher(StagedLauncher):
             if gpus_per_node is None:
                 gpus_per_node = first_partition.gpus_per_node
             if cpus_per_gpu is None:
-                cpus_per_gpu = first_partition.cpus_per_node // gpus_per_node
+                cpus_per_gpu = first_partition.cpus_per_node // first_partition.gpus_per_node
 
         self.partition: str = partition
         self.gpus_per_node: int = gpus_per_node
