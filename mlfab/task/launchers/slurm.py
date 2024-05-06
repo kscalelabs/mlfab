@@ -92,10 +92,10 @@ def parse_sinfo_output() -> list[PartitionInfo]:
         cpus_per_node, gres, name, time_limit = line.split()
 
         # Parses GPUs per node from gres.
-        gpus_per_node_re = re.search(r"gpu:(\d+)", gres)
+        gpus_per_node_re = re.search(r"gpu:(.+:)?(\d+)", gres)
         if gpus_per_node_re is None:
             continue
-        gpus_per_node = int(gpus_per_node_re.group(1))
+        gpus_per_node = int(gpus_per_node_re.group(2))
 
         # Cleans up partition name.
         name = name.replace("*", "")
@@ -112,6 +112,7 @@ class SlurmArgs:
     num_nodes: int
     num_jobs: int
     account: str | None
+    nodelist: list[str] | None
 
 
 class SlurmLauncher(StagedLauncher):
@@ -141,6 +142,7 @@ class SlurmLauncher(StagedLauncher):
         pipeline_parallel_backend: str | None = None,
         data_parallel_backend: str | None = None,
         account: str | None = None,
+        nodelist: list[str] | None = None,
     ) -> None:
         super().__init__()
 
@@ -177,16 +179,18 @@ class SlurmLauncher(StagedLauncher):
         self.pipeline_parallel_backend = pipeline_parallel_backend
         self.data_parallel_backend = data_parallel_backend
         self.account = account
+        self.nodelist = nodelist
 
     @classmethod
-    def parse_args_from_cli(cls) -> tuple[SlurmArgs, list[str]]:
+    def parse_args_from_cli(cls, args: list[str] | None = None) -> tuple[SlurmArgs, list[str]]:
         parser = argparse.ArgumentParser(description="Launches a Slurm job.")
         parser.add_argument("--partition", type=str, default=None, help="The partition to use")
         parser.add_argument("--gpus-per-node", type=int, default=None, help="The number of GPUs per node")
         parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes to use")
         parser.add_argument("--num-jobs", type=int, default=1, help="The number of jobs to launch")
         parser.add_argument("--account", type=str, default=None, help="The account to use")
-        args, remaining_args = parser.parse_known_intermixed_args()
+        parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
+        args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
             SlurmArgs(
@@ -195,6 +199,7 @@ class SlurmLauncher(StagedLauncher):
                 num_nodes=args.num_nodes,
                 num_jobs=args.num_jobs,
                 account=args.account,
+                nodelist=args.nodelist,
             ),
             remaining_args,
         )
@@ -210,6 +215,8 @@ class SlurmLauncher(StagedLauncher):
             sbatch_lines += ["--exclusive"]
         if self.time_limit is not None:
             sbatch_lines += [f"--time={self.time_limit}"]
+        if self.nodelist is not None and len(self.nodelist) > 0:
+            sbatch_lines += [f"--nodelist={','.join(self.nodelist)}"]
         return sbatch_lines
 
     @property
