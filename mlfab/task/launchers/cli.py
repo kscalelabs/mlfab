@@ -43,7 +43,8 @@ class CliLauncher(BaseLauncher):
             case "mp":
                 MultiProcessLauncher().launch(task, *cfgs, use_cli=use_cli_next)
             case "slurm":
-                slurm_args, cli_args_rest = SlurmLauncher.parse_args_from_cli()
+                slurm_args, cli_args_rest = SlurmLauncher.parse_args_from_cli(cli_args_rest)
+                use_cli_next = False if not use_cli else cli_args_rest
                 SlurmLauncher(
                     partition=slurm_args.partition,
                     gpus_per_node=slurm_args.gpus_per_node,

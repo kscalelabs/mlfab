@@ -92,10 +92,10 @@ def parse_sinfo_output() -> list[PartitionInfo]:
         cpus_per_node, gres, name, time_limit = line.split()
 
         # Parses GPUs per node from gres.
-        gpus_per_node_re = re.search(r"gpu:(\d+)", gres)
+        gpus_per_node_re = re.search(r"gpu:(.+:)?(\d+)", gres)
         if gpus_per_node_re is None:
             continue
-        gpus_per_node = int(gpus_per_node_re.group(1))
+        gpus_per_node = int(gpus_per_node_re.group(2))
 
         # Cleans up partition name.
         name = name.replace("*", "")
