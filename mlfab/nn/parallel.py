@@ -68,7 +68,7 @@ import socket
 import sys
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, ParamSpec, TypeVar, cast, overload
+from typing import Any, Callable, Literal, ParamSpec, Sequence, TypeVar, cast, overload
 
 import torch
 import torch.distributed as dist
@@ -529,7 +529,7 @@ def init_parallelism(
     pp_rank = (rank // pipeline_parallelism) % model_parallelism
     mp_rank = rank // (model_parallelism * pipeline_parallelism)
 
-    def get_groups(groups: list[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
+    def get_groups(groups: Sequence[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
         return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
 
     # [[0, 4], [1, 5], [2, 6], [3, 7]].
