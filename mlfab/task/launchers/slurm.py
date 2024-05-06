@@ -281,6 +281,9 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
 export NCCL_DEBUG=1
 
+# Disable Tensorboard in Slurm.
+export TENSORBOARD_PORT=-1
+
 # Make a new line in the stdout file.
 echo ""
 echo "***"
