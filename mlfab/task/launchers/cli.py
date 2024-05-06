@@ -51,6 +51,7 @@ class CliLauncher(BaseLauncher):
                     num_nodes=slurm_args.num_nodes,
                     num_jobs=slurm_args.num_jobs,
                     account=slurm_args.account,
+                    nodelist=slurm_args.nodelist,
                 ).launch(task, *cfgs, use_cli=use_cli_next)
             case _:
                 raise ValueError(f"Invalid launcher choice: {launcher_choice}")
