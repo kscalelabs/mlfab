@@ -1,7 +1,7 @@
 """Defines modules for doing codebook learning via nearest neighbors."""
 
 import copy
-from typing import cast
+from typing import Callable, cast
 
 import torch
 import torch.distributed
@@ -98,7 +98,9 @@ class _EuclideanCodebook(nn.Module):
         self.epsilon = epsilon
         self.threshold_ema_dead_code = threshold_ema_dead_code
 
-        self.all_reduce_fn = torch.distributed.all_reduce if torch.distributed.is_initialized() else _identity
+        self.all_reduce_fn: Callable[[Tensor], Tensor] = (
+            torch.distributed.all_reduce if torch.distributed.is_initialized() else _identity
+        )
 
         self.register_buffer("inited", Tensor([not kmeans_init]))
         self.register_buffer("cluster_size", torch.zeros(codebook_size))
