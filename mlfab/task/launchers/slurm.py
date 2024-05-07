@@ -331,6 +331,8 @@ srun \\
             job_info_line["nodelist"] = self.nodelist
         if self.account is not None:
             job_info_line["account"] = self.account
+        if self.time_limit is not None:
+            job_info_line["time_limit"] = self.time_limit
         job_info += [job_info_line]
 
         # Writes the updated job information to a file.
