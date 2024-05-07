@@ -319,14 +319,19 @@ srun \\
             job_info = []
 
         # Adds the new job information.
-        job_info += [
-            {
-                "launch_time": datetime.datetime.now().isoformat(),
-                "job_ids": all_run_ids,
-                "task_key": task.task_key,
-                "exp_dir": str(task.exp_dir),
-            },
-        ]
+        job_info_line = {
+            "launch_time": datetime.datetime.now().isoformat(),
+            "job_ids": all_run_ids,
+            "task_key": task.task_key,
+            "exp_dir": str(task.exp_dir),
+        }
+        if self.comment is not None:
+            job_info_line["comment"] = self.comment
+        if self.nodelist is not None:
+            job_info_line["nodelist"] = self.nodelist
+        if self.account is not None:
+            job_info_line["account"] = self.account
+        job_info += [job_info_line]
 
         # Writes the updated job information to a file.
         with open(job_file, "w", encoding="utf-8") as f:
