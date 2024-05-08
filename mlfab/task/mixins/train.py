@@ -486,7 +486,7 @@ class TrainMixin(
 
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
-            self.device.module_to(mod)
+            self.device_manager.module_to(mod)
             mod = dp(mod, self.config.parallel)
 
         with self.step_context("create_optimizers"):
@@ -510,8 +510,8 @@ class TrainMixin(
 
         # Gets the prefetchers.
         with self.step_context("get_prefetcher"):
-            train_pf = self.device.get_prefetcher(train_dl)
-            valid_pf = self.device.get_prefetcher(valid_dl)
+            train_pf = self.device_manager.get_prefetcher(train_dl)
+            valid_pf = self.device_manager.get_prefetcher(valid_dl)
 
         self.on_training_start(state)
 

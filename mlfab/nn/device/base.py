@@ -77,6 +77,27 @@ class base_device(ABC):  # noqa: N801
             return dtype
         return self._get_floating_point_type()
 
+    def supports_grad_scaler(self) -> bool:
+        return False
+
+
+class DeviceManager:
+    def __init__(
+        self,
+        bd: base_device,
+        *,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        super().__init__()
+
+        self.bd = bd
+        self.device = bd.device if device is None else device
+        self.dtype = bd.dtype if dtype is None else dtype
+
+    def get_torch_compile_backend(self) -> str | Callable:
+        return self.bd.get_torch_compile_backend()
+
     def sample_to_device(self, sample: Tc, pin_memory: bool = True) -> Tc:
         return recursive_apply(
             recursive_from_numpy(sample, pin_memory=pin_memory),
@@ -112,4 +133,4 @@ class base_device(ABC):  # noqa: N801
         return torch.autocast(device_type=device_type, dtype=self.dtype, enabled=enabled)
 
     def supports_grad_scaler(self) -> bool:
-        return False
+        return self.bd.supports_grad_scaler()
