@@ -134,3 +134,9 @@ class DeviceManager:
 
     def supports_grad_scaler(self) -> bool:
         return self.bd.supports_grad_scaler()
+
+    def __str__(self) -> str:
+        return f"device_manager({self.device.type}, {self.device.index}, {self.dtype})"
+
+    def __repr__(self) -> str:
+        return str(self)
