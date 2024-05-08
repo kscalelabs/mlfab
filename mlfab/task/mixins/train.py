@@ -486,7 +486,7 @@ class TrainMixin(
 
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
-            self.device.module_to(mod)
+            self.device_manager.module_to(mod)
             mod = dp(mod, self.config.parallel)
 
         with self.step_context("create_optimizers"):
