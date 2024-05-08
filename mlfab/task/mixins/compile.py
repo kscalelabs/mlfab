@@ -44,7 +44,7 @@ class CompileMixin(DeviceMixin[Config], Generic[Config]):
     def get_compiler_backend(self) -> str | Callable:
         backend: str | Callable = self.config.compiler.backend
         if backend == "auto":
-            backend = self.device.get_torch_compile_backend()
+            backend = self.device_manager.get_torch_compile_backend()
             logger.info("Using torch-compile backend [%s]", backend)
         return backend
 

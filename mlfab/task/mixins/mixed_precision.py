@@ -52,7 +52,7 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
 
     @functools.cached_property
     def grad_scaler(self) -> torch.cuda.amp.GradScaler | None:
-        if self.device.supports_grad_scaler() and self.config.grad_scaler.enabled:
+        if self.device_manager.supports_grad_scaler() and self.config.grad_scaler.enabled:
             return torch.cuda.amp.GradScaler(
                 init_scale=self.config.grad_scaler.init_scale,
                 growth_factor=self.config.grad_scaler.growth_factor,
@@ -65,7 +65,7 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
 
     @functools.cached_property
     def autocast_context(self) -> ContextManager:
-        return self.device.autocast_context(enabled=self.config.grad_scaler.enabled)
+        return self.device_manager.autocast_context(enabled=self.config.grad_scaler.enabled)
 
     def scale_mixed_precision(self, tensor: Tensor) -> Tensor:
         if self.grad_scaler is not None:

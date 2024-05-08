@@ -510,8 +510,8 @@ class TrainMixin(
 
         # Gets the prefetchers.
         with self.step_context("get_prefetcher"):
-            train_pf = self.device.get_prefetcher(train_dl)
-            valid_pf = self.device.get_prefetcher(valid_dl)
+            train_pf = self.device_manager.get_prefetcher(train_dl)
+            valid_pf = self.device_manager.get_prefetcher(valid_dl)
 
         self.on_training_start(state)
 
