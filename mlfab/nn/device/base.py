@@ -77,9 +77,6 @@ class base_device(ABC):  # noqa: N801
             return dtype
         return self._get_floating_point_type()
 
-    def supports_grad_scaler(self) -> bool:
-        return False
-
 
 class DeviceManager:
     def __init__(
@@ -131,9 +128,6 @@ class DeviceManager:
         if device_type == "cpu" and self.dtype != torch.bfloat16:
             return contextlib.nullcontext()
         return torch.autocast(device_type=device_type, dtype=self.dtype, enabled=enabled)
-
-    def supports_grad_scaler(self) -> bool:
-        return self.bd.supports_grad_scaler()
 
     def __str__(self) -> str:
         return f"device_manager({self.device.type}, {self.device.index}, {self.dtype})"

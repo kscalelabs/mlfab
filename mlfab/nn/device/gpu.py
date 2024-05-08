@@ -36,6 +36,3 @@ class gpu_device(base_device):  # noqa: N801
         if capability >= (7, 0):
             return "inductor"
         return "aot_ts_nvfuser"
-
-    def supports_grad_scaler(self) -> bool:
-        return self._get_floating_point_type_with_override() not in (torch.float32, torch.float64)
