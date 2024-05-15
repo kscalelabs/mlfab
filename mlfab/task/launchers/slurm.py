@@ -20,6 +20,8 @@ from mlfab.nn.parallel import (
     init_process_group_from_backend,
     is_master,
     set_init_method,
+    set_local_rank,
+    set_local_world_size,
     set_master_addr,
     set_master_port,
     set_rank,
@@ -45,6 +47,8 @@ def set_slurm_rank_and_world_size() -> tuple[int, int]:
     world_size = num_nodes * tasks_per_node
     set_rank(rank)
     set_world_size(world_size)
+    set_local_rank(local_id)
+    set_local_world_size(tasks_per_node)
     return rank, world_size
 
 
