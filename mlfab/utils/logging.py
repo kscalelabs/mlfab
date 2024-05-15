@@ -114,7 +114,7 @@ class ColoredFormatter(logging.Formatter):
         if rank is not None or world_size is not None:
             assert rank is not None and world_size is not None
             digits = int(math.log10(world_size) + 1)
-            message_pre += [f" [{rank:0{digits}d}/{world_size}]"]
+            message_pre += [f" [{rank:>{digits}d}/{world_size}]"]
         message = "".join(message_pre + message_post)
 
         super().__init__(message, style="{", datefmt="%Y-%m-%d %H:%M:%S")

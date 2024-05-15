@@ -1177,8 +1177,7 @@ def init_process_group_from_backend(backend: str | dist.Backend | None = None) -
     dist.init_process_group(backend=backend, init_method=init_method, world_size=world_size, rank=rank)
 
     if torch.cuda.is_available():
-        device_count = torch.cuda.device_count()
-        torch.cuda.set_device(rank % device_count)
+        torch.cuda.set_device(get_local_rank())
 
     logger.info("Initialized process group; running dummy all-reduce")
     dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
@@ -1320,6 +1319,7 @@ def launch_subprocesses(
 
     if cfg.world_size <= 1:
         cfg.rank = 0
+        cfg.local_rank = 0
         init_and_run(func, cfg, *args, **kwargs)
         cleanup()
         return

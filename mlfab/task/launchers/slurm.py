@@ -20,6 +20,8 @@ from mlfab.nn.parallel import (
     init_process_group_from_backend,
     is_master,
     set_init_method,
+    set_local_rank,
+    set_local_world_size,
     set_master_addr,
     set_master_port,
     set_rank,
@@ -45,6 +47,8 @@ def set_slurm_rank_and_world_size() -> tuple[int, int]:
     world_size = num_nodes * tasks_per_node
     set_rank(rank)
     set_world_size(world_size)
+    set_local_rank(local_id)
+    set_local_world_size(tasks_per_node)
     return rank, world_size
 
 
@@ -235,7 +239,7 @@ class SlurmLauncher(StagedLauncher):
             export_lines["PIPELINE_PARALLEL_BACKEND"] = self.pipeline_parallel_backend
         if self.data_parallel_backend is not None:
             export_lines["DATA_PARALLEL_BACKEND"] = self.data_parallel_backend
-        return "\n".join(f"export {k}={v}" for k, v in sorted(export_lines.items()))
+        return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
 
     def pythonpath(self, stage_dir: str | Path | None) -> str:
         pythonpath_paths = ([] if stage_dir is None else [str(stage_dir)]) + os.environ.get("PYTHONPATH", "").split(":")
@@ -252,7 +256,7 @@ class SlurmLauncher(StagedLauncher):
         if stage_dir is not None:
             extra_sbatch_lines += [f"--chdir={stage_dir}"]
             comments += [f"Code location: {stage_dir}"]
-        extra_sbatch_lines_str = "\n".join(f"#SBATCH {line}" for line in extra_sbatch_lines)
+        extra_sbatch_lines_str = "".join(f"\n#SBATCH {line}" for line in extra_sbatch_lines)
 
         return f"""
 #!/bin/bash
@@ -267,14 +271,12 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --gpus-per-node={self.gpus_per_node}
 #SBATCH --output={output_path}
 #SBATCH --error={error_path}
-#SBATCH --open-mode=append
-{extra_sbatch_lines_str}
+#SBATCH --open-mode=append{extra_sbatch_lines_str}
 
 # Sets the environment variables.
 export SLURM_EXPORT_ENV=ALL
 export PYTHONPATH={self.pythonpath(stage_dir)}
-export MASTER_PORT={self.master_port}
-{self.extra_export_lines}
+export MASTER_PORT={self.master_port}{self.extra_export_lines}
 
 # Set some debugging flags.
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
@@ -300,7 +302,6 @@ echo "" >&2
 
 # Runs the training command.
 srun \\
-    --nodes={self.num_nodes} \\
     --ntasks-per-node={self.gpus_per_node} \\
     --cpus-per-gpu={self.cpus_per_gpu} \\
     --gpus-per-node={self.gpus_per_node} \\
