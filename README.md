@@ -7,6 +7,8 @@
 [![black](https://img.shields.io/badge/Code%20Style-Black-black.svg?labelColor=gray)](https://black.readthedocs.io/en/stable/)
 [![ruff](https://img.shields.io/badge/Linter-Ruff-red.svg?labelColor=gray)](https://github.com/charliermarsh/ruff)
 [![license](https://img.shields.io/badge/License-MIT-green.svg?labelColor=gray)](https://github.com/dpshai/mlfab/blob/master/LICENSE)
+<br />
+[![Python Checks](https://github.com/kscalelabs/mlfab/actions/workflows/test.yml/badge.svg)](https://github.com/kscalelabs/mlfab/actions/workflows/test.yml)
 
 </div>
 
