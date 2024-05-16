@@ -4,7 +4,7 @@ import functools
 import os
 from dataclasses import dataclass, field as field_base
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 import torch
 from omegaconf import II, MISSING, Container as OmegaConfContainer, OmegaConf
@@ -180,9 +180,22 @@ def load_user_config() -> UserConfig:
     return _load_user_config_cached()
 
 
-def get_run_dir() -> Path | None:
+@overload
+def get_run_dir(*, missing_ok: Literal[False] = False) -> Path: ...
+
+
+@overload
+def get_run_dir(*, missing_ok: Literal[True]) -> Path | None: ...
+
+
+def get_run_dir(*, missing_ok: bool = True) -> Path | None:
     config = load_user_config().directories
     if is_missing(config, "run"):
+        if not missing_ok:
+            raise RuntimeError(
+                "The run directory has not been set! You should set it in your config file "
+                f"in {user_config_path()} or set the RUN_DIR environment variable."
+            )
         return None
     (run_dir := Path(config.run)).mkdir(parents=True, exist_ok=True)
     return run_dir
