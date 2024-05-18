@@ -56,6 +56,7 @@ from torch import Tensor, nn
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
+from mlfab.nn.norms import get_norm_linear
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -412,9 +413,10 @@ class TransformerEncoderLayer(nn.Module):
         feedforward_factor: The factor by which the input number of dimensions
             is multiplied to get the feedforward hidden dimension.
         dropout: The dropout probability, applied to the attention matrix.
-        layer_norm_eps: The layer normalization epsilon value.
+        norm_eps: The layer normalization epsilon value.
         norm_first: Whether to apply layer normalization before the attention
             layer.
+        norm_type: The type of normalization to use.
         gqa_factor: The GQA factor to use, meaning the ratio of the number of
             queries to the number of keys. Higher values will result in more
             queries than keys, which can speed up inference.
@@ -448,8 +450,9 @@ class TransformerEncoderLayer(nn.Module):
         head_dims: int = 64,
         feedforward_factor: int = 4,
         dropout: float = 0.1,
-        layer_norm_eps: float = 1e-5,
-        norm_first: bool = False,
+        norm_eps: float = 1e-5,
+        norm_first: bool = True,
+        norm_type: Literal["layer", "rms"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
     ) -> None:
@@ -474,8 +477,8 @@ class TransformerEncoderLayer(nn.Module):
 
         # Extras (norms and dropout).
         self.norm_first = norm_first
-        self.norm1 = nn.LayerNorm(d_model, eps=layer_norm_eps)
-        self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
+        self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
@@ -564,7 +567,7 @@ class TransformerDecoderLayer(nn.Module):
         feedforward_factor: The factor by which the input number of dimensions
             is multiplied to get the feedforward hidden dimension.
         dropout: The dropout probability, applied to the attention matrix.
-        layer_norm_eps: The layer normalization epsilon value.
+        norm_eps: The layer normalization epsilon value.
         norm_first: Whether to apply layer normalization before the attention
             layer.
         gqa_factor: The GQA factor to use, meaning the ratio of the number of
@@ -597,8 +600,9 @@ class TransformerDecoderLayer(nn.Module):
         head_dims: int = 64,
         feedforward_factor: int = 4,
         dropout: float = 0.1,
-        layer_norm_eps: float = 1e-5,
-        norm_first: bool = False,
+        norm_eps: float = 1e-5,
+        norm_type: Literal["layer", "rms"] = "rms",
+        norm_first: bool = True,
         gqa_factor: int = 1,
         memory_dims: int | None = None,
     ) -> None:
@@ -622,8 +626,8 @@ class TransformerDecoderLayer(nn.Module):
 
         # Extras (norms and dropout).
         self.norm_first = norm_first
-        self.norm1 = nn.LayerNorm(d_model, eps=layer_norm_eps)
-        self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps)
+        self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
+        self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
@@ -687,7 +691,6 @@ class TransformerEncoder(nn.Module):
     Parameters:
         encoder_layer: The encoder layer to use.
         num_layers: The number of encoder layers.
-        norm: The normalization layer to use. Defaults to ``None``.
         is_causal: Default value for ``is_causal`` in the ``forward`` method
             if not supplied. Controls causal verses bidirectional attention.
         use_rotary: Default value for ``use_rotary`` in the ``forward`` method
@@ -717,7 +720,6 @@ class TransformerEncoder(nn.Module):
         self,
         encoder_layer: TransformerEncoderLayer,
         num_layers: int,
-        norm: nn.LayerNorm | None = None,
         is_causal: bool | None = None,
         use_rotary: bool = False,
         rotary_base: int = 10_000,
@@ -734,7 +736,6 @@ class TransformerEncoder(nn.Module):
 
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
-        self.norm = nn.Identity() if norm is None else norm
         self.rotary_q: Tensor | None = None
         self.rotary_k: Tensor | None = None
 
@@ -794,7 +795,7 @@ class TransformerEncoder(nn.Module):
             state_i = None if state is None else state[i]
             output_btc, state_o_i = layer.forward(output_btc, state_i, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
             state_out.append(state_o_i)
-        return self.norm(output_btc), torch.stack(state_out, dim=0)
+        return output_btc, torch.stack(state_out, dim=0)
 
 
 class TransformerDecoder(nn.Module):
@@ -803,7 +804,6 @@ class TransformerDecoder(nn.Module):
     Parameters:
         encoder_layer: The encoder layer to use.
         num_layers: The number of encoder layers.
-        norm: The normalization layer to use. Defaults to ``None``.
         is_causal: Default value for ``is_causal`` in the ``forward`` method
             if not supplied. Controls causal verses bidirectional attention.
         use_rotary: Default value for ``use_rotary`` in the ``forward`` method
@@ -837,7 +837,6 @@ class TransformerDecoder(nn.Module):
         encoder_layer: TransformerEncoderLayer,
         decoder_layer: TransformerDecoderLayer,
         num_layers: int,
-        norm: nn.LayerNorm | None = None,
         is_causal: bool | None = None,
         use_rotary: bool = False,
         rotary_base: int = 10_000,
@@ -860,7 +859,6 @@ class TransformerDecoder(nn.Module):
         self.encoder_layers = _get_clones(encoder_layer, num_layers)
         self.decoder_layers = _get_clones(decoder_layer, num_layers)
         self.num_layers = num_layers
-        self.norm = nn.Identity() if norm is None else norm
         self.rotary_q: Tensor | None = None
         self.rotary_k: Tensor | None = None
 
@@ -932,7 +930,7 @@ class TransformerDecoder(nn.Module):
             e_state_out.append(e_state_out_i)
             output_bqc, d_state_out_i = d_layer.forward(output_bqc, memory_bkc, d_state_i, decoder_mask_bqk)
             d_state_out.append(d_state_out_i)
-        return self.norm(output_bqc), (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
+        return output_bqc, (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
 
 
 class NextTokenTransformer(nn.Module):
@@ -951,11 +949,12 @@ class NextTokenTransformer(nn.Module):
         head_dims: int = 64,
         feedforward_factor: int = 4,
         dropout: float = 0.1,
-        layer_norm_eps: float = 1e-5,
-        norm_first: bool = False,
+        norm_eps: float = 1e-5,
+        norm_type: Literal["layer", "rms"] = "rms",
+        norm_first: bool = True,
+        final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
-        norm: nn.LayerNorm | None = None,
         use_rotary: bool = True,
         rotary_base: int = 10_000,
     ) -> None:
@@ -969,17 +968,20 @@ class NextTokenTransformer(nn.Module):
                 head_dims=head_dims,
                 feedforward_factor=feedforward_factor,
                 dropout=dropout,
-                layer_norm_eps=layer_norm_eps,
+                norm_eps=norm_eps,
+                norm_type=norm_type,
                 norm_first=norm_first,
                 gqa_factor=gqa_factor,
                 max_kv_cache_len=max_kv_cache_len,
             ),
             num_layers=num_layers,
-            norm=norm,
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Linear(d_model, vocab_size)
+        self.proj = nn.Sequential(
+            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
+            nn.Linear(d_model, vocab_size),
+        )
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
@@ -1029,11 +1031,12 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         head_dims: int = 64,
         feedforward_factor: int = 4,
         dropout: float = 0.1,
-        layer_norm_eps: float = 1e-5,
-        norm_first: bool = False,
+        norm_eps: float = 1e-5,
+        norm_type: Literal["layer", "rms"] = "rms",
+        norm_first: bool = True,
+        final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
-        norm: nn.LayerNorm | None = None,
         use_rotary: bool = True,
         rotary_base: int = 10_000,
     ) -> None:
@@ -1047,17 +1050,20 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
                 head_dims=head_dims,
                 feedforward_factor=feedforward_factor,
                 dropout=dropout,
-                layer_norm_eps=layer_norm_eps,
+                norm_eps=norm_eps,
+                norm_type=norm_type,
                 norm_first=norm_first,
                 gqa_factor=gqa_factor,
                 max_kv_cache_len=max_kv_cache_len,
             ),
             num_layers=num_layers,
-            norm=norm,
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Linear(d_model, vocab_size)
+        self.proj = nn.Sequential(
+            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
+            nn.Linear(d_model, vocab_size),
+        )
 
     def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])
