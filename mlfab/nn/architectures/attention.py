@@ -795,7 +795,7 @@ class TransformerEncoder(nn.Module):
             state_i = None if state is None else state[i]
             output_btc, state_o_i = layer.forward(output_btc, state_i, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
             state_out.append(state_o_i)
-        return self.norm(output_btc), torch.stack(state_out, dim=0)
+        return output_btc, torch.stack(state_out, dim=0)
 
 
 class TransformerDecoder(nn.Module):
@@ -930,7 +930,7 @@ class TransformerDecoder(nn.Module):
             e_state_out.append(e_state_out_i)
             output_bqc, d_state_out_i = d_layer.forward(output_bqc, memory_bkc, d_state_i, decoder_mask_bqk)
             d_state_out.append(d_state_out_i)
-        return self.norm(output_bqc), (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
+        return output_bqc, (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
 
 
 class NextTokenTransformer(nn.Module):
@@ -952,6 +952,7 @@ class NextTokenTransformer(nn.Module):
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
         norm_first: bool = True,
+        final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
         use_rotary: bool = True,
@@ -977,7 +978,10 @@ class NextTokenTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Linear(d_model, vocab_size)
+        self.proj = nn.Sequential(
+            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
+            nn.Linear(d_model, vocab_size),
+        )
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
@@ -1030,6 +1034,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
         norm_first: bool = True,
+        final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
         use_rotary: bool = True,
@@ -1055,7 +1060,10 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Linear(d_model, vocab_size)
+        self.proj = nn.Sequential(
+            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
+            nn.Linear(d_model, vocab_size),
+        )
 
     def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])
