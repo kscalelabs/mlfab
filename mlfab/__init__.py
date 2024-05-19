@@ -202,6 +202,7 @@ __all__ = [
     "CPUStatsOptions",
     "DataloaderConfig",
     "GPUStatsOptions",
+    "pretrained",
     "ProfilerOptions",
     "Script",
     "ScriptConfig",
@@ -466,6 +467,7 @@ NAME_MAP: dict[str, str] = {
     "CPUStatsOptions": "task.mixins.cpu_stats",
     "DataloaderConfig": "task.mixins.data_loader",
     "GPUStatsOptions": "task.mixins.gpu_stats",
+    "pretrained": "task.mixins.pretrained",
     "ProfilerOptions": "task.mixins.profiler",
     "Script": "task.script",
     "ScriptConfig": "task.script",
@@ -746,6 +748,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.data_loader import DataloaderConfig
     from mlfab.task.mixins.gpu_stats import GPUStatsOptions
     from mlfab.task.mixins.optimizer import OptType
+    from mlfab.task.mixins.pretrained import pretrained
     from mlfab.task.mixins.profiler import ProfilerOptions
     from mlfab.task.script import Script, ScriptConfig
     from mlfab.task.task import Config, Task

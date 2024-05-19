@@ -160,5 +160,5 @@ if __name__ == "__main__":
     cfg = Config()
     cfg.batch_size = 61
     cfg.valid_every_n_seconds = 10
-    cfg.train_dl.num_workers = 1
+    cfg.num_train_dl_workers = 1
     MonotonicAttentionTask.launch(cfg)

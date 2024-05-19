@@ -25,22 +25,11 @@ Tc = TypeVar("Tc")
 
 
 @dataclass
-class DataloaderConfig:
-    num_workers: int = field(MISSING, help="Number of workers for loading samples")
-    prefetch_factor: int = field(2, help="Number of items to pre-fetch on the host")
-
-
-@dataclass
 class DataloadersConfig(ProcessConfig, BaseConfig):
     batch_size: int = field(MISSING, help="Size of each batch")
-    train_dl: DataloaderConfig = field(
-        DataloaderConfig(num_workers=II("mlfab.num_workers:-1")),
-        help="Train dataloader config",
-    )
-    test_dl: DataloaderConfig = field(
-        DataloaderConfig(num_workers=1),
-        help="Valid dataloader config",
-    )
+    num_train_dl_workers: int = field(II("mlfab.num_workers:-1"), help="Number of workers for loading samples")
+    num_test_dl_workers: int = field(1, help="Number of workers for loading samples")
+    prefetch_factor: int = field(2, help="Number of items to pre-fetch on the host")
     debug_dataloader: bool = field(False, help="Debug dataloaders")
     use_pytorch_dataloader: bool = field(False, help="Use PyTorch dataloaders")
 
@@ -60,17 +49,6 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
             "When `batch_size` is not specified in your training config, you should override the `get_batch_size` "
             "method to return the desired training batch size."
         )
-
-    def dataloader_config(self, phase: Phase) -> DataloaderConfig:
-        match phase:
-            case "train":
-                return self.config.train_dl
-            case "valid":
-                return self.config.test_dl
-            case "test":
-                return self.config.test_dl
-            case _:
-                raise KeyError(f"Unknown phase: {phase}")
 
     def get_dataset(self, phase: Phase) -> Dataset:
         """Returns the dataset for the given phase.
@@ -105,7 +83,7 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
                 flush_every_n_steps=conf.error_handling.flush_exception_summary_every,
             )
 
-        cfg = self.dataloader_config(phase)
+        num_workers = self.config.num_train_dl_workers if phase == "train" else self.config.num_test_dl_workers
 
         # Creates a globally unique name for each dataloader.
         rank = get_rank()
@@ -113,11 +91,11 @@ class DataloadersMixin(ProcessMixin[Config], BaseTask[Config], Generic[Config]):
 
         return Dataloader(
             dataset=dataset,
-            num_workers=0 if debugging else cfg.num_workers,
+            num_workers=0 if debugging else num_workers,
             batch_size=self.config.batch_size,
-            prefetch_factor=cfg.prefetch_factor,
-            mp_context=None if debugging or cfg.num_workers < 1 else self.multiprocessing_context,
-            mp_manager=None if debugging or cfg.num_workers < 1 else self.multiprocessing_manager,
+            prefetch_factor=self.config.prefetch_factor,
+            mp_context=None if debugging or num_workers < 1 else self.multiprocessing_context,
+            mp_manager=None if debugging or num_workers < 1 else self.multiprocessing_manager,
             collate_worker_init_fn=self.collate_worker_init_fn,
             dataloader_worker_init_fn=self.data_worker_init_fn,
             name=name,
