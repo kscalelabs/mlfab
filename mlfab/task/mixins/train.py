@@ -30,6 +30,7 @@ from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.mixed_precision import MixedPrecisionConfig, MixedPrecisionMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
+from mlfab.task.mixins.pretrained import PretrainedConfig, PretrainedMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
@@ -67,6 +68,7 @@ class TrainConfig(
     CheckpointingConfig,
     OptimizerConfig,
     CompileConfig,
+    PretrainedConfig,
     MixedPrecisionConfig,
     DataloadersConfig,
     DeviceConfig,
@@ -118,6 +120,7 @@ class TrainMixin(
     CheckpointingMixin[Config],
     OptimizerMixin[Config],
     CompileMixin[Config],
+    PretrainedMixin[Config],
     MixedPrecisionMixin[Config],
     DataloadersMixin[Config],
     DeviceMixin[Config],
