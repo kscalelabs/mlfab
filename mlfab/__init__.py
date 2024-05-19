@@ -200,7 +200,6 @@ __all__ = [
     "TensorboardLogger",
     "TorchCompileOptions",
     "CPUStatsOptions",
-    "DataloaderConfig",
     "GPUStatsOptions",
     "pretrained",
     "ProfilerOptions",
@@ -465,7 +464,6 @@ NAME_MAP: dict[str, str] = {
     "TensorboardLogger": "task.loggers.tensorboard",
     "TorchCompileOptions": "task.mixins.compile",
     "CPUStatsOptions": "task.mixins.cpu_stats",
-    "DataloaderConfig": "task.mixins.data_loader",
     "GPUStatsOptions": "task.mixins.gpu_stats",
     "pretrained": "task.mixins.pretrained",
     "ProfilerOptions": "task.mixins.profiler",
@@ -745,7 +743,6 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.loggers.tensorboard import TensorboardLogger
     from mlfab.task.mixins.compile import TorchCompileOptions
     from mlfab.task.mixins.cpu_stats import CPUStatsOptions
-    from mlfab.task.mixins.data_loader import DataloaderConfig
     from mlfab.task.mixins.gpu_stats import GPUStatsOptions
     from mlfab.task.mixins.optimizer import OptType
     from mlfab.task.mixins.pretrained import pretrained

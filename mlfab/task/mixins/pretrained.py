@@ -1,3 +1,4 @@
+# mypy: disable-error-code="no-untyped-def"
 """Defines a mixin for pre-trained models.
 
 Usually, when adding pre-trained models to a task, you just create a PyTorch
@@ -13,7 +14,7 @@ model parameters in the task state checkpoint or doing train-eval mode changes.
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, Generic, Self, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar
 
 from torch import Tensor, nn
 from torch.nn.modules.module import Module
@@ -41,6 +42,12 @@ class PretrainedModule:
     def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
         self.module._apply(fn, recurse)
         return self
+
+    def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
+        return self.module(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
+        return self.module.__call__(*args, **kwargs)
 
 
 def pretrained(module: nn.Module) -> PretrainedModule:

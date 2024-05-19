@@ -36,7 +36,7 @@ class DummyTask(mlfab.Task[Config]):
 
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
-        self.lstm = nn.LSTM(8, 8, 2)
+        self.lstm = mlfab.pretrained(nn.LSTM(8, 8, 2))
 
     def build_optimizer(self) -> mlfab.OptType:
         assert (max_steps := self.config.max_steps) is not None
@@ -70,9 +70,7 @@ def test_e2e_training(tmpdir: Path) -> None:
     config = Config(
         num_layers=2,
         batch_size=2,
-        train_dl=mlfab.DataloaderConfig(
-            num_workers=0,
-        ),
+        num_train_dl_workers=0,
         max_steps=10,
     )
 
@@ -103,9 +101,7 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
     config = Config(
         num_layers=2,
         batch_size=2,
-        train_dl=mlfab.DataloaderConfig(
-            num_workers=0,
-        ),
+        num_train_dl_workers=0,
         max_steps=10,
     )
 
