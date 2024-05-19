@@ -16,6 +16,7 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Self, TypeVar
 
+import torch
 from torch import Tensor, nn
 from torch.nn.modules.module import Module
 
@@ -35,6 +36,8 @@ class PretrainedModule:
         super().__init__()
 
         self.module = module
+        self.module.eval()
+        self.module.requires_grad_(False)
 
     def __getattr__(self, name: str) -> Tensor | Module:
         return self.module.__getattr__(name)
@@ -43,9 +46,11 @@ class PretrainedModule:
         self.module._apply(fn, recurse)
         return self
 
+    @torch.no_grad()
     def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module(*args, **kwargs)
 
+    @torch.no_grad()
     def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.__call__(*args, **kwargs)
 
