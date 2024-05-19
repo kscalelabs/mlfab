@@ -48,6 +48,7 @@ attention implementation.
 """
 
 import copy
+import math
 from typing import Literal, TypeVar, cast, overload
 
 import torch
@@ -251,11 +252,11 @@ class MultiheadAttention(nn.Module):
 
     def _reset_parameters(self) -> None:
         if self._qkv_same_embed_dim:
-            nn.init.xavier_uniform_(self.in_proj_weight)
+            nn.init.normal_(self.in_proj_weight, std=math.sqrt(1 / self.embed_dim))
         else:
-            nn.init.xavier_uniform_(self.q_proj_weight)
-            nn.init.xavier_uniform_(self.k_proj_weight)
-            nn.init.xavier_uniform_(self.v_proj_weight)
+            nn.init.normal_(self.q_proj_weight, std=math.sqrt(1 / self.embed_dim))
+            nn.init.normal_(self.k_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
+            nn.init.normal_(self.v_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
 
         if self.in_proj_bias is not None:
             nn.init.constant_(self.in_proj_bias, 0.0)
