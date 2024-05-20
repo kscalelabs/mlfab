@@ -41,7 +41,7 @@ class PretrainedModule:
         self.module.eval()
         self.module.requires_grad_(False)
 
-    def __getattribute__(self, name: str) -> Any:
+    def __getattribute__(self, name: str) -> Any:  # noqa: ANN401
         if name in ["module", "forward", "__call__"]:
             return super().__getattribute__(name)
         return getattr(self.module, name)
