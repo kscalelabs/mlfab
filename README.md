@@ -96,7 +96,7 @@ class MnistClassification(mlfab.Task[Config]):
             mlfab.TensorboardLogger(self.exp_dir),
         )
 
-    def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
+    def get_dataset(self, phase: mlfab.Phase) -> MNIST:
         root_dir = mlfab.get_data_dir() / "mnist"
         return MNIST(root_dir=root_dir, train=phase == "train")
 
