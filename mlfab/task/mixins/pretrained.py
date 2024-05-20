@@ -39,8 +39,10 @@ class PretrainedModule:
         self.module.eval()
         self.module.requires_grad_(False)
 
-    def __getattr__(self, name: str) -> Tensor | Module:
-        return self.module.__getattr__(name)
+    def __getattribute__(self, name: str) -> Any:
+        if name in ["module", "_apply", "forward", "__call__"]:
+            return super().__getattribute__(name)
+        return getattr(self.module, name)
 
     def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
         self.module._apply(fn, recurse)
@@ -48,7 +50,7 @@ class PretrainedModule:
 
     @torch.no_grad()
     def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
-        return self.module(*args, **kwargs)
+        return self.module.forward(*args, **kwargs)
 
     @torch.no_grad()
     def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
