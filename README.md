@@ -107,19 +107,20 @@ class MnistClassification(mlfab.Task[Config]):
         return self.model(x)
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
-        x, y = batch
-        yhat = self(x)
-        self.log_step(batch, yhat, state)
-        return F.cross_entropy(yhat, y.squeeze(-1))
+        x_bhw, y_b = batch
+        x_bchw = (x_bhw.float() / 255.0).unsqueeze(1)
+        yhat_bc = self(x_bchw)
+        self.log_step(batch, yhat_bc, state)
+        return F.cross_entropy(yhat_bc, y_b)
 
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
-        (x, y), yhat = batch, output
+        (x_bhw, y_b), yhat_bc = batch, output
 
         def get_label_strings() -> list[str]:
-            ytrue, ypred = y.squeeze(-1), yhat.argmax(-1)
-            return [f"ytrue={ytrue[i]}, ypred={ypred[i]}" for i in range(len(ytrue))]
+            ypred_b = yhat_bc.argmax(-1)
+            return [f"ytrue={y_b[i]}, ypred={ypred_b[i]}" for i in range(len(y_b))]
 
-        self.log_labeled_images("images", lambda: (x, get_label_strings()))
+        self.log_labeled_images("images", lambda: (x_bhw, get_label_strings()))
 
 
 if __name__ == "__main__":
@@ -211,10 +212,11 @@ def forward(self, x: Tensor) -> Tensor:
     return self.model(x)
 
 def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
-    x, y = batch
-    yhat = self(x)
-    self.log_step(batch, yhat, state)
-    return F.cross_entropy(yhat, y.squeeze(-1))
+    x_bhw, y_b = batch
+    x_bchw = (x_bhw.float() / 255.0).unsqueeze(1)
+    yhat_bc = self(x_bchw)
+    self.log_step(batch, yhat_bc, state)
+    return F.cross_entropy(yhat_bc, y_b)
 ```
 
 ### Logging
@@ -223,13 +225,13 @@ When we call `log_step` in the `get_loss` function, it delegates to either `log_
 
 ```python
 def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
-    (x, y), yhat = batch, output
+    (x_bhw, y_b), yhat_bc = batch, output
 
     def get_label_strings() -> list[str]:
-        ytrue, ypred = y.squeeze(-1), yhat.argmax(-1)
-        return [f"ytrue={ytrue[i]}, ypred={ypred[i]}" for i in range(len(ytrue))]
+        ypred_b = yhat_bc.argmax(-1)
+        return [f"ytrue={y_b[i]}, ypred={ypred_b[i]}" for i in range(len(y_b))]
 
-    self.log_labeled_images("images", lambda: (x, get_label_strings()))
+    self.log_labeled_images("images", lambda: (x_bhw, get_label_strings()))
 ```
 
 ### Running
