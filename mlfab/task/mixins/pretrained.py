@@ -14,7 +14,7 @@ model parameters in the task state checkpoint or doing train-eval mode changes.
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Self, TypeVar
+from typing import Any, Callable, Generic, Self, TypeVar, cast
 
 import torch
 from torch import Tensor, nn
@@ -30,6 +30,8 @@ class PretrainedConfig(BaseConfig):
 
 Config = TypeVar("Config", bound=PretrainedConfig)
 
+Tmod = TypeVar("Tmod", bound=nn.Module)
+
 
 class PretrainedModule:
     def __init__(self, module: nn.Module) -> None:
@@ -39,24 +41,22 @@ class PretrainedModule:
         self.module.eval()
         self.module.requires_grad_(False)
 
-    def __getattr__(self, name: str) -> Tensor | Module:
-        return self.module.__getattr__(name)
-
-    def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
-        self.module._apply(fn, recurse)
-        return self
+    def __getattribute__(self, name: str) -> Any:  # noqa: ANN401
+        if name in ["module", "forward", "__call__"]:
+            return super().__getattribute__(name)
+        return getattr(self.module, name)
 
     @torch.no_grad()
     def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
-        return self.module(*args, **kwargs)
+        return self.module.forward(*args, **kwargs)
 
     @torch.no_grad()
     def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.__call__(*args, **kwargs)
 
 
-def pretrained(module: nn.Module) -> PretrainedModule:
-    return PretrainedModule(module)
+def pretrained(module: Tmod) -> Tmod:
+    return cast(Tmod, PretrainedModule(module))
 
 
 class PretrainedMixin(BaseTask[Config], Generic[Config], ABC):
@@ -74,5 +74,5 @@ class PretrainedMixin(BaseTask[Config], Generic[Config], ABC):
     def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
         mod = super()._apply(fn, recurse)
         for pretrained_i in mod._pretrained_modules:
-            pretrained_i._apply(fn, recurse)
+            pretrained_i.module._apply(fn, recurse)
         return mod
