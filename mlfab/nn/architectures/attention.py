@@ -774,6 +774,7 @@ class TransformerEncoder(nn.Module):
         is_causal: bool | None = None,
         use_rotary: bool | None = None,
         mask_btt: Tensor | None = None,
+        layer_id: int | None = None,
     ) -> tuple[Tensor, Tensor]:
         is_causal = self._default(is_causal, self.is_causal, state is None)
         use_rotary = self._default(use_rotary, self.use_rotary)
@@ -796,6 +797,8 @@ class TransformerEncoder(nn.Module):
             state_i = None if state is None else state[i]
             output_btc, state_o_i = layer.forward(output_btc, state_i, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
             state_out.append(state_o_i)
+            if layer_id is not None and i == layer_id:
+                break
         return output_btc, torch.stack(state_out, dim=0)
 
 
@@ -899,6 +902,7 @@ class TransformerDecoder(nn.Module):
         use_rotary: bool | None = None,
         encoder_mask_bqq: Tensor | None = None,
         decoder_mask_bqk: Tensor | None = None,
+        layer_id: int | None = None,
     ) -> tuple[Tensor, tuple[Tensor, Tensor]]:
         is_causal = self._default(is_causal, self.is_causal, state is None)
         use_rotary = self._default(use_rotary, self.use_rotary)
@@ -931,6 +935,8 @@ class TransformerDecoder(nn.Module):
             e_state_out.append(e_state_out_i)
             output_bqc, d_state_out_i = d_layer.forward(output_bqc, memory_bkc, d_state_i, decoder_mask_bqk)
             d_state_out.append(d_state_out_i)
+            if layer_id is not None and i == layer_id:
+                break
         return output_bqc, (torch.stack(e_state_out, dim=0), torch.stack(d_state_out, dim=0))
 
 
