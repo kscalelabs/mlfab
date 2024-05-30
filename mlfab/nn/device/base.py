@@ -95,7 +95,9 @@ class DeviceManager:
     def get_torch_compile_backend(self) -> str | Callable:
         return self.bd.get_torch_compile_backend()
 
-    def sample_to_device(self, sample: Tc, pin_memory: bool = True) -> Tc:
+    def sample_to_device(self, sample: Tc, pin_memory: bool | None = None) -> Tc:
+        if pin_memory is None:
+            pin_memory = self.device.type == "cuda"
         return recursive_apply(
             recursive_from_numpy(sample, pin_memory=pin_memory),
             lambda t: t.to(
