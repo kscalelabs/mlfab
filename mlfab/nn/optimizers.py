@@ -5,6 +5,7 @@ the optimizer.
 """
 
 import logging
+import math
 from typing import Callable, Iterable, Literal, NotRequired, Self, TypedDict, Unpack, cast
 
 import torch
@@ -12,7 +13,7 @@ from torch import Tensor, nn
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.adam import Adam as AdamBase
 from torch.optim.adamw import AdamW as AdamWBase
-from torch.optim.optimizer import Optimizer
+from torch.optim.optimizer import Optimizer, ParamsT
 
 from mlfab.nn.triton import supports_triton
 
@@ -422,3 +423,159 @@ class Adam:
         if weight_decay == 0.0:
             return AdamBase(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
         return AdamWBase(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
+
+
+class AdamWScheduleFreeKwargs(TypedDict):
+    lr: NotRequired[float]
+    betas: NotRequired[tuple[float, float]]
+    eps: NotRequired[float]
+    r: NotRequired[float]
+    k: NotRequired[int]
+    warmup_steps: NotRequired[int]
+    train_mode: NotRequired[bool]
+    weight_sum: NotRequired[float]
+    lr_max: NotRequired[float]
+    weight_lr_power: NotRequired[float]
+    weight_decay: NotRequired[float]
+    foreach: NotRequired[bool]
+
+
+class AdamWScheduleFree(Optimizer):
+    def __init__(self, params: ParamsT, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> None:
+        kwargs.setdefault("lr", 0.0025)
+        kwargs.setdefault("betas", (0.9, 0.999))
+        kwargs.setdefault("eps", 1e-8)
+        kwargs.setdefault("r", 0.0)
+        kwargs.setdefault("k", 0)
+        kwargs.setdefault("warmup_steps", 0)
+        kwargs.setdefault("train_mode", True)
+        kwargs.setdefault("weight_sum", 0.0)
+        kwargs.setdefault("lr_max", -1.0)
+        kwargs.setdefault("weight_lr_power", 2.0)
+        kwargs.setdefault("weight_decay", 0.0)
+        kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
+
+        super().__init__(params, kwargs)
+
+    def eval(self) -> None:
+        for group in self.param_groups:
+            train_mode = group["train_mode"]
+            beta1, _ = group["betas"]
+            if train_mode:
+                for p in group["params"]:
+                    state = self.state[p]
+                    if "z" in state:
+                        # Set p.data to x
+                        p.data.lerp_(end=state["z"], weight=1 - 1 / beta1)
+                group["train_mode"] = False
+
+    def train(self) -> None:
+        for group in self.param_groups:
+            train_mode = group["train_mode"]
+            beta1, _ = group["betas"]
+            if not train_mode:
+                for p in group["params"]:
+                    state = self.state[p]
+                    if "z" in state:
+                        # Set p.data to y
+                        p.data.lerp_(end=state["z"], weight=1 - beta1)
+                group["train_mode"] = True
+
+    @torch.no_grad()
+    def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            eps = group["eps"]
+            beta1, beta2 = group["betas"]
+            decay = group["weight_decay"]
+            k = group["k"]
+            r = group["r"]
+            warmup_steps = group["warmup_steps"]
+            weight_lr_power = group["weight_lr_power"]
+
+            if k < warmup_steps:
+                sched = (k + 1) / warmup_steps
+            else:
+                sched = 1.0
+
+            bias_correction2 = 1 - beta2 ** (k + 1)
+            lr = group["lr"] * sched * math.sqrt(bias_correction2)
+
+            lr_max = group["lr_max"] = max(lr, group["lr_max"])
+
+            weight = ((k + 1) ** r) * (lr_max**weight_lr_power)
+            weight_sum = group["weight_sum"] = group["weight_sum"] + weight
+
+            try:
+                ckp1 = weight / weight_sum
+            except ZeroDivisionError:
+                ckp1 = 0
+
+            if not group["train_mode"]:
+                raise Exception("Not in train mode!")
+
+            active_p = [p for p in group["params"] if p.grad is not None]
+
+            for p in active_p:
+                if "z" not in self.state[p]:
+                    self.state[p]["z"] = torch.clone(p.data)
+                    self.state[p]["exp_avg_sq"] = torch.zeros_like(p.data)
+
+            if group["foreach"] and len(active_p) > 0:
+                y, grad, exp_avg_sq, z = zip(
+                    *[(p.data, p.grad, self.state[p]["exp_avg_sq"], self.state[p]["z"]) for p in active_p]
+                )
+
+                # Decay the first and second moment running average coefficient
+                torch._foreach_mul_(exp_avg_sq, beta2)
+                torch._foreach_addcmul_(exp_avg_sq, grad, grad, value=1 - beta2)
+                denom = torch._foreach_sqrt(exp_avg_sq)
+                torch._foreach_add_(denom, eps)
+
+                # Normalize grad in-place for memory efficiency
+                torch._foreach_div_(grad, denom)
+
+                # Weight decay calculated at y
+                if decay != 0:
+                    torch._foreach_add_(grad, y, alpha=decay)
+
+                # These operations update y in-place,
+                # without computing x explicitly.
+                torch._foreach_lerp_(y, z, weight=ckp1)
+                torch._foreach_add_(y, grad, alpha=lr * (beta1 * (1 - ckp1) - 1))
+
+                # z step
+                torch._foreach_sub_(z, grad, alpha=lr)
+            else:
+                for p in active_p:
+                    y = p.data  # Notation to match theory
+                    grad = p.grad.data
+
+                    state = self.state[p]
+
+                    z = state["z"]
+                    exp_avg_sq = state["exp_avg_sq"]
+
+                    exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
+                    denom = exp_avg_sq.sqrt().add_(eps)
+
+                    # Reuse grad buffer for memory efficiency
+                    grad_normalized = grad.div_(denom)
+
+                    # Weight decay calculated at y
+                    if decay != 0:
+                        grad_normalized.add_(y, alpha=decay)
+
+                    # These operations update y in-place,
+                    # without computing x explicitly.
+                    y.lerp_(end=z, weight=ckp1)
+                    y.add_(grad_normalized, alpha=lr * (beta1 * (1 - ckp1) - 1))
+
+                    # z step
+                    z.sub_(grad_normalized, alpha=lr)
+
+            group["k"] = k + 1
+        return loss
