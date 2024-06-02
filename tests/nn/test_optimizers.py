@@ -64,6 +64,17 @@ def test_triton_vs_vanilla(dtype: torch.dtype) -> None:
     assert torch.allclose(sb1, sb2)
 
 
+def test_adamw_schedule_free() -> None:
+    model = nn.Linear(10, 10)
+    pre_weight = model.weight.clone()
+    opt = mlfab.Lion(model.parameters(), lr=1e-2)
+    opt.zero_grad()
+    model(torch.randn(1, 10)).sum().backward()
+    opt.step()
+    post_weight = model.weight.clone()
+    assert not torch.allclose(pre_weight, post_weight)
+
+
 if __name__ == "__main__":
-    # python -m tests.optimizers.test_lion
+    # python -m tests.nn.test_optimizers
     test_triton_vs_vanilla_update_funcs()
