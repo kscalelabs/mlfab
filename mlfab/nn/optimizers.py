@@ -455,7 +455,7 @@ class AdamWScheduleFree(Optimizer):
         kwargs.setdefault("weight_decay", 0.0)
         kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
 
-        super().__init__(params, kwargs)
+        super().__init__(params, kwargs)  # type: ignore[arg-type]
 
     def eval(self) -> None:
         for group in self.param_groups:
