@@ -150,6 +150,7 @@ __all__ = [
     "get_norm_linear",
     "get_parametrization_norm",
     "Adam",
+    "AdamWScheduleFree",
     "Lion",
     "can_use_foreach",
     "can_use_fused",
@@ -414,6 +415,7 @@ NAME_MAP: dict[str, str] = {
     "get_norm_linear": "nn.norms",
     "get_parametrization_norm": "nn.norms",
     "Adam": "nn.optimizers",
+    "AdamWScheduleFree": "nn.optimizers",
     "Lion": "nn.optimizers",
     "can_use_foreach": "nn.optimizers",
     "can_use_fused": "nn.optimizers",
@@ -701,7 +703,14 @@ if IMPORT_ALL or TYPE_CHECKING:
         get_norm_linear,
         get_parametrization_norm,
     )
-    from mlfab.nn.optimizers import Adam, Lion, can_use_foreach, can_use_fused, separate_decayable_params
+    from mlfab.nn.optimizers import (
+        Adam,
+        AdamWScheduleFree,
+        Lion,
+        can_use_foreach,
+        can_use_fused,
+        separate_decayable_params,
+    )
     from mlfab.nn.parallel import (
         ColumnParallelLinear,
         MultiProcessConfig,
