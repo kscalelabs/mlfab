@@ -443,7 +443,12 @@ class AdamWScheduleFree(Optimizer):
         super().__init__(params, state_params)
 
     @classmethod
-    def get(cls, model: nn.Module, default_decay: bool = True, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> Self:
+    def get(
+        cls,
+        model: nn.Module,
+        default_decay: bool = True,
+        **kwargs: Unpack[AdamWScheduleFreeKwargs],
+    ) -> "AdamWScheduleFree":
         kwargs.setdefault("lr", 0.0025)
         kwargs.setdefault("betas", (0.9, 0.999))
         kwargs.setdefault("eps", 1e-8)
@@ -455,7 +460,7 @@ class AdamWScheduleFree(Optimizer):
         kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
 
         weight_decay = kwargs.pop("weight_decay")
-        return AdamWScheduleFree(separate_decayable_params(model, default_decay, weight_decay), **kwargs)
+        return AdamWScheduleFree(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
 
     def eval(self) -> None:
         for group in self.param_groups:
