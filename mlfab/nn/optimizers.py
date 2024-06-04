@@ -430,10 +430,7 @@ class AdamWScheduleFreeKwargs(TypedDict):
     betas: NotRequired[tuple[float, float]]
     eps: NotRequired[float]
     r: NotRequired[float]
-    k: NotRequired[int]
     warmup_steps: NotRequired[int]
-    train_mode: NotRequired[bool]
-    weight_sum: NotRequired[float]
     lr_max: NotRequired[float]
     weight_lr_power: NotRequired[float]
     weight_decay: NotRequired[float]
@@ -442,20 +439,23 @@ class AdamWScheduleFreeKwargs(TypedDict):
 
 class AdamWScheduleFree(Optimizer):
     def __init__(self, params: ParamsT, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> None:
+        state_params = {"k": 0, "train_mode": True, "weight_sum": 0.0, **kwargs}
+        super().__init__(params, state_params)
+
+    @classmethod
+    def get(cls, model: nn.Module, default_decay: bool = True, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> None:
         kwargs.setdefault("lr", 0.0025)
         kwargs.setdefault("betas", (0.9, 0.999))
         kwargs.setdefault("eps", 1e-8)
         kwargs.setdefault("r", 0.0)
-        kwargs.setdefault("k", 0)
         kwargs.setdefault("warmup_steps", 0)
-        kwargs.setdefault("train_mode", True)
-        kwargs.setdefault("weight_sum", 0.0)
         kwargs.setdefault("lr_max", -1.0)
         kwargs.setdefault("weight_lr_power", 2.0)
         kwargs.setdefault("weight_decay", 0.0)
         kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
 
-        super().__init__(params, kwargs)  # type: ignore[arg-type]
+        weight_decay = kwargs.pop("weight_decay")
+        return AdamWScheduleFree(separate_decayable_params(model, default_decay, weight_decay), **kwargs)
 
     def eval(self) -> None:
         for group in self.param_groups:
@@ -481,7 +481,6 @@ class AdamWScheduleFree(Optimizer):
                         p.data.lerp_(end=state["z"], weight=1 - beta1)
                 group["train_mode"] = True
 
-    @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
         loss = None
         if closure is not None:
