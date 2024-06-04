@@ -443,7 +443,7 @@ class AdamWScheduleFree(Optimizer):
         super().__init__(params, state_params)
 
     @classmethod
-    def get(cls, model: nn.Module, default_decay: bool = True, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> None:
+    def get(cls, model: nn.Module, default_decay: bool = True, **kwargs: Unpack[AdamWScheduleFreeKwargs]) -> Self:
         kwargs.setdefault("lr", 0.0025)
         kwargs.setdefault("betas", (0.9, 0.999))
         kwargs.setdefault("eps", 1e-8)
