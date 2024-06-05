@@ -47,8 +47,8 @@ def setup() -> None:
     torch.manual_seed(1337)
 
 
-def func() -> None:
-    config = mlfab.ParallelConfig(use_fsdp=False)
+def func(use_fsdp: bool) -> None:
+    config = mlfab.ParallelConfig(use_fsdp=use_fsdp)
     model = mlfab.ddp(DummyModel(None), config)
     base_model = cast(DummyModel, model.module)
 
@@ -85,8 +85,8 @@ def func() -> None:
     assert torch.allclose(l2_grad_parallel, l2_grad_full, atol=1e-3)
 
 
-def lora_func() -> None:
-    config = mlfab.ParallelConfig(use_fsdp=False)
+def lora_func(use_fsdp: bool) -> None:
+    config = mlfab.ParallelConfig(use_fsdp=use_fsdp)
     model = mlfab.ddp(DummyModel(2), config)
 
     x = torch.randint(0, 10 - 1, (4, 12))
@@ -98,7 +98,8 @@ def lora_func() -> None:
 
 @pytest.mark.slow
 @pytest.mark.parametrize("use_lora", [True, False])
-def test_parallel_model(use_lora: bool) -> None:
+@pytest.mark.parametrize("use_fsdp", [True, False])
+def test_parallel_model(use_lora: bool, use_fsdp: bool) -> None:
     """Tests model parallelism primitives.
 
     This function launches 4 processes, partitioned into 2 model parallel and
@@ -107,6 +108,7 @@ def test_parallel_model(use_lora: bool) -> None:
 
     Args:
         use_lora: Whether to use LoRA or not.
+        use_fsdp: Whether to use FSDP or not.
     """
     mlfab.configure_logging()
 
@@ -122,9 +124,9 @@ def test_parallel_model(use_lora: bool) -> None:
         pipeline_parallelism=1,
     )
 
-    mlfab.launch_subprocesses(lora_func if use_lora else func, config, setup=setup)
+    mlfab.launch_subprocesses(lora_func if use_lora else func, config, setup=setup, use_fsdp=use_fsdp)
 
 
 if __name__ == "__main__":
-    # python -m tests.utils.test_parallel
-    test_parallel_model(False)
+    # python -m tests.nn.test_parallel
+    test_parallel_model(False, True)
