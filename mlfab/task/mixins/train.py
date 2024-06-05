@@ -78,6 +78,8 @@ class TrainConfig(
     RunnableConfig,
 ):
     valid_every_n_steps: int | None = field(None, help="Number of training steps to run per validation step")
+    valid_on_first_step: bool = field(True, help="Run validation on the first step")
+    disable_validation: bool = field(False, help="Disable validation")
     valid_every_n_seconds: float | None = field(60.0 * 10.0, help="Run validation every N seconds")
     valid_first_n_seconds: float | None = field(60.0, help="Run first validation after N seconds")
     batches_per_step: int = field(1, help="Batches to accumulate per training step, to simulate larger batch sizes")
@@ -437,10 +439,13 @@ class TrainMixin(
         return len(schedule) - i + 1
 
     def is_valid_step(self, state: State) -> bool:
+        if self.config.disable_validation:
+            return False
+
         if self.last_valid_time is None or self.last_valid_step is None:
             self.last_valid_time = state.elapsed_time_s
             self.last_valid_step = state.num_steps
-            return True
+            return self.config.valid_on_first_step
 
         # Step-based validation.
         valid_every_n_steps = self.config.valid_every_n_steps
