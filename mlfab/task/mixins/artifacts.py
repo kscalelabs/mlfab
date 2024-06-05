@@ -51,7 +51,11 @@ class ArtifactsMixin(BaseTask[Config]):
 
     def remove_lock_file(self, lock_type: str, *, missing_ok: bool = False) -> None:
         if (lock_file := self.exp_dir / f".lock_{lock_type}").exists():
-            lock_file.unlink()
+            # Wrap in try-catch to handle race conditions.
+            try:
+                lock_file.unlink()
+            except FileNotFoundError:
+                pass
         elif not missing_ok:
             raise RuntimeError(f"Lock file not found at {lock_file}")
 
