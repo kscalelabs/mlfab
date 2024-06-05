@@ -94,7 +94,12 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
         cfg = cls.get_config(config_fn(OmegaConf.create(raw_config)), use_cli=use_cli)
         task = cls(cfg)
-        task.load_task_state_dict(state_dict, strict=strict, assign=assign)
+        task.load_task_state_dict(
+            state_dict,
+            strict=strict,
+            assign=assign,
+            weights_only=weights_only,
+        )
         return task
 
     def get_init_ckpt_path(self) -> Path | None:
@@ -127,10 +132,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         raw_state = state_dict.pop("state", None)
         raw_config = state_dict.pop("config", None)
         if raw_config is not None:
-            config_diff = get_diff_string(diff_configs(OmegaConf.create(raw_config), cast(DictConfig, self.config)))
+            config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
-        self.load_task_state_dict(state_dict, strict, assign)
+        self.load_task_state_dict(state_dict, strict, assign, weights_only)
         if raw_state is not None:
             return State(**json.loads(raw_state))
         warnings.warn("No state found in checkpoint! Using default initial state.")

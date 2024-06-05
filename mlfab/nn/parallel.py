@@ -80,8 +80,10 @@ from torch.autograd.function import Function, FunctionCtx
 from torch.distributed import ProcessGroup
 from torch.distributed.distributed_c10d import Backend, ReduceOp, Work, _get_default_group, is_initialized
 from torch.distributed.fsdp import (
+    BackwardPrefetch,
     CPUOffload,
     FullyShardedDataParallel as FSDP,
+    MixedPrecision,
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -1100,6 +1102,8 @@ OmegaConf.register_new_resolver("mlfab.device_count", get_device_count, replace=
 class ParallelConfig:
     use_fsdp: bool = field(False, help="If set, use FSDP; otherwise, use DDP")
     cpu_offload: bool = field(False, help="CPU offloading for FSDP")
+    backward_prefetch: str | None = field(None, help="Backward prefetch for FSDP")
+    use_orig_params: bool = field(True, help="Use original parameters for FSDP")
     sharding_strategy: ShardingStrategy = field(ShardingStrategy.HYBRID_SHARD, help="Sharding strategy")
     sync_module_states: bool = field(True, help="Whether to sync module states on initialization")
 
@@ -1132,6 +1136,16 @@ def fsdp(model: nn.Module, cfg: ParallelConfig) -> FSDP:
         sharding_strategy=cfg.sharding_strategy,
         sync_module_states=cfg.sync_module_states and _all_params_are_cuda(model),
         cpu_offload=CPUOffload(cfg.cpu_offload),
+        backward_prefetch=None if cfg.backward_prefetch is None else BackwardPrefetch[cfg.backward_prefetch],
+        mixed_precision=MixedPrecision(
+            param_dtype=None,
+            reduce_dtype=None,
+            buffer_dtype=None,
+            keep_low_precision_grads=False,
+            cast_forward_inputs=False,
+            cast_root_forward_inputs=True,
+        ),
+        use_orig_params=cfg.use_orig_params,
     )
 
 

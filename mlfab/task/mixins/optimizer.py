@@ -101,18 +101,25 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
                 "optimizers and learning rate schedulers."
             )
 
-    def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
+    def load_task_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool = True,
+        assign: bool = False,
+        weights_only: bool = False,
+    ) -> None:
         if self._optimizers is None:
-            return super().load_task_state_dict(state_dict, strict, assign)
+            return super().load_task_state_dict(state_dict, strict, assign, weights_only)
         optimizer_states = state_dict.pop("optimizers", [])
         if len(self._optimizers) != len(optimizer_states):
             raise ValueError(
                 f"Invalid state dict; module has {len(self._optimizers)} optimizer(s) "
                 f"but state dict has {len(optimizer_states)} optimizer state(s)"
             )
-        for optimizer_state, optimizer in zip(optimizer_states, self._optimizers):
-            optimizer.load_state_dict(optimizer_state)
-        return super().load_task_state_dict(state_dict, strict, assign)
+        if not weights_only:
+            for optimizer_state, optimizer in zip(optimizer_states, self._optimizers):
+                optimizer.load_state_dict(optimizer_state)
+        return super().load_task_state_dict(state_dict, strict, assign, weights_only)
 
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()
