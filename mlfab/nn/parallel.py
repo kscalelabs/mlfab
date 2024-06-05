@@ -82,8 +82,8 @@ from torch.distributed.distributed_c10d import Backend, ReduceOp, Work, _get_def
 from torch.distributed.fsdp import (
     BackwardPrefetch,
     CPUOffload,
-    MixedPrecision,
     FullyShardedDataParallel as FSDP,
+    MixedPrecision,
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.nn.parallel import DistributedDataParallel as DDP
