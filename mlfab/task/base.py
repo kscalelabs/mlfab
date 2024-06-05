@@ -93,7 +93,13 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
         pass
 
-    def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
+    def load_task_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool = True,
+        assign: bool = False,
+        weights_only: bool = False,
+    ) -> None:
         weights = state_dict.pop("weights")
         return self.load_state_dict(weights, strict=strict, assign=assign)
 

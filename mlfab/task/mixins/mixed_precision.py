@@ -16,6 +16,7 @@ from typing import Any, ContextManager, Generic, Sequence, TypeVar
 import torch
 from torch import Tensor
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.optim import Optimizer
 
 from mlfab.core.conf import field
@@ -51,14 +52,14 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
     """Defines a trainer mixin for doing FP16 scaling."""
 
     @functools.cached_property
-    def grad_scaler(self) -> torch.cuda.amp.GradScaler | None:
+    def grad_scaler(self) -> ShardedGradScaler | None:
         if not self.config.grad_scaler.enabled:
             return None
         if self.device_manager.device.type != "cuda":
             return None
         if self.device_manager.dtype not in (torch.float16, torch.bfloat16):
             return None
-        return torch.cuda.amp.GradScaler(
+        return ShardedGradScaler(
             init_scale=self.config.grad_scaler.init_scale,
             growth_factor=self.config.grad_scaler.growth_factor,
             backoff_factor=self.config.grad_scaler.backoff_factor,
@@ -160,10 +161,16 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
             self.log_scalar("scale", scaler.get_scale, namespace="⚖️ fp16")
             self.log_scalar("growth", scaler._get_growth_tracker, namespace="⚖️ fp16")
 
-    def load_task_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = False) -> None:
+    def load_task_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool = True,
+        assign: bool = False,
+        weights_only: bool = False,
+    ) -> None:
         if self.grad_scaler is not None and "grad_scaler" in state_dict:
             self.grad_scaler.load_state_dict(json.loads(state_dict["grad_scaler"]))
-        super().load_task_state_dict(state_dict, strict, assign)
+        super().load_task_state_dict(state_dict, strict, assign, weights_only)
 
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()
