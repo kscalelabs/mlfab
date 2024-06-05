@@ -100,6 +100,7 @@ class TrainConfig(
     batch_dim: int = field(0, help="The batch dimension, for splitting batches into chunks")
     max_steps: int | None = field(None, help="Maximum number of steps to run")
     step_kind: str = field("step", help=f"How to measure a step; one of [{', '.join(get_args(StepKind))}]")
+    init_state_map_location: str | None = field(None, help="Map location for loading the initial state")
     parallel: ParallelConfig = field(ParallelConfig())
 
 
@@ -499,7 +500,7 @@ class TrainMixin(
             Thread(target=self.log_state, daemon=True).start()
 
         with self.step_context("load_checkpoint"):
-            state = self.load_initial_state()
+            state = self.load_initial_state(map_location=self.config.init_state_map_location)
 
         # Gets the datasets.
         with self.step_context("get_dataset"):
