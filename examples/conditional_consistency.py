@@ -26,6 +26,10 @@ class Config(mlfab.Config):
     dim_scales: list[int] = mlfab.field([1, 2, 4, 8], help="List of dimension scales")
     num_classes: int = mlfab.field(10, help="Number of unique classes")
     steps_to_evaluate: list[int] = mlfab.field([1, 2, 4, 8, 16], help="Step counts to evaluate")
+    learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
+    betas: tuple[float, float] = mlfab.field((0.9, 0.999), help="Beta values for Adam optimizer")
+    weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
+    warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
 
 class ConditionalConsistency(mlfab.Task[Config]):

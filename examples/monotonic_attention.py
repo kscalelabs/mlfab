@@ -119,6 +119,10 @@ class Config(mlfab.Config):
     seq_length: int = mlfab.field(64, help="Input sequence length")
     embedding_dims: int = mlfab.field(32, help="Number of embedding dimensions")
     use_rnn: bool = mlfab.field(False, help="Whether to use an RNN")
+    learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
+    betas: tuple[float, float] = mlfab.field((0.9, 0.999), help="Beta values for Adam optimizer")
+    weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
+    warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
 
 class MonotonicAttentionTask(mlfab.Task[Config]):
