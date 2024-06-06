@@ -100,9 +100,6 @@ class MnistClassification(mlfab.Task[Config]):
         root_dir = mlfab.get_data_dir() / "mnist"
         return MNIST(root_dir=root_dir, train=phase == "train")
 
-    def build_optimizer(self) -> Optimizer:
-        return mlfab.Adam.get(self, lr=1e-3)
-
     def forward(self, x: Tensor) -> Tensor:
         return self.model(x)
 
@@ -194,13 +191,6 @@ The task should return the dataset used for training, based on the phase. `ml.Ph
 def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
     root_dir = mlfab.get_data_dir() / "mnist"
     return MNIST(root_dir=root_dir, train=phase == "train")
-```
-
-### Optimizers
-
-```python
-def build_optimizer(self) -> Optimizer:
-    return mlfab.Adam.get(self, lr=1e-3)
 ```
 
 ### Compute Loss

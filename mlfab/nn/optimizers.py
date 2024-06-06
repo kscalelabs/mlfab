@@ -251,7 +251,13 @@ class LionOptimizer(Optimizer):
         kwargs.setdefault("lr", 1e-4)
         kwargs.setdefault("betas", (0.95, 0.98))
         kwargs.setdefault("weight_decay", 0.0)
-        return OptimizerBuilder(cls, kwargs, default_decay, separate_weight_decay_params, kwargs["weight_decay"])
+        return OptimizerBuilder(
+            cls,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            kwargs["weight_decay"],
+        )
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
@@ -312,7 +318,13 @@ class Adan(Optimizer):
         kwargs.setdefault("betas", (0.1, 0.1, 0.001))
         kwargs.setdefault("eps", 1e-8)
         kwargs.setdefault("weight_decay", 0.0)
-        return OptimizerBuilder(cls, kwargs, default_decay, separate_weight_decay_params, kwargs["weight_decay"])
+        return OptimizerBuilder(
+            cls,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            kwargs["weight_decay"],
+        )
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
@@ -470,8 +482,21 @@ class Adam:
 
         weight_decay = kwargs.pop("weight_decay")
         if weight_decay == 0.0:
-            return OptimizerBuilder(AdamBase, kwargs, default_decay, separate_weight_decay_params, weight_decay)
-        return OptimizerBuilder(AdamWBase, kwargs, default_decay, separate_weight_decay_params, weight_decay)
+            return OptimizerBuilder(
+                AdamBase,
+                cast(dict, kwargs),
+                default_decay,
+                separate_weight_decay_params,
+                weight_decay,
+            )
+
+        return OptimizerBuilder(
+            AdamWBase,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            weight_decay,
+        )
 
 
 class AdamWScheduleFreeKwargs(TypedDict):
@@ -509,7 +534,7 @@ class AdamWScheduleFree(Optimizer):
         kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
 
         weight_decay = kwargs.pop("weight_decay")
-        return OptimizerBuilder(cls, kwargs, default_decay, separate_weight_decay_params, weight_decay)
+        return OptimizerBuilder(cls, cast(dict, kwargs), default_decay, separate_weight_decay_params, weight_decay)
 
     def eval(self) -> None:
         for group in self.param_groups:
