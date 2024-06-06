@@ -31,10 +31,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_cpu_offload: bool = field(False, help="CPU offloading for FSDP")
-    fsdp_backward_prefetch: str | None = field(None, help="Backward prefetch for FSDP")
     fsdp_use_orig_params: bool = field(True, help="Use original parameters for FSDP")
-    fsdp_sharding_strategy: ShardingStrategy = field(ShardingStrategy.HYBRID_SHARD, help="Sharding strategy")
+    fsdp_backward_prefetch: BackwardPrefetch | None = field(None, help="Backward prefetch for FSDP")
+    fsdp_sharding_strategy: ShardingStrategy | None = field(None, help="Sharding strategy")
     fsdp_sync_module_states: bool = field(True, help="Whether to sync module states on initialization")
+    fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
+    fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
+    fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
     clip_grad_norm_type: Any = field(2, help="Type of norm to use")
 
@@ -59,34 +62,36 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
     if cfg.fsdp_cpu_offload:
         logger.warning("CPU offloading doesn't support gradient accumulation")
 
-    if mixed_precision is None:
-        mixed_precision = MixedPrecision(
-            param_dtype=None,
-            reduce_dtype=None,
-            buffer_dtype=None,
-            keep_low_precision_grads=False,
-            cast_forward_inputs=False,
-            cast_root_forward_inputs=True,
-        )
-
     return FSDP(
         model,
         process_group=process_group,
         sharding_strategy=cfg.fsdp_sharding_strategy,
         sync_module_states=cfg.fsdp_sync_module_states and all_params_are_cuda(model),
         cpu_offload=CPUOffload(cfg.fsdp_cpu_offload),
-        backward_prefetch=None if cfg.fsdp_backward_prefetch is None else BackwardPrefetch[cfg.fsdp_backward_prefetch],
+        backward_prefetch=cfg.fsdp_backward_prefetch,
         mixed_precision=mixed_precision,
         use_orig_params=cfg.fsdp_use_orig_params,
     )
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
-    """Defines a trainer mixin for doing FP16 scaling."""
+    """Defines a trainer mixin for converting models to FSDP."""
 
-    def maybe_fsdp(self, model: nn.Module) -> nn.Module | FSDP:
+    def get_fsdp_mixed_precision(self) -> MixedPrecision | None:
+        dtype = self.device_manager.dtype
+
+        return MixedPrecision(
+            param_dtype=dtype,
+            reduce_dtype=dtype,
+            buffer_dtype=dtype,
+            keep_low_precision_grads=self.config.fsdp_keep_low_precision_grads,
+            cast_forward_inputs=self.config.fsdp_cast_forward_inputs,
+            cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
+        )
+
+    def maybe_get_fsdp(self, model: nn.Module) -> nn.Module | FSDP:
         if get_world_size() > 1 and torch.cuda.is_available() and not isinstance(model, FSDP):
-            return fsdp(model, self.config)
+            return fsdp(model, self.config, self.get_fsdp_mixed_precision())
         return model
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
