@@ -1,12 +1,12 @@
 """Tests model parallelism primitives."""
 
 import logging
-from typing import cast
 
 import pytest
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 
 import mlfab
 
@@ -47,14 +47,18 @@ def setup() -> None:
     torch.manual_seed(1337)
 
 
-def func(use_fsdp: bool) -> None:
-    config = mlfab.ParallelConfig(use_fsdp=use_fsdp)
-    model = mlfab.ddp(DummyModel(None), config)
-    base_model = cast(DummyModel, model.module)
+def get_grad(g: Tensor | None) -> Tensor:
+    assert g is not None
+    return g.clone()
 
-    def get_grad(g: Tensor | None) -> Tensor:
-        assert g is not None
-        return g.clone()
+
+def assert_close(a: Tensor, b: Tensor) -> None:
+    assert torch.allclose(a, b, atol=1e-3)
+
+
+def func() -> None:
+    base_model = DummyModel(None)
+    model = DDP(base_model)
 
     x = torch.randint(0, 10 - 1, (4, 12))
 
@@ -80,26 +84,25 @@ def func(use_fsdp: bool) -> None:
     # Checks that the gradients for the parallel outputs and the full outputs
     # match - this is effectively checking that the implementations of the
     # model parallel modules are correct.
-    assert torch.allclose(emb_grad_parallel, emb_grad_full, atol=1e-3)
-    assert torch.allclose(l1_grad_parallel, l1_grad_full, atol=1e-3)
-    assert torch.allclose(l2_grad_parallel, l2_grad_full, atol=1e-3)
+    assert_close(emb_grad_parallel, emb_grad_full)
+    assert_close(l1_grad_parallel, l1_grad_full)
+    assert_close(l2_grad_parallel, l2_grad_full)
 
 
-def lora_func(use_fsdp: bool) -> None:
-    config = mlfab.ParallelConfig(use_fsdp=use_fsdp)
-    model = mlfab.ddp(DummyModel(2), config)
+def lora_func() -> None:
+    base_model = DummyModel(2)
+    model = mlfab.fsdp(base_model, mlfab.ParallelConfig())
 
     x = torch.randint(0, 10 - 1, (4, 12))
 
     # Tests that the forward passes for both models match.
     output_parallel, output_full = model(x)
-    assert torch.allclose(output_parallel, output_full, atol=1e-3)
+    assert_close(output_parallel, output_full)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("use_lora", [True, False])
-@pytest.mark.parametrize("use_fsdp", [True, False])
-def test_parallel_model(use_lora: bool, use_fsdp: bool) -> None:
+def test_parallel_model(use_lora: bool) -> None:
     """Tests model parallelism primitives.
 
     This function launches 4 processes, partitioned into 2 model parallel and
@@ -108,7 +111,6 @@ def test_parallel_model(use_lora: bool, use_fsdp: bool) -> None:
 
     Args:
         use_lora: Whether to use LoRA or not.
-        use_fsdp: Whether to use FSDP or not.
     """
     mlfab.configure_logging()
 
@@ -124,9 +126,9 @@ def test_parallel_model(use_lora: bool, use_fsdp: bool) -> None:
         pipeline_parallelism=1,
     )
 
-    mlfab.launch_subprocesses(lora_func if use_lora else func, config, setup=setup, use_fsdp=use_fsdp)
+    mlfab.launch_subprocesses(lora_func if use_lora else func, config, setup=setup)
 
 
 if __name__ == "__main__":
     # python -m tests.nn.test_parallel
-    test_parallel_model(False, True)
+    test_parallel_model(False)

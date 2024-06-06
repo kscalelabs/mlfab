@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, ContextManager, Generic, Sequence, TypeVar
 
 import torch
-from torch import Tensor
+from torch import Tensor, nn
 from torch.distributed.fsdp.fully_sharded_data_parallel import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.optim import Optimizer
@@ -104,14 +104,14 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
                     self.grad_scaler.update(new_scale)
 
     @torch.no_grad()
-    def step_optimizer(self, optim: Optimizer, num_steps: int = 1) -> None:
+    def step_optimizer(self, mod: nn.Module, optim: Optimizer, num_steps: int = 1) -> None:
         clip_norm = self.config.clip_grad_norm
         norm_type = self.config.clip_grad_norm_type
 
         # When accumulating multiple steps of gradients per backward pass, we
         # need to divide the gradients by the number of steps.
         if num_steps > 1:
-            for p in self.parameters():
+            for p in mod.parameters():
                 if p.grad is not None:
                     p.grad /= num_steps
 
@@ -120,19 +120,19 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
             self.grad_scaler.unscale_(optim)
 
         # Clips gradients.
-        if isinstance(self, FSDP):
-            total_norm = self.clip_grad_norm_(clip_norm, norm_type)
+        if isinstance(mod, FSDP):
+            total_norm = mod.clip_grad_norm_(clip_norm, norm_type)
             was_clipped = bool(torch.isfinite(total_norm))
         else:
             total_norm, was_clipped = clip_grad_norm_(
-                self.parameters(),
+                mod.parameters(),
                 max_norm=clip_norm,
                 norm_type=norm_type,
                 foreach=self.config.grad_scaler.foreach,
             )
 
         # Logs weight and gradient norms.
-        self.log_scalar("weight_norm", lambda: get_weight_norm(self.parameters()), namespace="📉 optim")
+        self.log_scalar("weight_norm", lambda: get_weight_norm(mod.parameters()), namespace="📉 optim")
         self.log_scalar("grad_norm", total_norm, namespace="📉 optim")
 
         # Steps the optimizer.
@@ -143,14 +143,14 @@ class MixedPrecisionMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Conf
             self.grad_scaler.step(optim)
             self.grad_scaler.update()
         else:
-            if any(not torch.isfinite(p).all() for p in self.parameters()):
+            if any(not torch.isfinite(p).all() for p in mod.parameters()):
                 raise NaNError("One or more model parameters are NaN")
             new_scale = self.grad_scaler.get_scale() * self.grad_scaler.get_backoff_factor()
-            bad = [k for k, v in self.named_parameters() if v.grad is not None and not torch.isfinite(v.grad).all()]
+            bad = [k for k, v in mod.named_parameters() if v.grad is not None and not torch.isfinite(v.grad).all()]
             bad_str = ", ".join(bad[:5])
             if len(bad) > 5:
                 bad_str += f" (plus {len(bad) - 5} more)"
-            bad_str += f" out of {sum(1 for _ in self.parameters())} parameters"
+            bad_str += f" out of {sum(1 for _ in mod.parameters())} parameters"
             if new_scale < self.config.grad_scaler.min_grad_scale:
                 raise MinGradScaleError(f"Minimum gradient scale reached. Bad parameters: {bad_str}")
             logger.warning("Gradient NaNs detected for %s; reducing scale to %.2g", bad_str, new_scale)

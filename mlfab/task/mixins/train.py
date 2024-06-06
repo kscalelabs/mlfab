@@ -22,7 +22,7 @@ from torch import Tensor, nn
 from mlfab.core.conf import field
 from mlfab.core.state import Phase, State
 from mlfab.nn.functions import recursive_chunk
-from mlfab.nn.parallel import ParallelConfig, dp, is_master
+from mlfab.nn.parallel import ParallelConfig, is_master, maybe_fsdp
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
@@ -69,6 +69,7 @@ class TrainConfig(
     OptimizerConfig,
     CompileConfig,
     PretrainedConfig,
+    ParallelConfig,
     MixedPrecisionConfig,
     DataloadersConfig,
     DeviceConfig,
@@ -105,7 +106,6 @@ class TrainConfig(
     init_state_map_location: str | None = field(None, help="Map location for loading the initial state")
     init_state_weights_only: bool = field(False, help="Load only the weights from the initial state")
     init_state_strict: bool = field(True, help="Load the initial state strictly")
-    parallel: ParallelConfig = field(ParallelConfig())
 
 
 Config = TypeVar("Config", bound=TrainConfig)
@@ -361,7 +361,7 @@ class TrainMixin(
             self.log_loss_dict(loss_dict, state)
         with self.step_context("step"):
             for optim_i in self.optimizers:
-                self.step_optimizer(optim_i.optimizer, num_steps)
+                self.step_optimizer(mod, optim_i.optimizer, num_steps)
                 optim_i.step(state)
                 self.log_scalar("lr_scale", optim_i.lr_scale, namespace="📉 optim")
         with self.step_context("write_logs"), self.autocast_context:
@@ -498,7 +498,7 @@ class TrainMixin(
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
             self.device_manager.module_to(mod)
-            mod = dp(mod, self.config.parallel)
+            mod = maybe_fsdp(mod, self.config)
 
         with self.step_context("create_optimizers"):
             self.set_optimizers()
