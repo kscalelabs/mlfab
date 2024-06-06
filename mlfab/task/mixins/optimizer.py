@@ -4,6 +4,7 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Callable, Generic, TypeVar
 
+from omegaconf import MISSING
 from torch import nn
 from torch.optim.optimizer import Optimizer
 
@@ -17,9 +18,9 @@ OptType = Callable[[nn.Module], Optimizer]
 @dataclass
 class OptimizerConfig(BaseConfig):
     set_grads_to_none: bool = field(True, help="If set, zero gradients by setting them to None")
-    learning_rate: float = field(3e-4, help="Learning rate to use for optimizer")
-    betas: tuple[float, float] = field((0.9, 0.999), help="Beta values for Adam optimizer")
-    weight_decay: float = field(1e-5, help="Weight decay to use for the optimizer")
+    learning_rate: float = field(MISSING, help="Learning rate to use for optimizer")
+    betas: tuple[float, float] = field(MISSING, help="Beta values for Adam optimizer")
+    weight_decay: float = field(MISSING, help="Weight decay to use for the optimizer")
     weight_lr_power: float = field(2.0, help="Power to raise the weight learning rate by")
     warmup_steps: int = field(100, help="Number of warmup steps to use for the optimizer")
 
