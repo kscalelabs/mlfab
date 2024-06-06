@@ -6,7 +6,6 @@ import pytest
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 
 import mlfab
 
@@ -58,7 +57,7 @@ def assert_close(a: Tensor, b: Tensor) -> None:
 
 def func() -> None:
     base_model = DummyModel(None)
-    model = DDP(base_model)
+    model = mlfab.ddp(base_model)
 
     x = torch.randint(0, 10 - 1, (4, 12))
 
@@ -91,7 +90,7 @@ def func() -> None:
 
 def lora_func() -> None:
     base_model = DummyModel(2)
-    model = mlfab.fsdp(base_model, mlfab.ParallelConfig())
+    model = mlfab.ddp(base_model)
 
     x = torch.randint(0, 10 - 1, (4, 12))
 
