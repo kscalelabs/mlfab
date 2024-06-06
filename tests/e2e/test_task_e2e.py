@@ -20,6 +20,7 @@ import mlfab
 @dataclass
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
+    use_ddp: bool = mlfab.field(True, help="Whether to use DDP instead of FSDP")
 
 
 class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
