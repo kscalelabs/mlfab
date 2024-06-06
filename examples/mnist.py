@@ -15,7 +15,6 @@ import mlfab
 @dataclass
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
-    learning_rate: float = mlfab.field(1e-3)
     batches_per_step: int = mlfab.field(8, help="Number of batches to accumulate gradients over")
 
 

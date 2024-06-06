@@ -26,7 +26,6 @@ class Config(mlfab.Config):
     dim_scales: list[int] = mlfab.field([1, 2, 4, 8], help="List of dimension scales")
     num_classes: int = mlfab.field(10, help="Number of unique classes")
     steps_to_evaluate: list[int] = mlfab.field([1, 2, 4, 8, 16], help="Step counts to evaluate")
-    learning_rate: float = mlfab.field(1e-3)
 
 
 class ConditionalConsistency(mlfab.Task[Config]):

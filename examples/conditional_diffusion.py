@@ -28,7 +28,6 @@ class Config(mlfab.Config):
     num_classes: int = mlfab.field(10, help="Number of unique classes")
     num_beta_steps: int = mlfab.field(500, help="Number of beta steps")
     num_sampling_steps: int | None = mlfab.field(50, help="Number of sampling steps")
-    learning_rate: float = mlfab.field(1e-3)
 
 
 class ConditionalDiffusion(mlfab.Task[Config]):

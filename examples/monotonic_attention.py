@@ -119,7 +119,6 @@ class Config(mlfab.Config):
     seq_length: int = mlfab.field(64, help="Input sequence length")
     embedding_dims: int = mlfab.field(32, help="Number of embedding dimensions")
     use_rnn: bool = mlfab.field(False, help="Whether to use an RNN")
-    learning_rate: float = mlfab.field(1e-3)
 
 
 class MonotonicAttentionTask(mlfab.Task[Config]):
