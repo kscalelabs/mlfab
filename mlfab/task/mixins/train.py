@@ -341,6 +341,7 @@ class TrainMixin(
                                 losses[name] = (new_loss, 1)
                     num_steps += 1
         with self.step_context("log_losses"):
+            self.log_mp_scale()
             loss_dict = {k: value / count for k, (value, count) in losses.items()}
             self.log_loss_dict(loss_dict, state)
         with self.step_context("step"):

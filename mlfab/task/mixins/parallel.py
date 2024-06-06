@@ -2,6 +2,7 @@
 
 import contextlib
 import functools
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, ContextManager, Generic, Sequence, TypeVar
@@ -16,6 +17,7 @@ from torch.distributed.fsdp import (
     MixedPrecision,
 )
 from torch.distributed.fsdp.api import ShardingStrategy
+from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import Optimizer
 
@@ -23,9 +25,19 @@ from mlfab.core.conf import field
 from mlfab.nn.parallel import all_params_are_cuda, get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
-from mlfab.utils.experiments import clip_grad_norm_, get_weight_norm
+from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GradScalerConfig:
+    init_scale: float = field(2.0**16, help="Initial scaling factor")
+    growth_factor: float = field(2.0, help="Factor by which the scale is multiplied if no gradient NaNs occur")
+    backoff_factor: float = field(0.5, help="Factor by which the scale is multiplied if gradient NaNs occur")
+    growth_interval: int = field(2000, help="How often to grow the scale")
+    min_grad_scale: float = field(1e-4, help="Minimum allowable gradient scale")
+    foreach: bool | None = field(None, help="If set, use foreach implementation")
 
 
 @dataclass
@@ -39,6 +51,8 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
     use_ddp: bool = field(False, help="Whether to use DDP instead of FSDP")
+    grad_scaler: GradScalerConfig = field(GradScalerConfig(), help="Gradient scaler configuration")
+    grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
     clip_grad_norm_type: Any = field(2, help="Type of norm to use")
 
@@ -78,6 +92,22 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
     """Defines a trainer mixin for converting models to FSDP."""
 
+    @functools.cached_property
+    def grad_scaler(self) -> ShardedGradScaler | None:
+        if not self.config.grad_scaler_enabled:
+            return None
+        if self.device_manager.device.type != "cuda":
+            return None
+        if self.device_manager.dtype not in (torch.float16, torch.bfloat16):
+            return None
+        return ShardedGradScaler(
+            init_scale=self.config.grad_scaler.init_scale,
+            growth_factor=self.config.grad_scaler.growth_factor,
+            backoff_factor=self.config.grad_scaler.backoff_factor,
+            growth_interval=self.config.grad_scaler.growth_interval,
+            enabled=True,
+        )
+
     def get_fsdp_mixed_precision(self) -> MixedPrecision | None:
         dtype = self.device_manager.dtype
 
@@ -112,6 +142,8 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         retain_graph: bool | None = None,
         inputs: Sequence[Tensor] | None = None,
     ) -> None:
+        if self.grad_scaler is not None:
+            loss = self.grad_scaler.scale(loss)
         if loss.numel() > 1:
             loss = loss.sum()
         isnan = not bool(torch.isfinite(loss))
@@ -119,6 +151,17 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             loss.backward(torch.zeros_like(loss), retain_graph=retain_graph, inputs=inputs)
         else:
             loss.backward(retain_graph=retain_graph, inputs=inputs)
+
+        if isnan:
+            if any(not torch.isfinite(p).all() for p in self.parameters()):
+                raise NaNError("One or more model parameters are NaN")
+            if self.grad_scaler is not None:
+                with torch.no_grad():
+                    new_scale = self.grad_scaler.get_scale() * self.grad_scaler.get_backoff_factor()
+                    if new_scale < self.config.grad_scaler.min_grad_scale:
+                        raise MinGradScaleError("Minimum gradient scale reached; your loss is probably exploding")
+                    logger.warning("Loss NaNs detected; reducing scale to %.2g", new_scale)
+                    self.grad_scaler.update(new_scale)
 
     @torch.no_grad()
     def step_optimizer(self, mod: nn.Module, optim: Optimizer, num_steps: int = 1) -> None:
@@ -155,3 +198,31 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
     @functools.cached_property
     def autocast_context(self) -> ContextManager:
         return self.device_manager.autocast_context()
+
+    def scale_mixed_precision(self, tensor: Tensor) -> Tensor:
+        if self.grad_scaler is not None:
+            return self.grad_scaler.scale(tensor)
+        return tensor
+
+    def log_mp_scale(self) -> None:
+        if (scaler := self.grad_scaler) is not None and scaler._enabled:
+            self.log_scalar("scale", scaler.get_scale, namespace="⚖️ fp16")
+            self.log_scalar("growth", scaler._get_growth_tracker, namespace="⚖️ fp16")
+
+    def load_task_state_dict(
+        self,
+        state_dict: dict,
+        strict: bool = True,
+        assign: bool = False,
+        weights_only: bool = False,
+    ) -> None:
+        if self.grad_scaler is not None and "grad_scaler" in state_dict:
+            self.grad_scaler.load_state_dict(json.loads(state_dict["grad_scaler"]))
+        super().load_task_state_dict(state_dict, strict, assign, weights_only)
+
+    def task_state_dict(self) -> dict:
+        state_dict = super().task_state_dict()
+        if self.grad_scaler is not None:
+            assert "grad_scaler" not in state_dict, "Duplicate keys!"
+            state_dict["grad_scaler"] = json.dumps(self.grad_scaler.state_dict())
+        return state_dict
