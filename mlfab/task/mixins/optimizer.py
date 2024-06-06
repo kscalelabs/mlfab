@@ -83,5 +83,5 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()
         if self._optimizer is not None:
-            state_dict.update({"optimizer": self._optimizer.state_dict() for opt in self._optimizer})
+            state_dict.update({"optimizer": self._optimizer.state_dict()})
         return state_dict
