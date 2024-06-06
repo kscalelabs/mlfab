@@ -86,6 +86,7 @@ from torch.distributed.fsdp import (
     MixedPrecision,
 )
 from torch.distributed.fsdp.api import ShardingStrategy
+from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
@@ -1109,6 +1110,11 @@ class ParallelConfig(BaseConfig):
 
 def _all_params_are_cuda(model: nn.Module) -> bool:
     return all(p.is_cuda for p in model.parameters())
+
+
+def ddp(model: nn.Module) -> DDP:
+    group_info = parallel_group_info()
+    return DDP(model, process_group=group_info.dp.group)
 
 
 def fsdp(model: nn.Module, cfg: ParallelConfig) -> FSDP:
