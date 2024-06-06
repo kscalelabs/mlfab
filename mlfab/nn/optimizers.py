@@ -8,7 +8,7 @@ the optimizer.
 import logging
 import math
 from abc import ABC
-from typing import Any, Callable, Generic, Iterable, Literal, NotRequired, Self, TypedDict, TypeVar, Unpack, cast
+from typing import Callable, Generic, Iterable, Literal, NotRequired, Self, TypedDict, TypeVar, Unpack, cast
 
 import torch
 from torch import Tensor, nn
@@ -112,7 +112,7 @@ class OptimizerBuilder(ABC, Generic[OptimizerT]):
     def __init__(
         self,
         opt: OptimizerT,
-        defaults: dict[str, Any],
+        defaults: dict,
         default_decay: bool = True,
         separate_weight_decay_params: bool = True,
         weight_decay: float = 0.0,
