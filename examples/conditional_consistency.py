@@ -12,7 +12,6 @@ import torchvision.transforms.functional as V
 from dpshdl.dataset import TensorDataset
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
-from torch.optim.optimizer import Optimizer
 
 import mlfab
 from mlfab.core.state import State
@@ -27,6 +26,7 @@ class Config(mlfab.Config):
     dim_scales: list[int] = mlfab.field([1, 2, 4, 8], help="List of dimension scales")
     num_classes: int = mlfab.field(10, help="Number of unique classes")
     steps_to_evaluate: list[int] = mlfab.field([1, 2, 4, 8, 16], help="Step counts to evaluate")
+    learning_rate: float = mlfab.field(1e-3)
 
 
 class ConditionalConsistency(mlfab.Task[Config]):
@@ -62,14 +62,6 @@ class ConditionalConsistency(mlfab.Task[Config]):
         data = data - 0.5
         data = data.unsqueeze(1)
         return TensorDataset(data.numpy(), mnist.labels.astype(np.int64))
-
-    def build_optimizer(self) -> tuple[Optimizer, mlfab.CosineDecayLRScheduler]:
-        assert (max_steps := self.config.max_steps) is not None, "`max_steps` must not be None"
-
-        return (
-            mlfab.Adam.get(self, lr=1e-3),
-            mlfab.CosineDecayLRScheduler(max_steps),
-        )
 
     def forward(self, x: Tensor, t: Tensor, class_id: Tensor) -> Tensor:
         c_emb = self.class_embs(class_id)

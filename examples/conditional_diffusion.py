@@ -13,7 +13,6 @@ import torchvision.transforms.functional as V
 from dpshdl.dataset import TensorDataset
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
-from torch.optim.optimizer import Optimizer
 
 import mlfab
 from mlfab.core.state import State
@@ -29,6 +28,7 @@ class Config(mlfab.Config):
     num_classes: int = mlfab.field(10, help="Number of unique classes")
     num_beta_steps: int = mlfab.field(500, help="Number of beta steps")
     num_sampling_steps: int | None = mlfab.field(50, help="Number of sampling steps")
+    learning_rate: float = mlfab.field(1e-3)
 
 
 class ConditionalDiffusion(mlfab.Task[Config]):
@@ -67,9 +67,6 @@ class ConditionalDiffusion(mlfab.Task[Config]):
         data = data - 0.5
         data = data.unsqueeze(1)
         return TensorDataset(data.numpy(), mnist.labels.astype(np.int64))
-
-    def build_optimizer(self) -> Optimizer:
-        return mlfab.Adam.get(self, lr=1e-3)
 
     def forward(self, x: Tensor, t: Tensor, class_id: Tensor) -> Tensor:
         c_emb = self.class_embs(class_id)

@@ -79,19 +79,10 @@ from torch import Tensor, nn
 from torch.autograd.function import Function, FunctionCtx
 from torch.distributed import ProcessGroup
 from torch.distributed.distributed_c10d import Backend, ReduceOp, Work, _get_default_group, is_initialized
-from torch.distributed.fsdp import (
-    BackwardPrefetch,
-    CPUOffload,
-    FullyShardedDataParallel as FSDP,
-    MixedPrecision,
-)
-from torch.distributed.fsdp.api import ShardingStrategy
-from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
 from mlfab.nn.init import InitializationType, init_
-from mlfab.task.base import BaseConfig
 from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import colored
 
@@ -447,6 +438,11 @@ def default_group_info() -> _GroupInfo | None:
         rank, world_size = dist.get_rank(), dist.get_world_size()
         _default_group_info = _GroupInfo(_get_default_group(), list(range(world_size)), rank, world_size)
     return _default_group_info
+
+
+def barrier(group: ProcessGroup | None = dist.GroupMember.WORLD) -> None:
+    if get_world_size() != 1:
+        dist.barrier(group=group)
 
 
 class ParallismError(Exception):
@@ -1099,59 +1095,8 @@ def get_device_count(default: int) -> int:
 OmegaConf.register_new_resolver("mlfab.device_count", get_device_count, replace=True)
 
 
-@dataclass
-class ParallelConfig(BaseConfig):
-    fsdp_cpu_offload: bool = field(False, help="CPU offloading for FSDP")
-    fsdp_backward_prefetch: str | None = field(None, help="Backward prefetch for FSDP")
-    fsdp_use_orig_params: bool = field(True, help="Use original parameters for FSDP")
-    fsdp_sharding_strategy: ShardingStrategy = field(ShardingStrategy.HYBRID_SHARD, help="Sharding strategy")
-    fsdp_sync_module_states: bool = field(True, help="Whether to sync module states on initialization")
-
-
-def _all_params_are_cuda(model: nn.Module) -> bool:
+def all_params_are_cuda(model: nn.Module) -> bool:
     return all(p.is_cuda for p in model.parameters())
-
-
-def ddp(model: nn.Module) -> DDP:
-    group_info = parallel_group_info()
-    return DDP(model, process_group=group_info.dp.group)
-
-
-def fsdp(model: nn.Module, cfg: ParallelConfig) -> FSDP:
-    group_info = parallel_group_info()
-
-    process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
-    if cfg.fsdp_sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-        process_group = group_info.mp.group, group_info.dp.group
-    else:
-        process_group = group_info.mp.group
-
-    if cfg.fsdp_cpu_offload:
-        logger.warning("CPU offloading doesn't support gradient accumulation")
-
-    return FSDP(
-        model,
-        process_group=process_group,
-        sharding_strategy=cfg.fsdp_sharding_strategy,
-        sync_module_states=cfg.fsdp_sync_module_states and _all_params_are_cuda(model),
-        cpu_offload=CPUOffload(cfg.fsdp_cpu_offload),
-        backward_prefetch=None if cfg.fsdp_backward_prefetch is None else BackwardPrefetch[cfg.fsdp_backward_prefetch],
-        mixed_precision=MixedPrecision(
-            param_dtype=None,
-            reduce_dtype=None,
-            buffer_dtype=None,
-            keep_low_precision_grads=False,
-            cast_forward_inputs=False,
-            cast_root_forward_inputs=True,
-        ),
-        use_orig_params=cfg.fsdp_use_orig_params,
-    )
-
-
-def maybe_fsdp(model: nn.Module, cfg: ParallelConfig) -> nn.Module | FSDP:
-    if get_world_size() > 1 and torch.cuda.is_available() and not isinstance(model, FSDP):
-        return fsdp(model, cfg)
-    return model
 
 
 @dataclass
