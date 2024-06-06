@@ -21,8 +21,8 @@ class OptimizerConfig(BaseConfig):
     learning_rate: float = field(MISSING, help="Learning rate to use for optimizer")
     betas: tuple[float, float] = field(MISSING, help="Beta values for Adam optimizer")
     weight_decay: float = field(MISSING, help="Weight decay to use for the optimizer")
+    warmup_steps: int = field(MISSING, help="Number of warmup steps to use for the optimizer")
     weight_lr_power: float = field(2.0, help="Power to raise the weight learning rate by")
-    warmup_steps: int = field(100, help="Number of warmup steps to use for the optimizer")
 
 
 Config = TypeVar("Config", bound=OptimizerConfig)

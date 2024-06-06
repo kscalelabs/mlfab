@@ -21,6 +21,10 @@ import mlfab
 @dataclass
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
+    learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
+    betas: tuple[float, float] = mlfab.field((0.9, 0.999), help="Beta values for Adam optimizer")
+    weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
+    warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
 
 class DummyDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[Tensor, Tensor]]):
