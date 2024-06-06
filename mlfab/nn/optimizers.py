@@ -184,7 +184,7 @@ class LionKwargs(TypedDict):
     weight_decay: NotRequired[float]
 
 
-class LionOptimizer(Optimizer):
+class Lion(Optimizer):
     """Defines the Lion optimizer.
 
     This optimizer was proposed in `Symbolic Discovery of Optimization
