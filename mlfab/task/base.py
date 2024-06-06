@@ -19,7 +19,6 @@ from omegaconf import Container, DictConfig, OmegaConf
 from torch import Tensor, nn
 
 from mlfab.core.state import State
-from mlfab.nn.parallel import barrier
 from mlfab.utils.text import camelcase_to_snakecase
 
 logger = logging.getLogger(__name__)
@@ -105,7 +104,6 @@ class BaseTask(nn.Module, Generic[Config]):
         return self.load_state_dict(weights, strict=strict, assign=assign)
 
     def task_state_dict(self) -> dict:
-        barrier()  # Ensure that
         return {"weights": self.state_dict()}
 
     @functools.cached_property

@@ -440,11 +440,6 @@ def default_group_info() -> _GroupInfo | None:
     return _default_group_info
 
 
-def barrier(group: ProcessGroup | None = dist.GroupMember.WORLD) -> None:
-    if get_world_size() != 1:
-        dist.barrier(group=group)
-
-
 class ParallismError(Exception):
     pass
 

@@ -38,6 +38,7 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
+    use_ddp: bool = field(False, help="Whether to use DDP instead of FSDP")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
     clip_grad_norm_type: Any = field(2, help="Type of norm to use")
 
@@ -89,10 +90,16 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def maybe_get_fsdp(self, model: nn.Module) -> nn.Module | FSDP:
-        if get_world_size() > 1 and torch.cuda.is_available() and not isinstance(model, FSDP):
-            return fsdp(model, self.config, self.get_fsdp_mixed_precision())
-        return model
+    def get_wrapped_model(self, model: nn.Module) -> nn.Module | FSDP | DDP:
+        if get_world_size() <= 1:
+            return model
+        if isinstance(model, (FSDP, DDP)):
+            return model
+        if self.config.use_ddp:
+            return ddp(model)
+        if not torch.cuda.is_available():
+            raise RuntimeError("FSDP requires CUDA")
+        return fsdp(model, self.config, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
         if isinstance(mod, FSDP) and not is_last:

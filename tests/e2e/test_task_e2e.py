@@ -36,7 +36,7 @@ class DummyTask(mlfab.Task[Config]):
 
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
-        self.lstm = mlfab.pretrained(nn.LSTM(8, 8, 2))
+        self.lstm = nn.LSTM(8, 8, 2)
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
         x, _ = self.lstm(x.float())

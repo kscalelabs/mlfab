@@ -477,7 +477,7 @@ class TrainMixin(
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
             self.device_manager.module_to(mod)
-            mod = self.maybe_get_fsdp(mod)
+            mod = self.get_wrapped_model(mod)
 
         with self.step_context("create_optimizers"):
             self.set_optimizer(mod)
