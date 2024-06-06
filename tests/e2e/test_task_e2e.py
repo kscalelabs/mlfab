@@ -20,6 +20,7 @@ import mlfab
 @dataclass
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
+    use_ddp: bool = mlfab.field(True, help="Whether to use DDP instead of FSDP")
 
 
 class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
@@ -36,15 +37,7 @@ class DummyTask(mlfab.Task[Config]):
 
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
-        self.lstm = mlfab.pretrained(nn.LSTM(8, 8, 2))
-
-    def build_optimizer(self) -> mlfab.OptType:
-        assert (max_steps := self.config.max_steps) is not None
-
-        return (
-            mlfab.Adam.get(self),
-            mlfab.LinearLRScheduler(max_steps),
-        )
+        self.lstm = nn.LSTM(8, 8, 2)
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
         x, _ = self.lstm(x.float())

@@ -39,14 +39,6 @@ class DummyTask(mlfab.Task[Config]):
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
         self.lstm = nn.LSTM(8, 8, 2)
 
-    def build_optimizer(self) -> mlfab.OptType:
-        assert (max_steps := self.config.max_steps) is not None
-
-        return (
-            mlfab.Adam.get(self),
-            mlfab.LinearLRScheduler(max_steps),
-        )
-
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
         x, _ = self.lstm(x.float())
         z = x + self.emb(y)

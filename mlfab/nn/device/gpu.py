@@ -22,7 +22,7 @@ class gpu_device(base_device):  # noqa: N801
 
     @functools.lru_cache(maxsize=None)
     def _get_device(self) -> torch.device:
-        return torch.device("cuda", get_local_rank())
+        return torch.device("cuda", get_local_rank() % torch.cuda.device_count())
 
     @functools.lru_cache(maxsize=None)
     def _get_floating_point_type(self) -> torch.dtype:

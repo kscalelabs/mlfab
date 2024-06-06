@@ -19,7 +19,6 @@ from torch import Tensor, nn
 
 import mlfab
 from mlfab.core.state import Phase, State
-from mlfab.task.mixins.optimizer import OptType
 from mlfab.task.mixins.train import Batch, Loss, Output
 
 PADDING_IDX = 0
@@ -131,9 +130,6 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
 
     def get_dataset(self, phase: Phase) -> Dataset:
         return LettersDataset(self.tokenizer, self.config.seq_length)
-
-    def build_optimizer(self) -> OptType:
-        return mlfab.Adam.get(self, lr=1e-3)
 
     def forward(self, tokens_in: Tensor, tokens_out: Tensor) -> Tensor:
         return self.model(tokens_in, tokens_out)

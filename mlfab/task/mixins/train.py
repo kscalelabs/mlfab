@@ -22,14 +22,14 @@ from torch import Tensor, nn
 from mlfab.core.conf import field
 from mlfab.core.state import Phase, State
 from mlfab.nn.functions import recursive_chunk
-from mlfab.nn.parallel import ParallelConfig, dp, is_master
+from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
 from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
-from mlfab.task.mixins.mixed_precision import MixedPrecisionConfig, MixedPrecisionMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
+from mlfab.task.mixins.parallel import ParallelConfig, ParallelMixin
 from mlfab.task.mixins.pretrained import PretrainedConfig, PretrainedMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 Batch = Any
 Output = Any
 
-Loss = Tensor | dict[str, Tensor] | list[Tensor] | list[dict[str, Tensor]]
+Loss = Tensor | dict[str, Tensor]
 
 StepKind = Literal["step", "sample", "second"]
 
@@ -69,7 +69,7 @@ class TrainConfig(
     OptimizerConfig,
     CompileConfig,
     PretrainedConfig,
-    MixedPrecisionConfig,
+    ParallelConfig,
     DataloadersConfig,
     DeviceConfig,
     ProfilerConfig,
@@ -105,7 +105,6 @@ class TrainConfig(
     init_state_map_location: str | None = field(None, help="Map location for loading the initial state")
     init_state_weights_only: bool = field(False, help="Load only the weights from the initial state")
     init_state_strict: bool = field(True, help="Load the initial state strictly")
-    parallel: ParallelConfig = field(ParallelConfig())
 
 
 Config = TypeVar("Config", bound=TrainConfig)
@@ -126,7 +125,7 @@ class TrainMixin(
     OptimizerMixin[Config],
     CompileMixin[Config],
     PretrainedMixin[Config],
-    MixedPrecisionMixin[Config],
+    ParallelMixin[Config],
     DataloadersMixin[Config],
     DeviceMixin[Config],
     ProfilerMixin[Config],
@@ -302,14 +301,6 @@ class TrainMixin(
         single_loss = torch.stack(losses, dim=0)
         return single_loss, keys
 
-    def get_single_losses(self, losses: Loss) -> list[tuple[Tensor, list[str]]]:
-        if isinstance(losses, (Tensor, dict)):
-            return [self.get_single_loss(losses)]
-        assert isinstance(losses, list), f"Loss should be a scalar, dictionary, or list, not {type(losses)}"
-        single_losses = [self.get_single_loss(loss) for loss in losses]
-        assert len(single_losses) == len(self.optimizers), f"Expected {len(self.optimizers)} losses, got {len(losses)}"
-        return single_losses
-
     def log_loss_dict(self, loss: Mapping[str, int | float | Tensor], state: State) -> None:
         for k, v in loss.items():
             self.log_scalar(k, v, namespace="loss")
@@ -319,34 +310,27 @@ class TrainMixin(
             for k, v in d.items():
                 self.log_scalar(k, v, namespace=ns)
 
-    def train_step(self, mod: nn.Module, batches: Iterator[Batch], state: State) -> dict[str, Tensor]:
+    def train_step(self, mod: nn.Module, batches: Iterator[tuple[Batch, bool]], state: State) -> dict[str, Tensor]:
         with self.step_context("change_mode"):
             state.set_phase(self, "train")
         total_bsz: int | None = None
         losses: dict[str, tuple[Tensor, int]] = {}
         with self.step_context("zero_grads"):
-            self.zero_optimizers()
+            self.zero_optimizer()
         num_steps = 0
         with self.autocast_context:
-            for batch in batches:
-                bsz = self.get_size_of_batch(batch)
-                if bsz is not None:
-                    total_bsz = bsz if total_bsz is None else total_bsz + bsz
-                with self.step_context("forward"):
-                    loss = mod(batch, state)
-                with self.step_context("get_single_loss"):
-                    single_losses = self.get_single_losses(loss)
-                with self.step_context("backward"):
-                    for i, ((single_loss, _), optimizer) in enumerate(zip(single_losses, self.optimizers)):
-                        retain_graph = None if len(self.optimizers) == 1 else i < len(self.optimizers) - 1
-                        self.backward_grads(
-                            single_loss,
-                            retain_graph=retain_graph,
-                            inputs=optimizer.parameters(),
-                        )
-                with self.step_context("log_losses"):
-                    self.log_mp_scale()
-                    for single_loss, loss_names in single_losses:
+            for batch, is_last in batches:
+                with self.get_grad_sync_context(mod, is_last):
+                    bsz = self.get_size_of_batch(batch)
+                    if bsz is not None:
+                        total_bsz = bsz if total_bsz is None else total_bsz + bsz
+                    with self.step_context("forward"):
+                        loss = mod(batch, state)
+                    with self.step_context("get_single_loss"):
+                        single_loss, loss_names = self.get_single_loss(loss)
+                    with self.step_context("backward"):
+                        self.backward_grads(single_loss)
+                    with self.step_context("log_losses"):
                         single_loss_detached = single_loss.detach()
                         for i, name in enumerate(loss_names):
                             new_loss = single_loss_detached[i]
@@ -355,15 +339,12 @@ class TrainMixin(
                                 losses[name] = (old_loss + new_loss, count + 1)
                             else:
                                 losses[name] = (new_loss, 1)
-                num_steps += 1
+                    num_steps += 1
         with self.step_context("log_losses"):
             loss_dict = {k: value / count for k, (value, count) in losses.items()}
             self.log_loss_dict(loss_dict, state)
         with self.step_context("step"):
-            for optim_i in self.optimizers:
-                self.step_optimizer(optim_i.optimizer, num_steps)
-                optim_i.step(state)
-                self.log_scalar("lr_scale", optim_i.lr_scale, namespace="📉 optim")
+            self.step_optimizer(mod, self.optimizer, num_steps)
         with self.step_context("write_logs"), self.autocast_context:
             self.write_logs(state)
         with self.step_context("update_state"):
@@ -379,12 +360,11 @@ class TrainMixin(
             with self.step_context("forward"), self.autocast_context:
                 loss = mod(batch, state)
             with self.step_context("get_single_loss"):
-                single_losses = self.get_single_losses(loss)
+                single_loss, loss_names = self.get_single_loss(loss)
             with self.step_context("log_losses"):
-                for single_loss, loss_names in single_losses:
-                    single_loss_detached = single_loss.detach()
-                    loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
-                    self.log_loss_dict(loss_dict, state)
+                single_loss_detached = single_loss.detach()
+                loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
+                self.log_loss_dict(loss_dict, state)
             with self.step_context("write_logs"), self.autocast_context:
                 self.write_logs(state)
             with self.step_context("update_state"):
@@ -397,12 +377,11 @@ class TrainMixin(
             with self.step_context("forward"), self.autocast_context:
                 loss = self.get_loss(batch, state)
             with self.step_context("get_single_loss"):
-                single_losses = self.get_single_losses(loss)
+                single_loss, loss_names = self.get_single_loss(loss)
             with self.step_context("log_losses"):
-                for single_loss, loss_names in single_losses:
-                    single_loss_detached = single_loss.detach()
-                    loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
-                    self.log_loss_dict(loss_dict, state)
+                single_loss_detached = single_loss.detach()
+                loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
+                self.log_loss_dict(loss_dict, state)
             with self.step_context("write_logs"), self.autocast_context:
                 self.write_logs(state)
             with self.step_context("update_state"):
@@ -498,10 +477,10 @@ class TrainMixin(
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
             self.device_manager.module_to(mod)
-            mod = dp(mod, self.config.parallel)
+            mod = self.get_wrapped_model(mod)
 
         with self.step_context("create_optimizers"):
-            self.set_optimizers()
+            self.set_optimizer(mod)
 
         if is_master():
             Thread(target=self.log_state, daemon=True).start()
@@ -556,12 +535,12 @@ class TrainMixin(
                 train_pf_iter = train_batches()
                 valid_pf_iter = valid_batches()
 
-                def batch_iterator() -> Iterator[Batch]:
-                    yield next(train_pf_iter)
-
-                    for _ in range(self.get_batches_per_step(state) - 1):
+                def batch_iterator() -> Iterator[tuple[Batch, bool]]:
+                    batches_per_step = self.get_batches_per_step(state)
+                    yield next(train_pf_iter), batches_per_step == 1
+                    for i in range(1, batches_per_step):
                         try:
-                            yield next(train_pf_iter)
+                            yield next(train_pf_iter), i == batches_per_step - 1
                         except StopIteration:
                             pass
 

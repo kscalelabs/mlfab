@@ -1,3 +1,4 @@
+# mypy: disable-error-code="misc"
 """Defines utility functions for optimizers.
 
 Some of these functions can be used to improve the performance of some part of
@@ -6,7 +7,8 @@ the optimizer.
 
 import logging
 import math
-from typing import Callable, Iterable, Literal, NotRequired, Self, TypedDict, Unpack, cast
+from abc import ABC
+from typing import Callable, Generic, Iterable, Literal, NotRequired, Self, TypedDict, TypeVar, Unpack, cast
 
 import torch
 from torch import Tensor, nn
@@ -26,6 +28,8 @@ class ParamGroup(TypedDict):
 
 
 Params = Iterable[Tensor] | Iterable[ParamGroup]
+
+OptimizerT = TypeVar("OptimizerT", bound=type[Optimizer])
 
 
 def separate_decayable_params(model: nn.Module, default_decay: bool, weight_decay: float) -> Iterable[ParamGroup]:
@@ -102,6 +106,32 @@ def separate_decayable_params(model: nn.Module, default_decay: bool, weight_deca
     if no_wd_params:
         groups.append({"params": [param_dict[pn] for pn in sorted(list(no_wd_params))], "weight_decay": 0.0})
     return groups
+
+
+class OptimizerBuilder(ABC, Generic[OptimizerT]):
+    def __init__(
+        self,
+        opt: OptimizerT,
+        defaults: dict,
+        default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
+        weight_decay: float = 0.0,
+    ) -> None:
+        super().__init__()
+
+        self.opt = opt
+        self.defaults = defaults
+        self.default_decay = default_decay
+        self.separate_weight_decay_params = separate_weight_decay_params
+        self.weight_decay = weight_decay
+
+    def __call__(self, model: nn.Module) -> Optimizer:
+        params = (
+            separate_decayable_params(model, self.default_decay, self.weight_decay)
+            if self.separate_weight_decay_params
+            else model.parameters()
+        )
+        return self.opt(params, **self.defaults)  # type: ignore[arg-type]
 
 
 def can_use_fused(model: nn.Module) -> bool:
@@ -212,11 +242,22 @@ class Lion(Optimizer):
         self.update_fn_cuda = get_lion_update_fn(use_triton)
 
     @classmethod
-    def stable(cls, model: nn.Module, **kwargs: Unpack[LionKwargs]) -> Self:
+    def stable(
+        cls,
+        default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
+        **kwargs: Unpack[LionKwargs],
+    ) -> OptimizerBuilder[type[Self]]:
         kwargs.setdefault("lr", 1e-4)
         kwargs.setdefault("betas", (0.95, 0.98))
         kwargs.setdefault("weight_decay", 0.0)
-        return cls(separate_decayable_params(model, True, kwargs["weight_decay"]), **kwargs)
+        return OptimizerBuilder(
+            cls,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            kwargs["weight_decay"],
+        )
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
@@ -267,12 +308,23 @@ class Adan(Optimizer):
         super().__init__(params, defaults)  # type: ignore[arg-type]
 
     @classmethod
-    def get(cls, model: nn.Module, **kwargs: Unpack[AdanKwargs]) -> Self:
+    def get(
+        cls,
+        default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
+        **kwargs: Unpack[AdanKwargs],
+    ) -> OptimizerBuilder[type[Self]]:
         kwargs.setdefault("lr", 1e-3)
         kwargs.setdefault("betas", (0.1, 0.1, 0.001))
         kwargs.setdefault("eps", 1e-8)
         kwargs.setdefault("weight_decay", 0.0)
-        return cls(separate_decayable_params(model, True, kwargs["weight_decay"]), **kwargs)
+        return OptimizerBuilder(
+            cls,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            kwargs["weight_decay"],
+        )
 
     @torch.no_grad()
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
@@ -349,11 +401,12 @@ class Adam:
     @classmethod
     def gpt3(
         cls,
-        model: nn.Module,
+        model: nn.Module | None = None,
         size: AdamGpt3Size = "small",
         default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
         **kwargs: Unpack[AdamKwargs],
-    ) -> AdamBase | AdamWBase:
+    ) -> OptimizerBuilder[type[AdamBase] | type[AdamWBase]]:
         match size:
             case "small":
                 kwargs.setdefault("lr", 6e-4)
@@ -369,16 +422,17 @@ class Adam:
                 kwargs.setdefault("weight_decay", 0.1)
             case _:
                 raise ValueError(f"Invalid GPT-3 size: {size}")
-        return cls.get(model, default_decay=default_decay, **kwargs)
+        return cls.get(model, default_decay, separate_weight_decay_params, **kwargs)
 
     @classmethod
     def roberta(
         cls,
-        model: nn.Module,
+        model: nn.Module | None = None,
         size: AdamRobertaSize = "base",
         default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
         **kwargs: Unpack[AdamKwargs],
-    ) -> AdamBase | AdamWBase:
+    ) -> OptimizerBuilder[type[AdamBase] | type[AdamWBase]]:
         match size:
             case "base":
                 kwargs.setdefault("lr", 6e-4)
@@ -390,10 +444,16 @@ class Adam:
                 kwargs.setdefault("weight_decay", 0.01)
             case _:
                 raise ValueError(f"Invalid RoBERTa size: {size}")
-        return cls.get(model, default_decay=default_decay, **kwargs)
+        return cls.get(model, default_decay, separate_weight_decay_params, **kwargs)
 
     @classmethod
-    def get(cls, model: nn.Module, default_decay: bool = True, **kwargs: Unpack[AdamKwargs]) -> AdamBase | AdamWBase:
+    def get(
+        cls,
+        model: nn.Module | None = None,
+        default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
+        **kwargs: Unpack[AdamKwargs],
+    ) -> OptimizerBuilder[type[AdamBase] | type[AdamWBase]]:
         kwargs.setdefault("lr", 3e-4)
         kwargs.setdefault("betas", (0.9, 0.95))
         kwargs.setdefault("eps", 1e-8)
@@ -408,10 +468,11 @@ class Adam:
         # Sets default values for foreach and fused variants.
         fused, foreach = kwargs.pop("fused"), kwargs.pop("foreach")
         if fused is None and foreach is None:
-            if can_use_fused(model):
-                fused = True
-            elif can_use_foreach(model):
-                foreach = True
+            if model is not None:
+                if can_use_fused(model):
+                    fused = True
+                elif can_use_foreach(model):
+                    foreach = True
         if fused is None:
             fused = False
         if foreach is None:
@@ -421,8 +482,21 @@ class Adam:
 
         weight_decay = kwargs.pop("weight_decay")
         if weight_decay == 0.0:
-            return AdamBase(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
-        return AdamWBase(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
+            return OptimizerBuilder(
+                AdamBase,
+                cast(dict, kwargs),
+                default_decay,
+                separate_weight_decay_params,
+                weight_decay,
+            )
+
+        return OptimizerBuilder(
+            AdamWBase,
+            cast(dict, kwargs),
+            default_decay,
+            separate_weight_decay_params,
+            weight_decay,
+        )
 
 
 class AdamWScheduleFreeKwargs(TypedDict):
@@ -445,10 +519,10 @@ class AdamWScheduleFree(Optimizer):
     @classmethod
     def get(
         cls,
-        model: nn.Module,
         default_decay: bool = True,
+        separate_weight_decay_params: bool = True,
         **kwargs: Unpack[AdamWScheduleFreeKwargs],
-    ) -> "AdamWScheduleFree":
+    ) -> OptimizerBuilder[type[Self]]:
         kwargs.setdefault("lr", 0.0025)
         kwargs.setdefault("betas", (0.9, 0.999))
         kwargs.setdefault("eps", 1e-8)
@@ -460,7 +534,7 @@ class AdamWScheduleFree(Optimizer):
         kwargs.setdefault("foreach", hasattr(torch, "_foreach_mul_"))
 
         weight_decay = kwargs.pop("weight_decay")
-        return AdamWScheduleFree(separate_decayable_params(model, default_decay, weight_decay), **kwargs)  # type: ignore[arg-type]
+        return OptimizerBuilder(cls, cast(dict, kwargs), default_decay, separate_weight_decay_params, weight_decay)
 
     def eval(self) -> None:
         for group in self.param_groups:

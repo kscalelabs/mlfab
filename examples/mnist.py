@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import torch.nn.functional as F
 from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
-from torch.optim.optimizer import Optimizer
 
 import mlfab
 
@@ -16,6 +15,7 @@ import mlfab
 @dataclass
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
+    batches_per_step: int = mlfab.field(8, help="Number of batches to accumulate gradients over")
 
 
 class MnistClassification(mlfab.Task[Config]):
@@ -47,9 +47,6 @@ class MnistClassification(mlfab.Task[Config]):
     def get_dataset(self, phase: mlfab.Phase) -> MNIST:
         return MNIST(root_dir=mlfab.get_data_dir() / "mnist", train=phase == "train", dtype="float32")
 
-    def build_optimizer(self) -> Optimizer:
-        return mlfab.Adam.get(self, lr=1e-3)
-
     def forward(self, x: Tensor) -> Tensor:
         return self.model(x)
 
@@ -57,7 +54,8 @@ class MnistClassification(mlfab.Task[Config]):
         x, y = batch
         yhat = self(x.unsqueeze(1))
         self.log_step(batch, yhat, state)
-        return F.cross_entropy(yhat, y.long())
+        loss = F.cross_entropy(yhat, y.long())
+        return loss
 
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
         (x, y), yhat = batch, output
@@ -70,4 +68,4 @@ class MnistClassification(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    MnistClassification.launch(Config(batch_size=16))
+    MnistClassification.launch(Config(batch_size=16, num_train_dl_workers=1))
