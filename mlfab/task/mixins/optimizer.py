@@ -19,6 +19,8 @@ class OptimizerConfig(BaseConfig):
     set_grads_to_none: bool = field(True, help="If set, zero gradients by setting them to None")
     learning_rate: float = field(3e-4, help="Learning rate to use for optimizer")
     betas: tuple[float, float] = field((0.9, 0.999), help="Beta values for Adam optimizer")
+    optimizer_weight_decay: float = field(1e-5, help="Weight decay to use for the optimizer")
+    optimizer_weight_lr_power: float = field(2.0, help="Power to raise the weight learning rate by")
     optimizer_warmup_steps: int = field(100, help="Number of warmup steps to use for the optimizer")
     optimizer_default_decay: bool = field(True, help="If set, decay any modules by default")
     optimizer_separate_weight_decay_params: bool = field(True, help="If set, avoid weight decaying certain modules")
@@ -55,6 +57,9 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
             separate_weight_decay_params=self.config.optimizer_separate_weight_decay_params,
             lr=self.config.learning_rate,
             betas=self.config.betas,
+            warmup_steps=self.config.optimizer_warmup_steps,
+            weight_lr_power=self.config.optimizer_weight_lr_power,
+            weight_decay=self.config.optimizer_weight_decay,
         )
 
     def set_optimizer(self, model: nn.Module) -> None:
