@@ -72,17 +72,16 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         )
 
     @classmethod
-    def get_task_from_ckpt(
+    def get_config_from_ckpt(
         cls,
         path: str | Path,
-        strict: bool = True,
-        assign: bool = False,
+        *,
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
         weights_only: bool = False,
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
-    ) -> Self:
+    ) -> tuple[Config, dict]:
         state_dict = cls.read_state_dict(
             path,
             map_location=map_location,
@@ -93,6 +92,29 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
         cfg = cls.get_config(config_fn(OmegaConf.create(raw_config)), use_cli=use_cli)
+        return cfg, state_dict
+
+    @classmethod
+    def get_task_from_ckpt(
+        cls,
+        path: str | Path,
+        *,
+        strict: bool = True,
+        assign: bool = False,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        weights_only: bool = False,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> Self:
+        cfg, state_dict = cls.get_config_from_ckpt(
+            path,
+            use_cli=use_cli,
+            map_location=map_location,
+            weights_only=weights_only,
+            mmap=mmap,
+            config_fn=config_fn,
+        )
         task = cls(cfg)
         task.load_task_state_dict(
             state_dict,
