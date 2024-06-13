@@ -6,7 +6,7 @@ import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Literal, Self, TypeVar, cast, override
+from typing import Callable, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -88,7 +88,20 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         """
         return torch.load(path, map_location=map_location, mmap=mmap, pickle_module=CustomPickleModule)
 
-    @override
+    @overload
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        raw: Literal[True],
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[DictConfig, dict]: ...
+
+    @overload
     @classmethod
     def load_raw_checkpoint(
         cls,
@@ -100,19 +113,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[Config, dict]: ...
-
-    @override
-    @classmethod
-    def load_raw_checkpoint(
-        cls,
-        path: str | Path,
-        *,
-        raw: Literal[True] = True,
-        use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
-        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
-    ) -> tuple[DictConfig, dict]: ...
 
     @classmethod
     def load_raw_checkpoint(
