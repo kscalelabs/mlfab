@@ -30,7 +30,7 @@ from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GradScalerConfig:
     init_scale: float = field(2.0**16, help="Initial scaling factor")
     growth_factor: float = field(2.0, help="Factor by which the scale is multiplied if no gradient NaNs occur")
@@ -40,7 +40,7 @@ class GradScalerConfig:
     foreach: bool | None = field(None, help="If set, use foreach implementation")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_cpu_offload: bool = field(False, help="CPU offloading for FSDP")
     fsdp_use_orig_params: bool = field(True, help="Use original parameters for FSDP")

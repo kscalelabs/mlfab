@@ -4,7 +4,6 @@
   </picture>
 </p>
 
-
 <div align="center">
 
 [![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/dpshai/mlfab/blob/master/LICENSE)
@@ -59,7 +58,7 @@ from torch.optim.optimizer import Optimizer
 import mlfab
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
     learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
@@ -136,7 +135,7 @@ Let's break down each part individually.
 Tasks are parametrized using a config dataclass. The `ml.field` function is a lightweight wrapper around `dataclasses.field` which is a bit more ergonomic, and `ml.Config` is a bigger dataclass which contains a bunch of other options for configuring training.
 
 ```python
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
 ```

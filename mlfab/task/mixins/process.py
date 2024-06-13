@@ -16,7 +16,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 Context = DefaultContext | ForkServerContext | SpawnContext | ForkContext
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ProcessConfig(BaseConfig):
     pass
 

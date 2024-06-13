@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Losses:
     per_sample_entropy: Tensor
     batch_entropy: Tensor

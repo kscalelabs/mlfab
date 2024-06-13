@@ -2,10 +2,11 @@
 
 import json
 import logging
+import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Self, TypeVar, cast
+from typing import Callable, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
 from omegaconf import DictConfig, OmegaConf
@@ -35,7 +36,7 @@ def get_ckpt_path(exp_dir: Path, state: State | None = None) -> Path:
     return exp_dir / "checkpoints" / f"ckpt.{state.num_steps}.pt"
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
@@ -45,6 +46,18 @@ class CheckpointingConfig(ArtifactsConfig):
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
+
+
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> type:
+        try:
+            return super().find_class(module, name)
+        except AttributeError:
+            return lambda *args, **kwargs: None  # type: ignore[return-value]
+
+
+class CustomPickleModule:
+    Unpickler = CustomUnpickler
 
 
 class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
@@ -61,37 +74,80 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cls,
         path: str | Path,
         map_location: MAP_LOCATION = None,
-        weights_only: bool = False,
         mmap: bool | None = None,
     ) -> dict:
-        return torch.load(
-            path,
-            map_location=map_location,
-            weights_only=weights_only,
-            mmap=mmap,
-        )
+        """Reads a state dict from a checkpoint file.
 
+        Args:
+            path: The path to the checkpoint file
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+
+        Returns:
+            The state dict loaded from the checkpoint
+        """
+        return torch.load(path, map_location=map_location, mmap=mmap, pickle_module=CustomPickleModule)
+
+    @overload
     @classmethod
-    def get_config_from_ckpt(
+    def load_raw_checkpoint(
         cls,
         path: str | Path,
         *,
+        raw: Literal[True],
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
-        weights_only: bool = False,
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
-    ) -> tuple[Config, dict]:
-        state_dict = cls.read_state_dict(
-            path,
-            map_location=map_location,
-            weights_only=weights_only,
-            mmap=mmap,
-        )
+    ) -> tuple[DictConfig, dict]: ...
+
+    @overload
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        raw: Literal[False] = False,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[Config, dict]: ...
+
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        raw: bool = False,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[Config | DictConfig, dict]:
+        """Loads a raw checkpoint from a file.
+
+        Args:
+            raw: If set, return the raw config, otherwise parse against the
+                config dataclass
+            use_cli: Whether to use CLI overrides
+            path: The path to the checkpoint file
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+            config_fn: A function to apply to the loaded config, to help with
+                versioning checkpoints
+
+        Returns:
+            The raw config and state dict loaded from the checkpoint
+        """
+        state_dict = cls.read_state_dict(path, map_location=map_location, mmap=mmap)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
-        cfg = cls.get_config(config_fn(OmegaConf.create(raw_config)), use_cli=use_cli)
+        raw_config = config_fn(raw_config)
+        if raw:
+            return raw_config, state_dict
+        cfg = cls.get_config(OmegaConf.create(raw_config), use_cli=use_cli)
         return cfg, state_dict
 
     @classmethod
@@ -103,15 +159,27 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         assign: bool = False,
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
-        weights_only: bool = False,
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> Self:
-        cfg, state_dict = cls.get_config_from_ckpt(
+        """Loads a task from a checkpoint file.
+
+        Args:
+            path: The path to the checkpoint file
+            strict: Whether to strictly load the checkpoint
+            assign: Whether to assign the checkpoint to the task
+            use_cli: Whether to use CLI overrides
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+            config_fn: A function to apply to the loaded config
+
+        Returns:
+            The task loaded from the checkpoint
+        """
+        cfg, state_dict = cls.load_raw_checkpoint(
             path,
             use_cli=use_cli,
             map_location=map_location,
-            weights_only=weights_only,
             mmap=mmap,
             config_fn=config_fn,
         )
@@ -120,7 +188,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             state_dict,
             strict=strict,
             assign=assign,
-            weights_only=weights_only,
         )
         return task
 
@@ -134,30 +201,28 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def load_initial_state(
+    def load_checkpoint(
         self,
+        ckpt_path: str | Path | None = None,
         map_location: MAP_LOCATION = None,
-        weights_only: bool = False,
         mmap: bool | None = None,
         strict: bool = True,
         assign: bool = False,
     ) -> State:
-        init_ckpt_path = self.get_init_ckpt_path()
-        if init_ckpt_path is None:
-            return State.init_state()
-        state_dict = self.read_state_dict(
-            init_ckpt_path,
-            map_location=map_location,
-            weights_only=weights_only,
-            mmap=mmap,
-        )
+        if ckpt_path is None:
+            ckpt_path = self.get_init_ckpt_path()
+            if ckpt_path is None:
+                return State.init_state()
+        else:
+            ckpt_path = Path(ckpt_path)
+        state_dict = self.read_state_dict(ckpt_path, map_location=map_location, mmap=mmap)
         raw_state = state_dict.pop("state", None)
         raw_config = state_dict.pop("config", None)
         if raw_config is not None:
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
-        self.load_task_state_dict(state_dict, strict, assign, weights_only)
+        self.load_task_state_dict(state_dict, strict, assign)
         if raw_state is not None:
             return State(**json.loads(raw_state))
         warnings.warn("No state found in checkpoint! Using default initial state.")
@@ -174,8 +239,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return True
         return False
 
-    def save_checkpoint(self, state: State) -> Path:
-        ckpt_path = self.get_ckpt_path(state)
+    def save_checkpoint(self, state: State, ckpt_path: str | Path | None = None) -> Path:
+        ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
         if not is_master():
@@ -203,6 +268,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             last_ckpt_path.symlink_to(ckpt_path.relative_to(last_ckpt_path.parent))
         except FileExistsError:
             logger.exception("Exception while trying to update %s", ckpt_path)
+        except ValueError:
+            logger.warning("Could not create symlink to %s", ckpt_path)
 
         # Marks directory as having artifacts which shouldn't be overwritten.
         self.add_lock_file("ckpt", exists_ok=True)

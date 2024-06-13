@@ -7,7 +7,7 @@ include = '\.pyi?$'
 [tool.pytest.ini_options]
 
 timeout = 60
-addopts = "-rx -rf -x -q"
+addopts = "-x -q"
 testpaths = ["tests"]
 
 markers = [
@@ -35,7 +35,6 @@ warn_redundant_casts = true
 incremental = true
 explicit_package_bases = true
 
-# For TorchScript stuff.
 disable_error_code = ["attr-defined"]
 
 [[tool.mypy.overrides]]

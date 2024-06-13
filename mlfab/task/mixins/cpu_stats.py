@@ -30,13 +30,13 @@ logger: logging.Logger = logging.getLogger(__name__)
 Context = DefaultContext | ForkServerContext | SpawnContext | ForkContext
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CPUStatsOptions:
     ping_interval: int = field(1, help="How often to check stats (in seconds)")
     only_log_once: bool = field(False, help="If set, only log read stats one time")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CPUStatsConfig(ProcessConfig, LoggerConfig, BaseConfig):
     cpu_stats: CPUStatsOptions = field(CPUStatsOptions(), help="CPU stats configuration")
 
@@ -59,7 +59,7 @@ class CPUStats(Structure):
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CPUStatsInfo:
     cpu_percent: float
     mem_percent: float

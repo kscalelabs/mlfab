@@ -11,7 +11,7 @@ import pytest
 import mlfab
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.ScriptConfig):
     text: str = mlfab.field("Hello, world!", help="Some text to print")
 

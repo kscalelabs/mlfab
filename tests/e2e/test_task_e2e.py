@@ -17,7 +17,7 @@ from torch import Tensor, nn
 import mlfab
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
     use_ddp: bool = mlfab.field(True, help="Whether to use DDP instead of FSDP")

@@ -61,7 +61,7 @@ def is_missing(cfg: Any, key: str) -> bool:  # noqa: ANN401
     return False
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ErrorHandling:
     enabled: bool = field(True, help="Is error handling enabled?")
     maximum_exceptions: int = field(10, help="Maximum number of errors to encounter")
@@ -74,13 +74,13 @@ class ErrorHandling:
     exception_location_traceback_depth: int = field(3, help="Traceback length for the exception location")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Logging:
     hide_third_party_logs: bool = field(True, help="If set, hide third-party logs")
     log_level: str = field("INFO", help="The logging level to use")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Device:
     cpu: bool = field(True, help="Whether to use the CPU")
     gpu: bool = field(II("oc.env:USE_GPU,1"), help="Whether to use the GPU")
@@ -103,37 +103,37 @@ def parse_dtype(cfg: Device) -> torch.dtype | None:
     return None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Triton:
     use_triton_if_available: bool = field(True, help="Use Triton if available")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Experiment:
     default_random_seed: int = field(1337, help="The default random seed to use")
     max_workers: int = field(32, help="Maximum number of workers to use")
     multiprocessing_start_method: str | None = field("forkserver", help="The multiprocessing start method to use")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Directories:
     run: str = field(II("oc.env:RUN_DIR"), help="The run directory")
     data: str = field(II("oc.env:DATA_DIR"), help="The data directory")
     pretrained_models: str = field(II("oc.env:MODEL_DIR"), help="The models directory")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SlurmPartition:
     partition: str = field(MISSING, help="The partition name")
     num_nodes: int = field(1, help="The number of nodes to use")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Slurm:
     launch: dict[str, SlurmPartition] = field({}, help="The available launch configurations")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UserConfig:
     error_handling: ErrorHandling = field(ErrorHandling)
     logging: Logging = field(Logging)

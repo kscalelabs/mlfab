@@ -12,7 +12,7 @@ from torch import Tensor, nn
 import mlfab
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
     batches_per_step: int = mlfab.field(8, help="Number of batches to accumulate gradients over")

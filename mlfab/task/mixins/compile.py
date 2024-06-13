@@ -19,7 +19,7 @@ P = ParamSpec("P")
 Model = TypeVar("Model", bound=nn.Module)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TorchCompileOptions:
     model: bool = field(II("oc.env:COMPILE_MODEL,0"), help="Enable Torch compilation for the model")
     func: bool = field(II("oc.env:COMPILE_FUNC,0"), help="Enable Torch compilation for functions")
@@ -30,7 +30,7 @@ class TorchCompileOptions:
     func_mode: str | None = field("reduce-overhead", help="Either 'default', 'reduce-overhead' or 'max-autotune'")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CompileConfig(DeviceConfig):
     compiler: TorchCompileOptions = field(TorchCompileOptions(), help="Torch compile config")
 

@@ -21,7 +21,7 @@ from mlfab.task.mixins.artifacts import ArtifactsMixin
 from mlfab.utils.text import is_interactive_session
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LoggerConfig(BaseConfig):
     device: BaseDeviceConfig = field(BaseDeviceConfig(), help="Device configuration")
 

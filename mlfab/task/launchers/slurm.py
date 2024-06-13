@@ -110,7 +110,7 @@ def parse_sinfo_output() -> list[PartitionInfo]:
     return partition_infos
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SlurmArgs:
     partition: str | None
     gpus_per_node: int | None

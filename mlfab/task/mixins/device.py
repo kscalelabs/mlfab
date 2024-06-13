@@ -16,7 +16,7 @@ from mlfab.utils.logging import LOG_PING
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DeviceConfig(BaseConfig):
     device: BaseDeviceConfig = field(BaseDeviceConfig(), help="Device configuration")
 

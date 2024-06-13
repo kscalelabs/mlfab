@@ -18,7 +18,7 @@ from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin, 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ProfilerOptions:
     enabled: bool = field(False, help="If profiling should be enabled")
     record_shapes: bool = field(False, help="If set, record tensor shapes")
@@ -59,7 +59,7 @@ STEPS_TO_WARN_IF_LONG: set[StepType] = {
 }
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ProfilerConfig(LoggerConfig, StepContextConfig, ArtifactsConfig):
     profiler: ProfilerOptions = field(ProfilerOptions(), help="Profiler configuration")
 

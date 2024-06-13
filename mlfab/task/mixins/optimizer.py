@@ -15,7 +15,7 @@ from mlfab.task.base import BaseConfig, BaseTask
 OptType = Callable[[nn.Module], Optimizer]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class OptimizerConfig(BaseConfig):
     set_grads_to_none: bool = field(True, help="If set, zero gradients by setting them to None")
     learning_rate: float = field(MISSING, help="Learning rate to use for optimizer")

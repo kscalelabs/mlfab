@@ -8,7 +8,7 @@ from torch import Tensor
 import mlfab
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DummyDataclass:
     x: list[Tensor]
     y: dict[str, Tensor]
