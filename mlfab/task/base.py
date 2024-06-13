@@ -18,15 +18,15 @@ from typing import Generic, Self, TypeVar, cast
 from omegaconf import Container, DictConfig, OmegaConf
 from torch import Tensor, nn
 
-from mlfab.core.state import State
+from mlfab.core.state import State, field
 from mlfab.utils.text import camelcase_to_snakecase
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class BaseConfig:
-    pass
+    test: bool = field(False)
 
 
 Config = TypeVar("Config", bound=BaseConfig)
@@ -45,9 +45,15 @@ def get_config(cfg: RawConfigType, task_path: Path) -> DictConfig:
     if isinstance(cfg, (str, Path)):
         cfg = Path(cfg)
         if cfg.exists():
-            cfg = _load_as_dict(cfg)
+            try:
+                cfg = _load_as_dict(cfg)
+            except Exception as e:
+                raise FileNotFoundError(f"Could not load config file at {cfg}!") from e
         elif task_path is not None and len(cfg.parts) == 1 and (other_cfg_path := task_path.parent / cfg).exists():
-            cfg = _load_as_dict(other_cfg_path)
+            try:
+                cfg = _load_as_dict(other_cfg_path)
+            except Exception as e:
+                raise FileNotFoundError(f"Could not load config file at {other_cfg_path}!") from e
         else:
             raise FileNotFoundError(f"Could not find config file at {cfg}!")
     elif isinstance(cfg, dict):

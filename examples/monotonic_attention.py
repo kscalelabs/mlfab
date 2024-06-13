@@ -113,7 +113,7 @@ class MonotonicSeq2Seq(nn.Module):
         return self.attn.get_attn_matrix(tgt_emb, src_emb)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     num_letters: int = mlfab.field(10, hlep="How many unique letters to use")
     seq_length: int = mlfab.field(64, help="Input sequence length")

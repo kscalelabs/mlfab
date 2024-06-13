@@ -19,7 +19,7 @@ from mlfab.core.state import State
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(mlfab.Config):
     in_dim: int = mlfab.field(1, help="Number of input dimensions")
     embed_dim: int = mlfab.field(128, help="Embedding dimension")

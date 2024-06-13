@@ -302,7 +302,7 @@ def clear_dist() -> None:
     clear_init_method()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class _GroupInfo:
     """Information and helper functions for a process group.
 
@@ -416,7 +416,7 @@ class _GroupInfo:
         return work if async_op else torch.cat(output, dim=dim)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class _GroupsInfos:
     mp: _GroupInfo
     pp: _GroupInfo
@@ -973,7 +973,7 @@ class RowParallelLinear(nn.Module):
         return output if self.bias is None else output + self.bias
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WorkerInfo:
     worker_id: int
     num_workers: int
@@ -1094,7 +1094,7 @@ def all_params_are_cuda(model: nn.Module) -> bool:
     return all(p.is_cuda for p in model.parameters())
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MultiProcessConfig:
     rank: int = field(-1, help="The rank of the process")
     local_rank: int = field(-1, help="The local rank of the process")

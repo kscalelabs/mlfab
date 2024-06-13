@@ -20,7 +20,7 @@ def cast_phase(raw_phase: str) -> Phase:
     return cast(Phase, raw_phase)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class State:
     num_steps: int = field(MISSING, help="Number of steps so far")
     num_samples: int = field(MISSING, help="Number of sample so far")

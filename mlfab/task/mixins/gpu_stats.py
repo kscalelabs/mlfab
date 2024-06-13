@@ -29,13 +29,13 @@ logger: logging.Logger = logging.getLogger(__name__)
 Context = DefaultContext | ForkServerContext | SpawnContext | ForkContext
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GPUStatsOptions:
     ping_interval: int = field(10, help="How often to check stats (in seconds)")
     only_log_once: bool = field(False, help="If set, only log read stats one time")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GPUStatsConfig(ProcessConfig, LoggerConfig):
     gpu_stats: GPUStatsOptions = field(GPUStatsOptions(), help="GPU stats configuration")
 

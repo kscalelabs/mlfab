@@ -63,7 +63,7 @@ def cast_step_kind(s: str) -> StepKind:
     return cast(StepKind, s)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TrainConfig(
     CheckpointingConfig,
     OptimizerConfig,
@@ -487,7 +487,7 @@ class TrainMixin(
             Thread(target=self.log_state, daemon=True).start()
 
         with self.step_context("load_checkpoint"):
-            state = self.load_initial_state(
+            state = self.load_checkpoint(
                 map_location=self.config.init_state_map_location,
                 weights_only=self.config.init_state_weights_only,
                 strict=self.config.init_state_strict,

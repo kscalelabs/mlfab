@@ -36,7 +36,7 @@ from mlfab.task.mixins import (
 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Config(
     TrainConfig,
     CheckpointingConfig,

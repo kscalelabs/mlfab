@@ -80,7 +80,7 @@ def requeue_job() -> None:
             write_message("SLURM_JOB_ID environment variable not found; not requeueing\n")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PartitionInfo:
     name: str
     gpus_per_node: int
@@ -110,7 +110,7 @@ def parse_sinfo_output() -> list[PartitionInfo]:
     return partition_infos
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SlurmArgs:
     partition: str | None
     gpus_per_node: int | None

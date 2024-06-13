@@ -44,7 +44,7 @@ class StepContext(ContextManager):
         StepContext.CURRENT_STEP = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class StepContextConfig(BaseConfig):
     pass
 

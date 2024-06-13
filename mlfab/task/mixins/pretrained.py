@@ -23,7 +23,7 @@ from torch.nn.modules.module import Module
 from mlfab.task.base import BaseConfig, BaseTask
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PretrainedConfig(BaseConfig):
     pass
 

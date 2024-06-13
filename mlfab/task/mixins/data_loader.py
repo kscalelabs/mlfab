@@ -24,7 +24,7 @@ T = TypeVar("T")
 Tc = TypeVar("Tc")
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DataloadersConfig(ProcessConfig, BaseConfig):
     batch_size: int = field(MISSING, help="Size of each batch")
     num_train_dl_workers: int = field(II("mlfab.num_workers:-1"), help="Number of workers for loading samples")

@@ -10,7 +10,7 @@ from mlfab.task.base import BaseConfig, BaseTask, RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RunnableConfig(BaseConfig):
     pass
 

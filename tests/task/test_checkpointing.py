@@ -1,37 +1,30 @@
-"""Tests that the slurm launcher can write a config file.
+"""Tests model checkpointing."""
 
-This test doesn't actually launch a job because that wouldn't be possible on
-CI, just runs through the process of staging a directory and writing an
-sbatch file.
-"""
-
-import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-import pytest
+import torch
 from dpshdl.dataset import Dataset
 from torch import Tensor, nn
 
 import mlfab
 
 
-@dataclass(kw_only=True)
+@dataclass
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2, help="Number of layers to use")
+    use_ddp: bool = mlfab.field(True, help="Whether to use DDP instead of FSDP")
     learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
     betas: tuple[float, float] = mlfab.field((0.9, 0.999), help="Beta values for Adam optimizer")
     weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
     warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
 
-class DummyDataset(Dataset[tuple[np.ndarray, np.ndarray], tuple[Tensor, Tensor]]):
-    def next(self) -> tuple[np.ndarray, np.ndarray]:
-        return np.random.randn(3, 8), np.random.randint(0, 9, (3,))
+class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
+    def next(self) -> tuple[Tensor, Tensor]:
+        return torch.randn(3, 8), torch.randint(0, 9, (3,))
 
-    def collate(self, items: list[tuple[np.ndarray, np.ndarray]]) -> tuple[Tensor, Tensor]:
+    def collate(self, items: list[tuple[Tensor, Tensor]]) -> tuple[Tensor, Tensor]:
         return mlfab.collate(items)
 
 
@@ -56,22 +49,8 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
-@pytest.mark.slow
-def test_slurm_launcher(tmpdir: Path) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
-    os.environ["DEFAULT_SLURM_KEY"] = "test"
-
-    (stage_dir := Path(tmpdir / "staging")).mkdir()
-    os.environ["STAGE_DIR"] = str(stage_dir)
-
-    launcher = mlfab.SlurmLauncher(
-        partition="test",
-        gpus_per_node=1,
-        cpus_per_gpu=1,
-    )
-
-    task = DummyTask.get_task(Config(batch_size=16), use_cli=False)
-
-    contents = launcher.sbatch_file_contents(task)
-    match = re.search(r"python -m .+", contents)
-    assert match is not None
+def test_model_serialization(tmpdir: Path) -> None:
+    task = DummyTask(Config(batch_size=1))
+    ckpt_path = Path(tmpdir / "ckpt.pt")
+    task.save_checkpoint(mlfab.State.init_state(), ckpt_path)
+    task.load_checkpoint(ckpt_path)

@@ -598,29 +598,29 @@ class namespace_context:  # noqa: N801
             NAMESPACE_STACK.pop()
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogImage:
     pixels: Tensor
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogAudio:
     frames: Tensor
     sample_rate: int
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogVideo:
     frames: Tensor
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogPointCloud:
     xyz: Tensor
     colors: Tensor | None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogLine:
     state: State
     scalars: dict[str, dict[str, Number]]
@@ -631,12 +631,12 @@ class LogLine:
     point_cloud: dict[str, dict[str, LogPointCloud]]
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogErrorSummary:
     message: str
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogError:
     message: str
     location: str | None = None
@@ -649,7 +649,7 @@ class LogError:
         return message
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogStatus:
     message: str
     created: float
@@ -657,7 +657,7 @@ class LogStatus:
     lineno: int | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LogPing:
     message: str
     created: float
