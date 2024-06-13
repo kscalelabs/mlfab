@@ -80,7 +80,7 @@ def requeue_job() -> None:
             write_message("SLURM_JOB_ID environment variable not found; not requeueing\n")
 
 
-@dataclass(kw_only=True)
+@dataclass
 class PartitionInfo:
     name: str
     gpus_per_node: int
