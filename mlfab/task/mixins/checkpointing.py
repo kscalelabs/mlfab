@@ -6,11 +6,10 @@ import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Self, TypeVar, cast
+from typing import Callable, Generic, Literal, Self, TypeVar, cast, override
 
 import torch
 from omegaconf import DictConfig, OmegaConf
-from torch import nn
 from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
@@ -70,12 +69,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def get_ckpt_path(self, state: State | None = None) -> Path:
         return get_ckpt_path(self.exp_dir, state)
 
-    def get_submodule(self, key: str) -> nn.Module:
-        module = self
-        for subkey in key.split("."):
-            module = getattr(module, subkey)
-        return module
-
     @classmethod
     def read_state_dict(
         cls,
@@ -83,32 +76,78 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         map_location: MAP_LOCATION = None,
         mmap: bool | None = None,
     ) -> dict:
-        return torch.load(
-            path,
-            map_location=map_location,
-            mmap=mmap,
-            pickle_module=CustomPickleModule,
-        )
+        """Reads a state dict from a checkpoint file.
 
+        Args:
+            path: The path to the checkpoint file
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+
+        Returns:
+            The state dict loaded from the checkpoint
+        """
+        return torch.load(path, map_location=map_location, mmap=mmap, pickle_module=CustomPickleModule)
+
+    @override
     @classmethod
-    def get_config_from_ckpt(
+    def load_raw_checkpoint(
         cls,
         path: str | Path,
         *,
+        raw: Literal[False] = False,
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
-    ) -> tuple[Config, dict]:
-        state_dict = cls.read_state_dict(
-            path,
-            map_location=map_location,
-            mmap=mmap,
-        )
+    ) -> tuple[Config, dict]: ...
+
+    @override
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        raw: Literal[True] = True,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[DictConfig, dict]: ...
+
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        raw: bool = False,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[Config | DictConfig, dict]:
+        """Loads a raw checkpoint from a file.
+
+        Args:
+            raw: If set, return the raw config, otherwise parse against the
+                config dataclass
+            use_cli: Whether to use CLI overrides
+            path: The path to the checkpoint file
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+            config_fn: A function to apply to the loaded config, to help with
+                versioning checkpoints
+
+        Returns:
+            The raw config and state dict loaded from the checkpoint
+        """
+        state_dict = cls.read_state_dict(path, map_location=map_location, mmap=mmap)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
-        cfg = cls.get_config(config_fn(OmegaConf.create(raw_config)), use_cli=use_cli)
+        raw_config = config_fn(raw_config)
+        if raw:
+            return raw_config, state_dict
+        cfg = cls.get_config(OmegaConf.create(raw_config), use_cli=use_cli)
         return cfg, state_dict
 
     @classmethod
@@ -123,7 +162,21 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> Self:
-        cfg, state_dict = cls.get_config_from_ckpt(
+        """Loads a task from a checkpoint file.
+
+        Args:
+            path: The path to the checkpoint file
+            strict: Whether to strictly load the checkpoint
+            assign: Whether to assign the checkpoint to the task
+            use_cli: Whether to use CLI overrides
+            map_location: The device to map the state dict to
+            mmap: Whether to map the checkpoint to memory
+            config_fn: A function to apply to the loaded config
+
+        Returns:
+            The task loaded from the checkpoint
+        """
+        cfg, state_dict = cls.load_raw_checkpoint(
             path,
             use_cli=use_cli,
             map_location=map_location,
