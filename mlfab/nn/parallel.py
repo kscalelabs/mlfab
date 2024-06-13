@@ -436,7 +436,12 @@ def default_group_info() -> _GroupInfo | None:
     global _default_group_info
     if _default_group_info is None and is_initialized():
         rank, world_size = dist.get_rank(), dist.get_world_size()
-        _default_group_info = _GroupInfo(_get_default_group(), list(range(world_size)), rank, world_size)
+        _default_group_info = _GroupInfo(
+            group=_get_default_group(),
+            global_ranks=list(range(world_size)),
+            rank=rank,
+            world_size=world_size,
+        )
     return _default_group_info
 
 
@@ -541,9 +546,24 @@ def init_parallelism(
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
-        mp=_GroupInfo(mp_group, mp_ids, mp_rank, model_parallelism),
-        pp=_GroupInfo(pp_group, pp_ids, pp_rank, pipeline_parallelism),
-        dp=_GroupInfo(dp_group, dp_ids, dp_rank, data_parallelism),
+        mp=_GroupInfo(
+            group=mp_group,
+            global_ranks=mp_ids,
+            rank=mp_rank,
+            world_size=model_parallelism,
+        ),
+        pp=_GroupInfo(
+            group=pp_group,
+            global_ranks=pp_ids,
+            rank=pp_rank,
+            world_size=pipeline_parallelism,
+        ),
+        dp=_GroupInfo(
+            group=dp_group,
+            global_ranks=dp_ids,
+            rank=dp_rank,
+            world_size=data_parallelism,
+        ),
     )
 
 
