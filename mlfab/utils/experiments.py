@@ -17,7 +17,7 @@ import textwrap
 import time
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, TypeVar, cast
+from typing import Any, Callable, Iterable, Iterator, Literal, TypeVar, cast
 
 import git
 import torch
@@ -28,7 +28,7 @@ from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import Dataset, IterableDataset
 from torchvision.datasets.utils import download_url
 
-from mlfab.core.conf import get_pretrained_models_dir
+from mlfab.core.conf import get_data_dir, get_pretrained_models_dir
 from mlfab.core.state import State
 from mlfab.utils.text import colored
 
@@ -664,6 +664,7 @@ def ensure_downloaded(
     sha256: str | None = None,
     is_tmp: bool = False,
     recheck_hash: bool = False,
+    download_type: Literal["dataset", "model"] = "model",
 ) -> Path:
     """Ensures that a checkpoint URL has been downloaded.
 
@@ -679,12 +680,21 @@ def ensure_downloaded(
         is_tmp: If set, use ``tmp/`` instead of ``get_pretrained_models_dir()``
         recheck_hash: Whether to recheck the hash of the file if it already
             exists.
+        download_type: The type of file being downloaded.
 
     Returns:
         The path to the downloaded file.
     """
     assert len(dnames) >= 1, "Must provide at least 1 directory name"
-    filepath = Path(tempfile.mkdtemp("models")) if is_tmp else get_pretrained_models_dir()
+
+    match download_type:
+        case "model":
+            filepath = Path(tempfile.mkdtemp("models")) if is_tmp else get_pretrained_models_dir()
+        case "dataset":
+            filepath = Path(tempfile.mkdtemp("datasets")) if is_tmp else get_data_dir()
+        case _:
+            raise ValueError(f"Unknown download type {download_type}")
+
     for dname in dnames:
         filepath = filepath / dname
     (root := filepath.parent).mkdir(parents=True, exist_ok=True)
