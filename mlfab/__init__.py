@@ -56,6 +56,7 @@ __all__ = [
     "RwkvStack",
     "UNet",
     "detect_device",
+    "DeviceManager",
     "base_device",
     "cpu_device",
     "gpu_device",
@@ -320,6 +321,7 @@ NAME_MAP: dict[str, str] = {
     "RwkvStack": "nn.architectures.rwkv",
     "UNet": "nn.architectures.unet",
     "detect_device": "nn.device.auto",
+    "DeviceManager": "nn.device.base",
     "base_device": "nn.device.base",
     "cpu_device": "nn.device.cpu",
     "gpu_device": "nn.device.gpu",
@@ -593,7 +595,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.nn.architectures.unet import UNet
     from mlfab.nn.device.auto import detect_device
-    from mlfab.nn.device.base import base_device
+    from mlfab.nn.device.base import DeviceManager, base_device
     from mlfab.nn.device.cpu import cpu_device
     from mlfab.nn.device.gpu import gpu_device
     from mlfab.nn.device.metal import metal_device
