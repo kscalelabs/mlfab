@@ -55,6 +55,7 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
     clip_grad_norm_type: Any = field(2, help="Type of norm to use")
+    debug_nan_grads: bool = field(False, help="If set, should NaN gradients be debugged")
 
 
 Config = TypeVar("Config", bound=ParallelConfig)
@@ -194,6 +195,11 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         # Steps the optimizer.
         if was_clipped:
             optim.step()
+        elif self.config.debug_nan_grads:
+            logger.warning(
+                "Found NaN gradients for parameters %s",
+                [p for p in mod.parameters() if p.grad is not None and not torch.isfinite(p.grad).all()],
+            )
 
     @functools.cached_property
     def autocast_context(self) -> ContextManager:
