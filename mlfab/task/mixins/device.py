@@ -8,8 +8,7 @@ from typing import Generic, TypeVar
 import torch
 
 from mlfab.core.conf import Device as BaseDeviceConfig, field, parse_dtype
-from mlfab.nn.device.auto import detect_device
-from mlfab.nn.device.base import DeviceManager
+from mlfab.nn.device.auto import DeviceManager, detect_device
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.utils.logging import LOG_PING
 
