@@ -54,6 +54,7 @@ from typing import Literal, TypeVar, cast, overload
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
@@ -424,6 +425,7 @@ class TransformerEncoderLayer(nn.Module):
         max_kv_cache_len: The maximum number of previous timesteps to cache
             for the key and value tensors. If ``None``, don't clip the maximum
             length.
+        use_checkpointing: Whether to use checkpointing for the forward pass.
 
     Inputs:
         src_btc: The input tensor, of shape ``(B, T, C)``.
@@ -456,11 +458,13 @@ class TransformerEncoderLayer(nn.Module):
         norm_type: Literal["layer", "rms"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
+        use_checkpointing: bool = False,
     ) -> None:
         super().__init__()
 
         # Stores some constant values.
         self.max_kv_cache_len = max_kv_cache_len
+        self.use_checkpointing = use_checkpointing
 
         # Self-attention layer.
         self.self_attn = MultiheadAttention(
@@ -537,7 +541,7 @@ class TransformerEncoderLayer(nn.Module):
 
         return xq_btc, xk_btc, xv_btc
 
-    def _sa_block(
+    def _sa_block_inner(
         self,
         x_btc: Tensor,
         state: Tensor | None,
@@ -550,9 +554,27 @@ class TransformerEncoderLayer(nn.Module):
         x_btc = self.self_attn.forward_attn(xq_btc, xk_btc, xv_btc, is_causal, mask_btt)
         return self.dropout1(x_btc), torch.stack((xk_btc, xv_btc), dim=0)
 
-    def _ff_block(self, x_btc: Tensor) -> Tensor:
+    def _sa_block(
+        self,
+        x_btc: Tensor,
+        state: Tensor | None,
+        is_causal: bool,
+        rotary_q_2tc: Tensor | None = None,
+        rotary_k_2tc: Tensor | None = None,
+        mask_btt: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        return (
+            checkpoint(self._sa_block_inner, x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            if self.use_checkpointing
+            else self._sa_block_inner(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+        )
+
+    def _ff_block_inner(self, x_btc: Tensor) -> Tensor:
         x_btc = self.linear2(self.dropout(self.activation(self.linear1(x_btc))))
         return self.dropout2(x_btc)
+
+    def _ff_block(self, x_btc: Tensor) -> Tensor:
+        return checkpoint(self._ff_block_inner, x_btc) if self.use_checkpointing else self._ff_block_inner(x_btc)
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -576,6 +598,7 @@ class TransformerDecoderLayer(nn.Module):
             queries than keys, which can speed up inference.
         memory_dims: The number of dimensions in the memory tensor; if not
             provided, defaults to ``d_model``.
+        use_checkpointing: Whether to use checkpointing for the forward pass.
 
     Inputs:
         src_bqc: The input tensor, of shape ``(B, Tq, C)``.
@@ -606,8 +629,12 @@ class TransformerDecoderLayer(nn.Module):
         norm_first: bool = True,
         gqa_factor: int = 1,
         memory_dims: int | None = None,
+        use_checkpointing: bool = False,
     ) -> None:
         super().__init__()
+
+        # Store some constant values.
+        self.use_checkpointing = use_checkpointing
 
         # Self-attention layer.
         self.cross_attn = MultiheadAttention(
@@ -660,7 +687,7 @@ class TransformerDecoderLayer(nn.Module):
             xk_bkc, xv_bkc = state.unbind(0)
         return xq_bqc, xk_bkc, xv_bkc
 
-    def _sa_block(
+    def _sa_block_inner(
         self,
         x_bqc: Tensor,
         memory_bkc: Tensor,
@@ -673,9 +700,25 @@ class TransformerDecoderLayer(nn.Module):
             state = torch.stack((xk_bkc, xv_bkc), dim=0)
         return self.dropout1(x_bqc), state
 
-    def _ff_block(self, x_bqc: Tensor) -> Tensor:
+    def _sa_block(
+        self,
+        x_bqc: Tensor,
+        memory_bkc: Tensor,
+        state: Tensor | None,
+        mask_bqk: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
+        return (
+            checkpoint(self._sa_block_inner, x_bqc, memory_bkc, state, mask_bqk)
+            if self.use_checkpointing
+            else self._sa_block_inner(x_bqc, memory_bkc, state, mask_bqk)
+        )
+
+    def _ff_block_inner(self, x_bqc: Tensor) -> Tensor:
         x_bqc = self.linear2(self.dropout(self.activation(self.linear1(x_bqc))))
         return self.dropout2(x_bqc)
+
+    def _ff_block(self, x_bqc: Tensor) -> Tensor:
+        return checkpoint(self._ff_block_inner, x_bqc) if self.use_checkpointing else self._ff_block_inner(x_bqc)
 
 
 class TransformerEncoder(nn.Module):
