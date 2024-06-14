@@ -564,7 +564,16 @@ class TransformerEncoderLayer(nn.Module):
         mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         return (
-            checkpoint(self._sa_block_inner, x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            checkpoint(
+                self._sa_block_inner,
+                x_btc,
+                state,
+                is_causal,
+                rotary_q_2tc,
+                rotary_k_2tc,
+                mask_btt,
+                use_reentrant=False,
+            )
             if self.use_checkpointing
             else self._sa_block_inner(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
         )
@@ -574,7 +583,15 @@ class TransformerEncoderLayer(nn.Module):
         return self.dropout2(x_btc)
 
     def _ff_block(self, x_btc: Tensor) -> Tensor:
-        return checkpoint(self._ff_block_inner, x_btc) if self.use_checkpointing else self._ff_block_inner(x_btc)
+        return (
+            checkpoint(
+                self._ff_block_inner,
+                x_btc,
+                use_reentrant=False,
+            )
+            if self.use_checkpointing
+            else self._ff_block_inner(x_btc)
+        )
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -708,7 +725,14 @@ class TransformerDecoderLayer(nn.Module):
         mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         return (
-            checkpoint(self._sa_block_inner, x_bqc, memory_bkc, state, mask_bqk)
+            checkpoint(
+                self._sa_block_inner,
+                x_bqc,
+                memory_bkc,
+                state,
+                mask_bqk,
+                use_reentrant=False,
+            )
             if self.use_checkpointing
             else self._sa_block_inner(x_bqc, memory_bkc, state, mask_bqk)
         )
@@ -718,7 +742,15 @@ class TransformerDecoderLayer(nn.Module):
         return self.dropout2(x_bqc)
 
     def _ff_block(self, x_bqc: Tensor) -> Tensor:
-        return checkpoint(self._ff_block_inner, x_bqc) if self.use_checkpointing else self._ff_block_inner(x_bqc)
+        return (
+            checkpoint(
+                self._ff_block_inner,
+                x_bqc,
+                use_reentrant=False,
+            )
+            if self.use_checkpointing
+            else self._ff_block_inner(x_bqc)
+        )
 
 
 class TransformerEncoder(nn.Module):
