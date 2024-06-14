@@ -195,11 +195,19 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         # Steps the optimizer.
         if was_clipped:
             optim.step()
-        elif self.config.debug_nan_grads:
-            logger.warning(
-                "Found NaN gradients for parameters %s",
-                [p for p in mod.parameters() if p.grad is not None and not torch.isfinite(p.grad).all()],
-            )
+        else:
+            if self.config.debug_nan_grads:
+                logger.warning(
+                    "Found NaN gradients for parameters %s",
+                    [p for p in mod.parameters() if p.grad is not None and not torch.isfinite(p.grad).all()],
+                )
+            if self.grad_scaler is not None:
+                with torch.no_grad():
+                    new_scale = self.grad_scaler.get_scale() * self.grad_scaler.get_backoff_factor()
+                    if new_scale < self.config.grad_scaler.min_grad_scale:
+                        raise MinGradScaleError("Minimum gradient scale reached; your loss is probably exploding")
+                    logger.warning("Loss NaNs detected; reducing scale to %.2g", new_scale)
+                    self.grad_scaler.update(new_scale)
 
     @functools.cached_property
     def autocast_context(self) -> ContextManager:
