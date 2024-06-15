@@ -104,6 +104,7 @@ class TrainConfig(
     step_kind: str = field("step", help=f"How to measure a step; one of [{', '.join(get_args(StepKind))}]")
     init_map_location: str | None = field("cpu", help="Map location for loading the initial state")
     init_state_strict: bool = field(True, help="Load the initial state strictly")
+    init_state_mmap: bool = field(True, help="Use memory mapping for loading the initial state")
 
 
 Config = TypeVar("Config", bound=TrainConfig)
@@ -489,6 +490,7 @@ class TrainMixin(
             state = self.load_checkpoint_(
                 map_location=self.config.init_map_location,
                 strict=self.config.init_state_strict,
+                mmap=self.config.init_state_mmap,
             )
 
         # Gets the datasets.
