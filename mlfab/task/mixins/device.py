@@ -3,13 +3,13 @@
 import functools
 import logging
 from dataclasses import dataclass
-from typing import Generic, Self, TypeVar
+from typing import Generic, TypeVar
 
 import torch
 
 from mlfab.core.conf import Device as BaseDeviceConfig, field, parse_dtype
 from mlfab.nn.device.auto import DeviceManager, detect_device
-from mlfab.task.base import BaseConfig, BaseTask, RawConfigType
+from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.utils.logging import LOG_PING
 
 logger = logging.getLogger(__name__)
@@ -45,9 +45,3 @@ class DeviceMixin(BaseTask[Config], Generic[Config]):
     @functools.cached_property
     def torch_dtype(self) -> torch.dtype:
         return self.device_manager.dtype
-
-    @classmethod
-    def get_task(cls, *cfgs: RawConfigType, use_cli: bool | list[str] = True) -> Self:
-        cfg = cls.get_config(*cfgs, use_cli=use_cli)
-        with cls.get_device_manager(cfg).device:
-            return cls(cfg)
