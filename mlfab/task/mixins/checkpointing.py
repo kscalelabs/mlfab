@@ -94,6 +94,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cls,
         path: str | Path,
         *,
+        missing_ok: Literal[True],
         raw: Literal[True],
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
@@ -107,6 +108,35 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cls,
         path: str | Path,
         *,
+        missing_ok: Literal[False] = False,
+        raw: Literal[True],
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[DictConfig, dict]: ...
+
+    @overload
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        missing_ok: Literal[True],
+        raw: Literal[False] = False,
+        use_cli: bool | list[str] = False,
+        map_location: MAP_LOCATION = None,
+        mmap: bool | None = None,
+        config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
+    ) -> tuple[Config | None, dict]: ...
+
+    @overload
+    @classmethod
+    def load_raw_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        missing_ok: Literal[False] = False,
         raw: Literal[False] = False,
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
@@ -119,19 +149,21 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cls,
         path: str | Path,
         *,
+        missing_ok: bool = False,
         raw: bool = False,
         use_cli: bool | list[str] = False,
         map_location: MAP_LOCATION = None,
         mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
-    ) -> tuple[Config | DictConfig, dict]:
+    ) -> tuple[Config | DictConfig | None, dict]:
         """Loads a raw checkpoint from a file.
 
         Args:
+            path: The path to the checkpoint file
+            missing_ok: Whether it's okay for the checkpoint to be missing
             raw: If set, return the raw config, otherwise parse against the
                 config dataclass
             use_cli: Whether to use CLI overrides
-            path: The path to the checkpoint file
             map_location: The device to map the state dict to
             mmap: Whether to map the checkpoint to memory
             config_fn: A function to apply to the loaded config, to help with
@@ -143,6 +175,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         state_dict = cls.read_state_dict(path, map_location=map_location, mmap=mmap)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
+            if missing_ok:
+                return None, state_dict
             raise RuntimeError(f"Could not find config in checkpoint at {path}!")
         raw_config = config_fn(raw_config)
         if raw:
@@ -184,7 +218,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             config_fn=config_fn,
         )
         task = cls(cfg)
-        task.load_task_state_dict(
+        task.load_task_state_dict_(
             state_dict,
             strict=strict,
             assign=assign,
@@ -201,7 +235,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def load_checkpoint(
+    def load_checkpoint_(
         self,
         ckpt_path: str | Path | None = None,
         map_location: MAP_LOCATION = None,
@@ -215,14 +249,19 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return State.init_state()
         else:
             ckpt_path = Path(ckpt_path)
-        state_dict = self.read_state_dict(ckpt_path, map_location=map_location, mmap=mmap)
+        raw_config, state_dict = self.load_raw_checkpoint(
+            ckpt_path,
+            missing_ok=False,
+            raw=True,
+            map_location=map_location,
+            mmap=mmap,
+        )
         raw_state = state_dict.pop("state", None)
-        raw_config = state_dict.pop("config", None)
         if raw_config is not None:
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
-        self.load_task_state_dict(state_dict, strict, assign)
+        self.load_task_state_dict_(state_dict, strict, assign)
         if raw_state is not None:
             return State(**json.loads(raw_state))
         warnings.warn("No state found in checkpoint! Using default initial state.")

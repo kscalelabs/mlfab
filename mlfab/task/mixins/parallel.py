@@ -223,7 +223,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             self.log_scalar("scale", scaler.get_scale, namespace="⚖️ fp16")
             self.log_scalar("growth", scaler._get_growth_tracker, namespace="⚖️ fp16")
 
-    def load_task_state_dict(
+    def load_task_state_dict_(
         self,
         state_dict: dict,
         strict: bool = True,
@@ -232,7 +232,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
     ) -> None:
         if self.grad_scaler is not None and "grad_scaler" in state_dict:
             self.grad_scaler.load_state_dict(json.loads(state_dict["grad_scaler"]))
-        super().load_task_state_dict(state_dict, strict, assign, weights_only)
+        super().load_task_state_dict_(state_dict, strict, assign, weights_only)
 
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()

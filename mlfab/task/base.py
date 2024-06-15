@@ -99,7 +99,7 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
         pass
 
-    def load_task_state_dict(
+    def load_task_state_dict_(
         self,
         state_dict: dict,
         strict: bool = True,
