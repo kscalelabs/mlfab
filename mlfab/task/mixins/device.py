@@ -10,7 +10,7 @@ import torch
 from mlfab.core.conf import Device as BaseDeviceConfig, field, parse_dtype
 from mlfab.nn.device.auto import DeviceManager, detect_device
 from mlfab.task.base import BaseConfig, BaseTask, RawConfigType
-from mlfab.utils.logging import LOG_PING
+from mlfab.utils.logging import LOG_INFO_ALL
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +24,14 @@ Config = TypeVar("Config", bound=DeviceConfig)
 
 
 class DeviceMixin(BaseTask[Config], Generic[Config]):
-    _device_manager: DeviceManager | None = None
-
     @classmethod
     def get_device_manager(cls, cfg: Config | None = None) -> DeviceManager:
-        if cls._device_manager is None:
-            dtype = None if cfg is None else parse_dtype(cfg.device)
-            cls._device_manager = DeviceManager(detect_device(), dtype=dtype)
-            logger.log(LOG_PING, f"Using device: {cls._device_manager}")
-        return cls._device_manager
+        dtype = None if cfg is None else parse_dtype(cfg.device)
+        device_manager = DeviceManager(detect_device(), dtype=dtype)
+        logger.log(LOG_INFO_ALL, f"Using device: {device_manager}")
+        return device_manager
 
-    @property
+    @functools.cached_property
     def device_manager(self) -> DeviceManager:
         return self.get_device_manager(self.config)
 
