@@ -53,4 +53,4 @@ def test_model_serialization(tmpdir: Path) -> None:
     task = DummyTask(Config(batch_size=1))
     ckpt_path = Path(tmpdir / "ckpt.pt")
     task.save_checkpoint(mlfab.State.init_state(), ckpt_path)
-    task.load_checkpoint(ckpt_path)
+    task.load_checkpoint_(ckpt_path)

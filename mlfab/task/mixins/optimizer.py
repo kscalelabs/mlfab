@@ -70,7 +70,7 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
     def zero_optimizer(self) -> None:
         self.optimizer.zero_grad(set_to_none=self.config.set_grads_to_none)
 
-    def load_task_state_dict(
+    def load_task_state_dict_(
         self,
         state_dict: dict,
         strict: bool = True,
@@ -78,11 +78,11 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
         weights_only: bool = False,
     ) -> None:
         if self._optimizer is None:
-            return super().load_task_state_dict(state_dict, strict, assign, weights_only)
+            return super().load_task_state_dict_(state_dict, strict, assign, weights_only)
         optimizer_state = state_dict.pop("optimizer", [])
         if not weights_only:
             self._optimizer.load_state_dict(optimizer_state)
-        return super().load_task_state_dict(state_dict, strict, assign, weights_only)
+        return super().load_task_state_dict_(state_dict, strict, assign, weights_only)
 
     def task_state_dict(self) -> dict:
         state_dict = super().task_state_dict()
