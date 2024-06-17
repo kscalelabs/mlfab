@@ -1,16 +1,5 @@
 # mypy: disable-error-code="no-untyped-def"
-"""Defines a mixin for pre-trained models.
-
-Usually, when adding pre-trained models to a task, you just create a PyTorch
-module with the pre-trained model's weights. The problem with this approach is
-that it treats the pre-trained model as a "submodule" of the task, meaning that
-it will add the pre-trained model's parameters to the state dictionary, which
-is usually a waste of space.
-
-Instead, this interface lets you define a pre-trained model as a separate
-module-like object that will be moved to the device, without storing the
-model parameters in the task state checkpoint or doing train-eval mode changes.
-"""
+"""Defines a mixin for pre-trained models."""
 
 from abc import ABC
 from dataclasses import dataclass
@@ -56,6 +45,19 @@ class PretrainedModule:
 
 
 def pretrained(module: Tmod) -> Tmod:
+    """Marks a module as pre-trained (i.e., don't store it's weights).
+
+    Usually, when adding pre-trained models to a task, you just create a
+    PyTorch module with the pre-trained model's weights. The problem with this
+    approach is that it treats the pre-trained model as a "submodule" of the
+    task, meaning that it will add the pre-trained model's parameters to the
+    state dictionary, which is usually a waste of space.
+
+    Instead, this interface lets you define a pre-trained model as a separate
+    module-like object that will be moved to the device, without storing the
+    model parameters in the task state checkpoint or doing train-eval mode
+    changes.
+    """
     return cast(Tmod, PretrainedModule(module))
 
 
