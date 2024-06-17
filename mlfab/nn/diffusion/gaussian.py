@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Callable, Literal, cast, get_args
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
 from mlfab.nn.diffusion.ode import BaseODESolver, ODESolverType, get_ode_solver
@@ -215,7 +216,6 @@ class GaussianDiffusion(nn.Module):
         self.num_timesteps = betas.shape[0] - 1
         self.pred_mode = pred_mode
         self.sigma_type = sigma_type
-        self.loss_fn = get_diffusion_loss_fn(loss, dim=loss_dim, factor=loss_factor)
 
         assert not (betas < 0).any(), "Betas must be non-negative."
         assert not (betas > 1).any(), "Betas must be less than or equal to 1."
@@ -228,7 +228,7 @@ class GaussianDiffusion(nn.Module):
 
     bar_alpha: Tensor
 
-    def loss(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor) -> Tensor:
+    def loss_tensors(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor) -> tuple[Tensor, Tensor]:
         """Computes the loss for a given sample.
 
         Args:
@@ -236,6 +236,7 @@ class GaussianDiffusion(nn.Module):
                 same shape as the input data plus a timestep and returns the
                 predicted noise or target, with shape ``(*)``.
             x: The input data, with shape ``(*)``
+            mask: The mask to apply when computing the loss.
 
         Returns:
             The loss, with shape ``(*)``.
@@ -255,7 +256,26 @@ class GaussianDiffusion(nn.Module):
                 gt_target = torch.sqrt(bar_alpha) * eps - torch.sqrt(1 - bar_alpha) * x
             case _:
                 raise NotImplementedError(f"Unknown pred_mode: {self.pred_mode}")
-        return self.loss_fn(pred_target, gt_target)
+        return pred_target, gt_target
+
+    def loss(
+        self,
+        model: Callable[[Tensor, Tensor], Tensor],
+        x: Tensor,
+        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+    ) -> Tensor:
+        pred_target, gt_target = self.loss_tensors(model, x)
+        if callable(loss):
+            return loss(pred_target, gt_target)
+        match loss:
+            case "mse":
+                return F.mse_loss(pred_target, gt_target, reduction="none")
+            case "l1":
+                return F.l1_loss(pred_target, gt_target, reduction="none")
+            case "pseudo-huber":
+                return pseudo_huber_loss(pred_target, gt_target, dim=-1, factor=0.00054)
+            case _:
+                raise NotImplementedError(f"Unknown loss: {loss}")
 
     @torch.no_grad()
     def partial_sample(
