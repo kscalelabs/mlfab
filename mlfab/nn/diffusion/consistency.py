@@ -156,6 +156,8 @@ class ConsistencyModel(nn.Module):
         y_current: Tensor,
         y_next: Tensor,
         loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+        loss_dim: int = -1,
+        loss_factor: float = 0.00054,
     ) -> Tensor:
         if callable(loss):
             return loss(y_current, y_next)
@@ -165,7 +167,7 @@ class ConsistencyModel(nn.Module):
             case "l1":
                 return F.l1_loss(y_current, y_next, reduction="none")
             case "pseudo-huber":
-                return pseudo_huber_loss(y_current, y_next, dim=-1, factor=0.00054)
+                return pseudo_huber_loss(y_current, y_next, dim=loss_dim, factor=loss_factor)
             case _:
                 raise NotImplementedError(f"Unknown loss: {loss}")
 
@@ -174,10 +176,12 @@ class ConsistencyModel(nn.Module):
         model: Callable[[Tensor, Tensor], Tensor],
         x: Tensor,
         step: int,
-        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "pseudo-huber",
+        loss_dim: int = -1,
+        loss_factor: float = 0.00054,
     ) -> Tensor:
         y_current, y_next, sigma_next, sigma_current = self.loss_tensors(model, x, step)
-        loss_value = self.loss_function(y_current, y_next, loss)
+        loss_value = self.loss_function(y_current, y_next, loss, loss_dim, loss_factor)
         weights = 1 / (sigma_current - sigma_next)
         weights = weights.view(-1, *([1] * (loss_value.dim() - 1)))
         return loss_value * weights

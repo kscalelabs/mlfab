@@ -244,6 +244,8 @@ class GaussianDiffusion(nn.Module):
         model: Callable[[Tensor, Tensor], Tensor],
         x: Tensor,
         loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+        loss_dim: int = -1,
+        loss_factor: float = 0.00054,
     ) -> Tensor:
         pred_target, gt_target = self.loss_tensors(model, x)
         if callable(loss):
@@ -254,7 +256,7 @@ class GaussianDiffusion(nn.Module):
             case "l1":
                 return F.l1_loss(pred_target, gt_target, reduction="none")
             case "pseudo-huber":
-                return pseudo_huber_loss(pred_target, gt_target, dim=-1, factor=0.00054)
+                return pseudo_huber_loss(pred_target, gt_target, dim=loss_dim, factor=loss_factor)
             case _:
                 raise NotImplementedError(f"Unknown loss: {loss}")
 
