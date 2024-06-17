@@ -169,12 +169,18 @@ class ConsistencyModel(nn.Module):
             case _:
                 raise NotImplementedError(f"Unknown loss: {loss}")
 
-    def loss(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor, step: int) -> Tensor:
+    def loss(
+        self,
+        model: Callable[[Tensor, Tensor], Tensor],
+        x: Tensor,
+        step: int,
+        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+    ) -> Tensor:
         y_current, y_next, sigma_next, sigma_current = self.loss_tensors(model, x, step)
-        loss = self.loss_function(y_current, y_next)
+        loss_value = self.loss_function(y_current, y_next, loss)
         weights = 1 / (sigma_current - sigma_next)
-        weights = weights.view(-1, *([1] * (loss.dim() - 1)))
-        return loss * weights
+        weights = weights.view(-1, *([1] * (loss_value.dim() - 1)))
+        return loss_value * weights
 
     @torch.no_grad()
     def partial_sample(
