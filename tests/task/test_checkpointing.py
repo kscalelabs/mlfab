@@ -1,5 +1,6 @@
 """Tests model checkpointing."""
 
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,15 +36,7 @@ class DummyTask(mlfab.Task[Config]):
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
         self.lstm = nn.LSTM(8, 8, 2)
-
-    def forward(self, x: Tensor, y: Tensor) -> Tensor:
-        x, _ = self.lstm(x.float())
-        z = x + self.emb(y)
-        return self.convs(z)
-
-    def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
-        o = self(*batch).sum()
-        return o
+        self.pretrained_linear = mlfab.pretrained(nn.Linear(8, 8))
 
     def get_dataset(self, phase: mlfab.Phase) -> DummyDataset:
         return DummyDataset()
@@ -53,4 +46,12 @@ def test_model_serialization(tmpdir: Path) -> None:
     task = DummyTask(Config(batch_size=1))
     ckpt_path = Path(tmpdir / "ckpt.pt")
     task.save_checkpoint(mlfab.State.init_state(), ckpt_path)
+    _, raw_checkpoint = task.load_raw_checkpoint(ckpt_path)
+    assert not any(k.startswith("pretrained") for k in raw_checkpoint["weights"].keys())
     task.load_checkpoint_(ckpt_path)
+
+
+if __name__ == "__main__":
+    # python -m tests.task.test_checkpointing
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_model_serialization(Path(tmpdir))
