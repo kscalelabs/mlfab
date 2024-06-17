@@ -27,9 +27,10 @@ import math
 from typing import Callable
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor, nn
 
-from mlfab.nn.diffusion.gaussian import DiffusionLossFn, get_diffusion_loss_fn
+from mlfab.nn.diffusion.gaussian import DiffusionLossFn, pseudo_huber_loss
 from mlfab.nn.functions import append_dims
 
 
@@ -89,9 +90,6 @@ class ConsistencyModel(nn.Module):
         p_std: float = 2.0,
         start_scales: int = 20,
         end_scales: int = 1280,
-        loss: DiffusionLossFn = "pseudo-huber",
-        loss_dim: int = -1,
-        loss_factor: float = 0.00054,
     ) -> None:
         super().__init__()
 
@@ -105,9 +103,12 @@ class ConsistencyModel(nn.Module):
         self.start_scales = start_scales
         self.end_scales = end_scales
 
-        self.loss_fn = get_diffusion_loss_fn(loss, dim=loss_dim, factor=loss_factor)
-
-    def loss(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor, step: int) -> Tensor:
+    def loss_tensors(
+        self,
+        model: Callable[[Tensor, Tensor], Tensor],
+        x: Tensor,
+        step: int,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """Computes the consistency model loss.
 
         Args:
@@ -148,9 +149,42 @@ class ConsistencyModel(nn.Module):
             x_next = x + noise * append_dims(sigma_next, dims)
             y_next = self._call_model(model, x_next, sigma_next).detach()
 
-        loss = self._get_loss(y_current, y_next, sigma_next, sigma_current)
+        return y_current, y_next, sigma_next, sigma_current
 
-        return loss
+    def loss_function(
+        self,
+        y_current: Tensor,
+        y_next: Tensor,
+        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "mse",
+        loss_dim: int = -1,
+        loss_factor: float = 0.00054,
+    ) -> Tensor:
+        if callable(loss):
+            return loss(y_current, y_next)
+        match loss:
+            case "mse":
+                return F.mse_loss(y_current, y_next, reduction="none")
+            case "l1":
+                return F.l1_loss(y_current, y_next, reduction="none")
+            case "pseudo-huber":
+                return pseudo_huber_loss(y_current, y_next, dim=loss_dim, factor=loss_factor)
+            case _:
+                raise NotImplementedError(f"Unknown loss: {loss}")
+
+    def loss(
+        self,
+        model: Callable[[Tensor, Tensor], Tensor],
+        x: Tensor,
+        step: int,
+        loss: DiffusionLossFn | Callable[[Tensor, Tensor], Tensor] = "pseudo-huber",
+        loss_dim: int = -1,
+        loss_factor: float = 0.00054,
+    ) -> Tensor:
+        y_current, y_next, sigma_next, sigma_current = self.loss_tensors(model, x, step)
+        loss_value = self.loss_function(y_current, y_next, loss, loss_dim, loss_factor)
+        weights = 1 / (sigma_current - sigma_next)
+        weights = weights.view(-1, *([1] * (loss_value.dim() - 1)))
+        return loss_value * weights
 
     @torch.no_grad()
     def partial_sample(
@@ -242,12 +276,6 @@ class ConsistencyModel(nn.Module):
         model_output = model(c_in * x_t, timesteps)
         denoised = c_out * model_output + c_skip * x_t
         return denoised
-
-    def _get_loss(self, y_hat: Tensor, y: Tensor, sigma_next: Tensor, sigma_current: Tensor) -> Tensor:
-        weights = 1 / (sigma_current - sigma_next)
-        loss = self.loss_fn(y_hat, y)
-        weights = weights.view(-1, *([1] * (loss.dim() - 1)))
-        return loss * weights
 
     @torch.no_grad()
     def _get_sigmas(self, timesteps: Tensor) -> Tensor:

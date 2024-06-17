@@ -36,10 +36,7 @@ class ConditionalConsistency(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-        self.diff = mlfab.ConsistencyModel(
-            total_steps=config.max_steps,
-            loss_dim=1,
-        )
+        self.diff = mlfab.ConsistencyModel(total_steps=config.max_steps)
 
         self.class_embs = nn.Embedding(config.num_classes, config.embed_dim)
 
@@ -74,7 +71,7 @@ class ConditionalConsistency(mlfab.Task[Config]):
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: State) -> Tensor:
         x, class_id = batch
-        loss = self.diff.loss(lambda x, t: self(x, t, class_id), x, state.num_steps)
+        loss = self.diff.loss(lambda x, t: self(x, t, class_id), x, state.num_steps, loss_dim=1)
         self.log_step(batch, loss, state)
         return loss
 
