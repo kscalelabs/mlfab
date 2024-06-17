@@ -32,7 +32,6 @@ Choices for the beta schedule are:
 - ``"jsd"``: Jensen-Shannon divergence schedule.
 """
 
-import functools
 import math
 from pathlib import Path
 from typing import Callable, Literal, cast, get_args
@@ -49,22 +48,6 @@ DiffusionLossFn = Literal["mse", "l1", "pseudo-huber"]
 DiffusionPredMode = Literal["pred_x_0", "pred_eps", "pred_v"]
 SigmaType = Literal["upper_bound", "lower_bound"]
 DiffusionBetaSchedule = Literal["linear", "quad", "warmup", "const", "cosine", "jsd"]
-
-
-def get_diffusion_loss_fn(
-    loss_fn: DiffusionLossFn,
-    dim: int = -1,
-    factor: float = 0.00054,
-) -> Callable[[Tensor, Tensor], Tensor]:
-    match loss_fn:
-        case "mse":
-            return nn.MSELoss(reduction="none")
-        case "l1":
-            return nn.L1Loss(reduction="none")
-        case "pseudo-huber":
-            return functools.partial(pseudo_huber_loss, dim=dim, factor=factor)
-        case _:
-            raise ValueError(f"Unexpected loss function: {loss_fn}")
 
 
 def _warmup_beta_schedule(
@@ -196,8 +179,6 @@ class GaussianDiffusion(nn.Module):
         beta_end: float = 0.02,
         warmup: float = 0.1,
         cosine_offset: float = 0.008,
-        loss_dim: int = -1,
-        loss_factor: float = 0.00054,
     ) -> None:
         super().__init__()
 
