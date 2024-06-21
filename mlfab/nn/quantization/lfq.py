@@ -126,11 +126,15 @@ class LookupFreeQuantization(nn.Module):
     def dtype(self) -> torch.dtype:
         return self.codebook.dtype
 
-    def quantize(self, x: Tensor) -> Tensor:
+    def quantize(self, x: Tensor, flat: bool = False) -> Tensor:
         if x.shape[-1] != self.dim:
             raise ValueError(f"Expected final dimension to be {self.dim}, but got input shape {x.shape}")
         x = self.project_in(x)
-        ids = 2 ** torch.arange(self.num_codebooks * self.codebook_dim, device=x.device)
+        if flat:
+            ids = 2 ** torch.arange(self.num_codebooks * self.codebook_dim, device=x.device)
+        else:
+            ids = 2 ** torch.arange(self.codebook_dim, device=x.device)
+            x = x.unflatten(-1, (self.num_codebooks, self.codebook_dim))
         x_pos = (x > 0).long()
         x_quant = (x_pos * ids).to(x_pos).sum(-1)
         return x_quant
