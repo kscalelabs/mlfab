@@ -18,3 +18,6 @@ def test_fsq(num_codebooks: int) -> None:
     quantized, indices, _ = lfq.forward(x)
     assert quantized.shape == x.shape
     assert indices.shape == (bsz, tsz, num_codebooks)
+
+    assert lfq.quantize(x, flat=True).shape == (bsz, tsz)
+    assert lfq.quantize(x, flat=False).shape == (bsz, tsz, num_codebooks)
