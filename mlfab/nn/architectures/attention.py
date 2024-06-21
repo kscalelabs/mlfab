@@ -451,7 +451,7 @@ class TransformerEncoderLayer(nn.Module):
         self,
         d_model: int,
         head_dims: int = 64,
-        feedforward_factor: int = 4,
+        feedforward_factor: float = 4.0,
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_first: bool = True,
@@ -475,10 +475,11 @@ class TransformerEncoderLayer(nn.Module):
         )
 
         # Feed-forward layers.
-        self.linear1 = nn.Linear(d_model, d_model * feedforward_factor)
+        hidden_dim = round(d_model * feedforward_factor)
+        self.linear1 = nn.Linear(d_model, hidden_dim)
         self.dropout = nn.Dropout(dropout)
         self.activation = nn.ReLU()
-        self.linear2 = nn.Linear(d_model * feedforward_factor, d_model)
+        self.linear2 = nn.Linear(hidden_dim, d_model)
 
         # Extras (norms and dropout).
         self.norm_first = norm_first
@@ -639,7 +640,7 @@ class TransformerDecoderLayer(nn.Module):
         self,
         d_model: int,
         head_dims: int = 64,
-        feedforward_factor: int = 4,
+        feedforward_factor: float = 4.0,
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
@@ -664,10 +665,11 @@ class TransformerDecoderLayer(nn.Module):
         )
 
         # Feed-forward layers.
-        self.linear1 = nn.Linear(d_model, d_model * feedforward_factor)
+        hidden_dim = round(d_model * feedforward_factor)
+        self.linear1 = nn.Linear(d_model, hidden_dim)
         self.dropout = nn.Dropout(dropout)
         self.activation = nn.ReLU()
-        self.linear2 = nn.Linear(d_model * feedforward_factor, d_model)
+        self.linear2 = nn.Linear(hidden_dim, d_model)
 
         # Extras (norms and dropout).
         self.norm_first = norm_first
@@ -1029,7 +1031,7 @@ class NextTokenTransformer(nn.Module):
         num_layers: int,
         vocab_size: int,
         head_dims: int = 64,
-        feedforward_factor: int = 4,
+        feedforward_factor: float = 4.0,
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
@@ -1111,7 +1113,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         num_layers: int,
         vocab_size: int,
         head_dims: int = 64,
-        feedforward_factor: int = 4,
+        feedforward_factor: float = 4.0,
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
