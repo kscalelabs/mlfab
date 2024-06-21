@@ -126,6 +126,15 @@ class LookupFreeQuantization(nn.Module):
     def dtype(self) -> torch.dtype:
         return self.codebook.dtype
 
+    def quantize(self, x: Tensor) -> Tensor:
+        if x.shape[-1] != self.dim:
+            raise ValueError(f"Expected final dimension to be {self.dim}, but got input shape {x.shape}")
+        x = self.project_in(x)
+        x = x.unflatten(-1, (self.num_codebooks, self.codebook_dim))
+        x_pos = (x > 0).long()
+        x_quant = (x_pos * (2 ** torch.arange(self.codebook_dim, device=x.device)).to(x_pos)).sum(-1)
+        return x_quant
+
     def forward(self, x: Tensor, inv_temperature: float = 1.0) -> tuple[Tensor, Tensor, Losses]:
         if x.shape[-1] != self.dim:
             raise ValueError(f"Expected final dimension to be {self.dim}, but got input shape {x.shape}")
