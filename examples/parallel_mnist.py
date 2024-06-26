@@ -1,6 +1,6 @@
 """Trains a simple convolutional neural network on the MNIST dataset.
 
-Run this example with `python -m examples.mnist`.
+Run this example with `python -m examples.parallel_mnist`.
 """
 
 from dataclasses import dataclass
@@ -14,38 +14,25 @@ import mlfab
 
 @dataclass(kw_only=True)
 class Config(mlfab.Config):
-    in_dim: int = mlfab.field(1, help="Number of input dimensions")
-    batches_per_step: int = mlfab.field(8, help="Number of batches to accumulate gradients over")
+    in_dim: int = mlfab.field(28 * 28, help="Number of input dimensions")
     learning_rate: float = mlfab.field(1e-3, help="Learning rate to use for optimizer")
     betas: tuple[float, float] = mlfab.field((0.9, 0.999), help="Beta values for Adam optimizer")
     weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
     warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
 
-class MnistClassification(mlfab.Task[Config]):
+class ParallelMnistClassification(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
         self.model = nn.Sequential(
-            nn.Conv2d(config.in_dim, 32, 3, padding=1),
-            nn.BatchNorm2d(32),
+            mlfab.RowParallelLinear(config.in_dim, 32, input_is_parallel=False),
+            nn.LayerNorm(32),
             nn.ReLU(),
-            nn.Conv2d(32, 32, 3, padding=1),
-            nn.BatchNorm2d(32),
+            mlfab.ColumnParallelLinear(32, 32, gather_output=True),
+            nn.LayerNorm(32),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Flatten(),
-            nn.Linear(64 * 7 * 7, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Linear(128, 10),
+            nn.Linear(32, 10),
         )
 
     def get_dataset(self, phase: mlfab.Phase) -> MNIST:
@@ -56,7 +43,7 @@ class MnistClassification(mlfab.Task[Config]):
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
         x, y = batch
-        yhat = self(x.unsqueeze(1))
+        yhat = self(x.flatten(1))
         self.log_step(batch, yhat, state)
         loss = F.cross_entropy(yhat, y.long())
         return loss
@@ -72,4 +59,4 @@ class MnistClassification(mlfab.Task[Config]):
 
 
 if __name__ == "__main__":
-    MnistClassification.launch(Config(batch_size=16, num_train_dl_workers=1))
+    ParallelMnistClassification.launch(Config(batch_size=16, num_train_dl_workers=1))
