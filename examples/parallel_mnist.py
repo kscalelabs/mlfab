@@ -21,13 +21,19 @@ class Config(mlfab.Config):
     weight_decay: float = mlfab.field(1e-4, help="Weight decay to use for the optimizer")
     warmup_steps: int = mlfab.field(100, help="Number of warmup steps to use for the optimizer")
 
+    # Model parallelism.
+    model_parallelism: int = mlfab.field(2, help="Model parallelism")
+
 
 class ParallelMnistClassification(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-        if mlfab.parallel_group_info().mp.world_size == 1:
-            warnings.warn("Running with a single model parallel! This example will behave the same way as a vanilla MNIST model. Instead, run with `parallel_")
+        if config.model_parallelism == 1:
+            warnings.warn(
+                "Running with a single model parallel! This example will behave the same way as a vanilla MNIST model. "
+                "Instead, set `model_parallelism` to some larger value."
+            )
 
         self.model = nn.Sequential(
             mlfab.RowParallelLinear(config.in_dim, 32, input_is_parallel=False),

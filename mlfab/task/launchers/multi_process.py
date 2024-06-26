@@ -1,12 +1,11 @@
 """Defines a launcher to train a model locally, in multiple processes."""
 
+import argparse
 import functools
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import torch
-
-from mlfab.nn.device.gpu import gpu_device
-from mlfab.nn.parallel import MultiProcessConfig, get_rank, get_world_size, launch_subprocesses
+from mlfab.nn.parallel import get_rank, get_world_size, launch_subprocesses
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
 from mlfab.utils.logging import configure_logging
@@ -21,10 +20,9 @@ def run_training_worker(task: "type[RunnableMixin[Config]]", cfg: "Config") -> N
     task_obj.run()
 
 
-def get_num_processes() -> int:
-    if gpu_device.has_device():
-        return torch.cuda.device_count()
-    return 1
+@dataclass(kw_only=True)
+class MultiProcessArgs:
+    num_processes: int
 
 
 class MultiProcessLauncher(BaseLauncher):
@@ -38,7 +36,20 @@ class MultiProcessLauncher(BaseLauncher):
     def __init__(self, num_processes: int | None = None) -> None:
         super().__init__()
 
-        self.num_processes = get_num_processes() if num_processes is None else num_processes
+        self.num_processes = num_processes
+
+    @classmethod
+    def parse_args_from_cli(cls, args: list[str] | None = None) -> tuple[MultiProcessArgs, list[str]]:
+        parser = argparse.ArgumentParser(description="Launches a Slurm job.")
+        parser.add_argument("--num-processes", type=int, default=None, help="The number of processes to use")
+        args, remaining_args = parser.parse_known_intermixed_args(args=args)
+
+        return (
+            MultiProcessArgs(
+                num_processes=args.num_processes,
+            ),
+            remaining_args,
+        )
 
     def launch(
         self,
@@ -47,8 +58,7 @@ class MultiProcessLauncher(BaseLauncher):
         use_cli: bool | list[str] = True,
     ) -> None:
         cfg = task.get_config(*cfgs, use_cli=use_cli)
-        cfg = MultiProcessConfig(
-            world_size=self.num_processes,
-        )
+        if self.num_processes is not None:
+            cfg.local_world_size = cfg.world_size = self.num_processes
         train_fn = functools.partial(run_training_worker, task, cfg)
         launch_subprocesses(train_fn, cfg)
