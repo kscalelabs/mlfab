@@ -3,6 +3,7 @@
 Run this example with `python -m examples.parallel_mnist`.
 """
 
+import warnings
 from dataclasses import dataclass
 
 import torch.nn.functional as F
@@ -24,6 +25,9 @@ class Config(mlfab.Config):
 class ParallelMnistClassification(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
+
+        if mlfab.parallel_group_info().mp.world_size == 1:
+            warnings.warn("Running with a single model parallel! This example will behave the same way as a vanilla MNIST model. Instead, run with `parallel_")
 
         self.model = nn.Sequential(
             mlfab.RowParallelLinear(config.in_dim, 32, input_is_parallel=False),

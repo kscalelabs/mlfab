@@ -15,13 +15,9 @@ if TYPE_CHECKING:
     from mlfab.task.mixins.runnable import Config, RunnableMixin
 
 
-def run_training_worker(
-    task: "type[RunnableMixin[Config]]",
-    *cfgs: RawConfigType,
-    use_cli: bool | list[str] = True,
-) -> None:
+def run_training_worker(task: "type[RunnableMixin[Config]]", cfg: "Config") -> None:
     configure_logging(rank=get_rank(), world_size=get_world_size())
-    task_obj = task.get_task(*cfgs, use_cli=use_cli)
+    task_obj = task(cfg)
     task_obj.run()
 
 
@@ -50,6 +46,9 @@ class MultiProcessLauncher(BaseLauncher):
         *cfgs: RawConfigType,
         use_cli: bool | list[str] = True,
     ) -> None:
-        cfg = MultiProcessConfig(world_size=self.num_processes)
-        train_fn = functools.partial(run_training_worker, task, *cfgs, use_cli=use_cli)
+        cfg = task.get_config(*cfgs, use_cli=use_cli)
+        cfg = MultiProcessConfig(
+            world_size=self.num_processes,
+        )
+        train_fn = functools.partial(run_training_worker, task, cfg)
         launch_subprocesses(train_fn, cfg)
