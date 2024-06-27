@@ -435,7 +435,9 @@ def parallel_group_info() -> _GroupsInfos:
 
 
 def is_dp_master() -> bool:
-    return parallel_group_info().dp.rank == 0
+    if _parallel_group_info is None:
+        return is_master()
+    return _parallel_group_info.dp.rank == 0
 
 
 def default_group_info() -> _GroupInfo | None:
