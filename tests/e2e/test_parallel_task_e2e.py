@@ -76,13 +76,14 @@ def test_e2e_parallel_training_mp(tmpdir: Path, lora_rank: int | None) -> None:
     assert exp_dir.exists()
 
     # Make sure a checkpoint was saved.
-    assert (ckpt_path := (exp_dir / "checkpoints" / "ckpt.pt")).exists()
-    ckpt = torch.load(ckpt_path)
+    for i in range(2):
+        assert (ckpt_path := (exp_dir / "checkpoints" / f"ckpt_{i}.pt")).exists()
+        ckpt = torch.load(ckpt_path)
 
-    # Checks that the model was saved correctly.
-    assert ckpt["weights"]["emb.weight"].shape == (10, 12)
-    assert ckpt["weights"]["l1.weight"].shape == (12, 16)
-    assert ckpt["weights"]["l2.weight"].shape == (16, 8)
+        # Checks that the model was saved correctly.
+        assert ckpt["weights"]["emb.weight"].shape == (10, 6)
+        assert ckpt["weights"]["l1.weight"].shape == (8, 12)
+        assert ckpt["weights"]["l2.weight"].shape == (8, 8)
 
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)

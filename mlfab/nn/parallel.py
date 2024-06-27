@@ -434,6 +434,10 @@ def parallel_group_info() -> _GroupsInfos:
     return _parallel_group_info
 
 
+def is_dp_master() -> bool:
+    return parallel_group_info().dp.rank == 0
+
+
 def default_group_info() -> _GroupInfo | None:
     global _default_group_info
     if _default_group_info is None and is_initialized():
@@ -545,6 +549,14 @@ def init_parallelism(
     dp_group, dp_ids = dp_groups[dp_rank]
     pp_group, pp_ids = pp_groups[pp_rank]
     mp_group, mp_ids = mp_groups[mp_rank]
+
+    assert len(dp_ids) == data_parallelism
+    assert len(pp_ids) == pipeline_parallelism
+    assert len(mp_ids) == model_parallelism
+
+    mp_rank = mp_ids.index(rank)
+    pp_rank = pp_ids.index(rank)
+    dp_rank = dp_ids.index(rank)
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
