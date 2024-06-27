@@ -32,11 +32,12 @@ def get_ckpt_path(exp_dir: Path, state: State | None = None) -> Path:
         The path to the PyTorch checkpoint to save or load
     """
     name = "ckpt"
-    ginfo = parallel_group_info()
-    world_size = ginfo.mp.world_size * ginfo.pp.world_size
-    if world_size > 1:
-        rank = ginfo.mp.rank * ginfo.pp.world_size + ginfo.pp.rank
-        name += f"_{rank}"
+    ginfo = parallel_group_info(required=False)
+    if ginfo is not None:
+        world_size = ginfo.mp.world_size * ginfo.pp.world_size
+        if world_size > 1:
+            rank = ginfo.mp.rank * ginfo.pp.world_size + ginfo.pp.rank
+            name += f"_{rank}"
     if state is not None:
         name += f".{state.num_steps}"
     return exp_dir / "checkpoints" / f"{name}.pt"

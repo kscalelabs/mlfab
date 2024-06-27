@@ -429,8 +429,17 @@ _parallel_group_info: _GroupsInfos | None = None
 _default_group_info: _GroupInfo | None = None
 
 
-def parallel_group_info() -> _GroupsInfos:
-    assert _parallel_group_info is not None
+@overload
+def parallel_group_info(required: Literal[True] = True) -> _GroupsInfos: ...
+
+
+@overload
+def parallel_group_info(required: Literal[False]) -> _GroupsInfos | None: ...
+
+
+def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
+    if required:
+        assert _parallel_group_info is not None
     return _parallel_group_info
 
 
