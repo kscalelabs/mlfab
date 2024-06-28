@@ -476,8 +476,16 @@ def dp_world_size() -> int:
     return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
 
 
-def is_dp_master() -> bool:
-    return is_master() if _parallel_group_info is None else _parallel_group_info.dp.rank == 0
+def is_ckpt_master() -> bool:
+    return dp_rank() == 0 and fp_rank() == 0
+
+
+def ckpt_id() -> int:
+    return pp_rank() * mp_world_size() + mp_rank()
+
+
+def num_ckpts() -> int:
+    return mp_world_size() * pp_world_size()
 
 
 def default_group_info() -> _GroupInfo | None:
@@ -533,7 +541,7 @@ def init_parallelism(
     if not dist.is_initialized():
         raise ParallismError("Distributed training is not initialized.")
 
-    rank, world_size = get_rank(), get_world_size()
+    rank, world_size = dist.get_rank(), dist.get_world_size()
     if fsdp_parallelism == -1:
         fsdp_parallelism = get_local_world_size()
 
@@ -1369,7 +1377,7 @@ def launch_subprocesses(
         cfg.local_rank = 0
         init_and_run(func, cfg, *args, **kwargs)
         cleanup()
-        return None
+        return
 
     logger.info("Launching %d training workers", cfg.world_size)
     ctx = mp.get_context(cfg.multiprocess_launch_method)

@@ -114,10 +114,16 @@ def parse_sinfo_output() -> list[PartitionInfo]:
 class SlurmArgs:
     partition: str | None
     gpus_per_node: int | None
+    cpus_per_gpu: int | None
     num_nodes: int
+    gpu_type: str | None
+    exclusive: bool
+    time_limit: str | None
     num_jobs: int
+    comment: str | None
     account: str | None
     nodelist: list[str] | None
+    master_port: int | None
 
 
 class SlurmLauncher(StagedLauncher):
@@ -139,15 +145,17 @@ class SlurmLauncher(StagedLauncher):
         time_limit: str | None = None,
         num_jobs: int = 1,
         comment: str | None = None,
+        account: str | None = None,
+        nodelist: list[str] | None = None,
         master_port: int | None = None,
         model_parallelism: int = 1,
         pipeline_parallelism: int = 1,
+        fsdp_parallelism: int = 1,
         backend: str | None = None,
         model_parallel_backend: str | None = None,
         pipeline_parallel_backend: str | None = None,
+        fsdp_parallel_backend: str | None = None,
         data_parallel_backend: str | None = None,
-        account: str | None = None,
-        nodelist: list[str] | None = None,
     ) -> None:
         super().__init__()
 
@@ -179,9 +187,11 @@ class SlurmLauncher(StagedLauncher):
         self.master_port = get_random_port(DEFAULT_MASTER_PORT) if master_port is None else master_port
         self.model_parallelism = model_parallelism
         self.pipeline_parallelism = pipeline_parallelism
+        self.fsdp_parallelism = fsdp_parallelism
         self.backend = backend
         self.model_parallel_backend = model_parallel_backend
         self.pipeline_parallel_backend = pipeline_parallel_backend
+        self.fsdp_parallel_backend = fsdp_parallel_backend
         self.data_parallel_backend = data_parallel_backend
         self.account = account
         self.nodelist = nodelist
@@ -191,20 +201,32 @@ class SlurmLauncher(StagedLauncher):
         parser = argparse.ArgumentParser(description="Launches a Slurm job.")
         parser.add_argument("--partition", type=str, default=None, help="The partition to use")
         parser.add_argument("--gpus-per-node", type=int, default=None, help="The number of GPUs per node")
+        parser.add_argument("--cpus-per-gpu", type=int, default=None, help="The number of CPUs per GPU")
         parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes to use")
+        parser.add_argument("--gpu-type", type=str, default=None, help="Type of GPU to use")
+        parser.add_argument("--exclusive", action="store_true", help="If set, use exclusive nodes")
+        parser.add_argument("--time-limit", type=str, default=None, help="Time limit for each job")
         parser.add_argument("--num-jobs", type=int, default=1, help="The number of jobs to launch")
+        parser.add_argument("--comment", type=str, default=None, help="Comment to add to each job")
         parser.add_argument("--account", type=str, default=None, help="The account to use")
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
+        parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
             SlurmArgs(
                 partition=args.partition,
                 gpus_per_node=args.gpus_per_node,
+                cpus_per_gpu=args.cpus_per_gpu,
                 num_nodes=args.num_nodes,
+                gpu_type=args.gpu_type,
+                exclusive=args.exclusive,
+                time_limit=args.time_limit,
                 num_jobs=args.num_jobs,
+                comment=args.comment,
                 account=args.account,
                 nodelist=args.nodelist,
+                master_port=args.master_port,
             ),
             remaining_args,
         )
@@ -231,12 +253,16 @@ class SlurmLauncher(StagedLauncher):
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
         if self.pipeline_parallelism > 1:
             export_lines["PIPELINE_PARALLELISM"] = str(self.pipeline_parallelism)
+        if self.fsdp_parallelism > 1:
+            export_lines["FSDP_PARALLELISM"] = str(self.fsdp_parallelism)
         if self.backend is not None:
             export_lines["BACKEND"] = self.backend
         if self.model_parallel_backend is not None:
             export_lines["MODEL_PARALLEL_BACKEND"] = self.model_parallel_backend
         if self.pipeline_parallel_backend is not None:
             export_lines["PIPELINE_PARALLEL_BACKEND"] = self.pipeline_parallel_backend
+        if self.fsdp_parallel_backend is not None:
+            export_lines["FSDP_PARALLEL_BACKEND"] = self.fsdp_parallel_backend
         if self.data_parallel_backend is not None:
             export_lines["DATA_PARALLEL_BACKEND"] = self.data_parallel_backend
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
@@ -413,17 +439,21 @@ srun \\
         # Gets parallelism environment variables.
         model_parallelism = int(os.environ.get("MODEL_PARALLELISM", "1"))
         pipeline_parallelism = int(os.environ.get("PIPELINE_PARALLELISM", "1"))
+        fsdp_parallelism = int(os.environ.get("FSDP_PARALLELISM", "1"))
         backend = os.environ.get("BACKEND", None)
         model_parallel_backend = os.environ.get("MODEL_PARALLEL_BACKEND", None)
         pipeline_parallel_backend = os.environ.get("PIPELINE_PARALLEL_BACKEND", None)
+        fsdp_parallel_backend = os.environ.get("FSDP_PARALLEL_BACKEND", None)
         data_parallel_backend = os.environ.get("DATA_PARALLEL_BACKEND", None)
 
         # Sets model parallelism.
         init_parallelism(
             model_parallelism=model_parallelism,
             pipeline_parallelism=pipeline_parallelism,
+            fsdp_parallelism=fsdp_parallelism,
             mp_backend=model_parallel_backend or backend,
             pp_backend=pipeline_parallel_backend or backend,
+            fp_backend=fsdp_parallel_backend or backend,
             dp_backend=data_parallel_backend or backend,
         )
 

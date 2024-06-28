@@ -40,7 +40,7 @@ class MultiProcessLauncher(BaseLauncher):
 
     @classmethod
     def parse_args_from_cli(cls, args: list[str] | None = None) -> tuple[MultiProcessArgs, list[str]]:
-        parser = argparse.ArgumentParser(description="Launches a Slurm job.")
+        parser = argparse.ArgumentParser(description="Launches a multi-process job.")
         parser.add_argument("--num-processes", type=int, default=None, help="The number of processes to use")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
