@@ -616,9 +616,6 @@ def init_parallelism(
     pp_rank = (rank // model_parallelism) % pipeline_parallelism
     mp_rank = rank % model_parallelism
 
-    print("=================")
-    print("fp_group:", fp_group)
-
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
         mp=_GroupInfo(
