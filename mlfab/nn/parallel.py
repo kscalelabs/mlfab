@@ -85,7 +85,7 @@ from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
 from mlfab.nn.init import InitializationType, init_
-from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
+from mlfab.utils.logging import LOG_DEBUG_ALL, LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import colored
 
 logger = logging.getLogger(__name__)
@@ -1231,7 +1231,9 @@ def init_process_group_from_backend(backend: str | dist.Backend | None = None) -
     dist.init_process_group(backend=backend, init_method=init_method, world_size=world_size, rank=rank)
 
     if torch.cuda.is_available():
-        torch.cuda.set_device(get_local_rank() % torch.cuda.device_count())
+        dev_id = (local_rank := get_local_rank()) % (dev_cnt := torch.cuda.device_count())
+        logger.log(LOG_DEBUG_ALL, "Setting device %d (local rank %d with %d device(s))", dev_id, local_rank, dev_cnt)
+        torch.cuda.set_device(dev_id)
 
     logger.info("Initialized process group; running dummy all-reduce")
     dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))

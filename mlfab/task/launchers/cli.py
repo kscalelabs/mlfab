@@ -66,6 +66,7 @@ class CliLauncher(BaseLauncher):
                     data_parallel_backend=cfg.data_parallel_backend,
                     account=slurm_args.account,
                     nodelist=slurm_args.nodelist,
+                    debug_nccl=slurm_args.debug_nccl,
                 ).launch(task, *cfgs, use_cli=use_cli_next)
             case _:
                 raise ValueError(f"Invalid launcher choice: {launcher_choice}")
