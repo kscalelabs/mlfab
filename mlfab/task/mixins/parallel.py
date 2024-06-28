@@ -50,7 +50,7 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
-    use_ddp: bool = field(False, help="Whether to use DDP instead of FSDP")
+    use_ddp: bool | None = field(None, help="Whether to use DDP instead of FSDP")
     grad_scaler: GradScalerConfig = field(GradScalerConfig(), help="Gradient scaler configuration")
     grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
@@ -137,7 +137,9 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             return model
         if isinstance(model, (FSDP, DDP)):
             return model
-        if self.config.use_ddp:
+        if (use_ddp := self.config.use_ddp) is None:
+            use_ddp = parallel_group_info().fp.world_size == 1
+        if use_ddp:
             return ddp(model)
         if not torch.cuda.is_available():
             raise RuntimeError("FSDP requires CUDA")

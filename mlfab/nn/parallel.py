@@ -634,7 +634,7 @@ def init_parallelism(
             group=fp_group,
             global_ranks=fp_ids,
             rank=fp_rank,
-            world_size=pipeline_parallelism,
+            world_size=fsdp_parallelism,
         ),
         dp=_GroupInfo(
             group=dp_group,
