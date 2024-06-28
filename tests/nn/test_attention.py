@@ -125,7 +125,7 @@ def test_transformer_decoder_module(use_rotary: bool, gqa_factor: int) -> None:
         mlfab.TransformerDecoderLayer(
             d_model=16,
             head_dims=8,
-            dropout=0.0,g
+            dropout=0.0,
             gqa_factor=gqa_factor,
         ),
         num_layers=1,
