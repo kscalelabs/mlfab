@@ -18,6 +18,9 @@ from torch.distributed.fsdp import (
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
+from torch.distributed.fsdp.wrap import (
+    CustomPolicy,
+)
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import Optimizer
 
@@ -44,6 +47,7 @@ class GradScalerConfig:
 class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_cpu_offload: bool = field(False, help="CPU offloading for FSDP")
     fsdp_use_orig_params: bool = field(True, help="Use original parameters for FSDP")
+    fsdp_wrap: bool = field(False, help="If set, use FSDP wrapping")
     fsdp_backward_prefetch: BackwardPrefetch | None = field(None, help="Backward prefetch for FSDP")
     fsdp_sharding_strategy: ShardingStrategy | None = field(None, help="Sharding strategy")
     fsdp_sync_module_states: bool = field(True, help="Whether to sync module states on initialization")
@@ -89,6 +93,9 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
     if cfg.fsdp_cpu_offload:
         logger.warning("CPU offloading doesn't support gradient accumulation")
 
+    def should_wrap(mod: nn.Module) -> bool:
+        return bool(getattr(mod, "WRAP_FSDP", False))
+
     return FSDP(
         model,
         process_group=process_group,
@@ -98,6 +105,7 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
         backward_prefetch=cfg.fsdp_backward_prefetch,
         mixed_precision=mixed_precision,
         use_orig_params=cfg.fsdp_use_orig_params,
+        auto_wrap_policy=CustomPolicy(should_wrap) if cfg.fsdp_wrap else None,
     )
 
 
