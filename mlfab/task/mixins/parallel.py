@@ -69,8 +69,19 @@ def ddp(model: nn.Module) -> DDP:
 def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision | None = None) -> FSDP:
     group_info = parallel_group_info()
 
+    if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
+        if group_info.mp.world_size == 1:
+            logger.info("Using NO_SHARD FSDP strategy")
+            sharding_strategy = ShardingStrategy.NO_SHARD
+        elif group_info.dp.world_size == 1:
+            logger.info("Using FULL_SHARD FSDP strategy")
+            sharding_strategy = ShardingStrategy.FULL_SHARD
+        else:
+            logger.info("Using HYBRID_SHARD FSDP strategy")
+            sharding_strategy = ShardingStrategy.HYBRID_SHARD
+
     process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
-    if cfg.fsdp_sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
         process_group = group_info.mp.group, group_info.dp.group
     else:
         process_group = group_info.mp.group
@@ -81,7 +92,7 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
     return FSDP(
         model,
         process_group=process_group,
-        sharding_strategy=cfg.fsdp_sharding_strategy,
+        sharding_strategy=sharding_strategy,
         sync_module_states=cfg.fsdp_sync_module_states and all_params_are_cuda(model),
         cpu_offload=CPUOffload(cfg.fsdp_cpu_offload),
         backward_prefetch=cfg.fsdp_backward_prefetch,
