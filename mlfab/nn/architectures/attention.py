@@ -208,7 +208,7 @@ class MultiheadAttention(nn.Module):
         embed_dim: int,
         head_dim: int,
         dropout: float = 0.0,
-        bias: bool = True,
+        bias: bool = False,
         kdim: int | None = None,
         vdim: int | None = None,
         gqa_factor: int = 1,
@@ -248,7 +248,7 @@ class MultiheadAttention(nn.Module):
             self.in_proj_bias = nn.Parameter(torch.empty(embed_dim + 2 * self.kv_embed_dim))
         else:
             self.register_parameter("in_proj_bias", None)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.out_proj = RowParallelLinear(embed_dim, embed_dim, bias=bias, input_is_parallel=True)
 
         self._reset_parameters()
 
@@ -1043,16 +1043,14 @@ class NextTokenTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Sequential(
-            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
-            nn.Linear(d_model, vocab_size),
-        )
+        self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
+        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False, gather_output=True)
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
         x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
         x_btc, _ = self.attn(x_btc, is_causal=True)
-        logits_btc = self.proj(x_btc)
+        logits_btc = self.proj(self.norm(x_btc))
         return logits_btc
 
     def infer(
@@ -1066,14 +1064,14 @@ class NextTokenTransformer(nn.Module):
     ) -> Tensor:
         x_b1c: Tensor = self.init_emb.expand(bsz, 1, -1)
         x_b1c, state = self.attn(x_b1c)
-        logits_b1l = self.proj(x_b1c)
+        logits_b1l = self.proj(self.norm(x_b1c))
         tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
         tokens_b1 = tokens_bt[:, :1]
 
         for _ in range(1, t):
             x_b1c = self.embeddings(tokens_b1)
             x_b1c, state = self.attn(x_b1c, state)
-            logits_b1l = self.proj(x_b1c)
+            logits_b1l = self.proj(self.norm(x_b1c))
             tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
             tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
 
@@ -1123,17 +1121,15 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Sequential(
-            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
-            nn.Linear(d_model, vocab_size),
-        )
+        self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
+        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])
         x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
         x_btc = x_btc + emb_btc
         x_btc, _ = self.attn(x_btc, is_causal=True)
-        logits_btc = self.proj(x_btc)
+        logits_btc = self.proj(self.norm(x_btc))
         return logits_btc, x_btc
 
     def infer(
@@ -1147,7 +1143,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         x_b1c: Tensor = self.init_emb.expand(emb_btc.size(0), 1, -1)
         x_b1c = x_b1c + emb_btc[:, :1]
         x_b1c, state = self.attn(x_b1c)
-        logits_b1l = self.proj(x_b1c)
+        logits_b1l = self.proj(self.norm(x_b1c))
         tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
         tokens_b1 = tokens_bt[:, :1]
 
@@ -1156,7 +1152,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             x_b1c = self.embeddings(tokens_b1) + emb_btc[:, t : t + 1]
             x_b1c, state = self.attn(x_b1c, state)
             x_list_btc.append(x_b1c)
-            logits_b1l = self.proj(x_b1c)
+            logits_b1l = self.proj(self.norm(x_b1c))
             tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
             tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
 
