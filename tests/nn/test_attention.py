@@ -21,16 +21,14 @@ def test_top_k_sampling() -> None:
     assert mlfab.top_k_sampling(x, 5, dim=2).shape == (2, 10, 32)
 
 
-@pytest.mark.parametrize("norm_first", [False, True])
 @pytest.mark.parametrize("gqa_factor", (1, 2))
-def test_transformer_encoder_layer(norm_first: bool, gqa_factor: int) -> None:
+def test_transformer_encoder_layer(gqa_factor: int) -> None:
     bsz = 1
 
     model = mlfab.TransformerEncoderLayer(
         d_model=16,
         head_dims=8,
         dropout=0.0,
-        norm_first=norm_first,
         gqa_factor=gqa_factor,
     )
     model.double()
@@ -56,16 +54,14 @@ def test_transformer_encoder_layer(norm_first: bool, gqa_factor: int) -> None:
     assert torch.allclose(y1, y2)
 
 
-@pytest.mark.parametrize("norm_first", [False, True])
 @pytest.mark.parametrize("gqa_factor", (1, 2))
-def test_transformer_decoder_layer(norm_first: bool, gqa_factor: int) -> None:
+def test_transformer_decoder_layer(gqa_factor: int) -> None:
     bsz = 1
 
     model = mlfab.TransformerDecoderLayer(
         d_model=16,
         head_dims=8,
         dropout=0.0,
-        norm_first=norm_first,
         gqa_factor=gqa_factor,
     )
     model.double()
@@ -79,10 +75,9 @@ def test_transformer_decoder_layer(norm_first: bool, gqa_factor: int) -> None:
     assert torch.allclose(y1, y2)
 
 
-@pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("use_rotary", [True, False])
 @pytest.mark.parametrize("gqa_factor", (1, 2))
-def test_transformer_encoder_module(norm_first: bool, use_rotary: bool, gqa_factor: int) -> None:
+def test_transformer_encoder_module(use_rotary: bool, gqa_factor: int) -> None:
     bsz = 1
 
     model = mlfab.TransformerEncoder(
@@ -90,7 +85,6 @@ def test_transformer_encoder_module(norm_first: bool, use_rotary: bool, gqa_fact
             d_model=16,
             head_dims=8,
             dropout=0.0,
-            norm_first=norm_first,
             gqa_factor=gqa_factor,
         ),
         num_layers=1,
@@ -116,10 +110,9 @@ def test_transformer_encoder_module(norm_first: bool, use_rotary: bool, gqa_fact
     assert torch.allclose(y1, y2)
 
 
-@pytest.mark.parametrize("norm_first", [True, False])
 @pytest.mark.parametrize("use_rotary", [True, False])
 @pytest.mark.parametrize("gqa_factor", (1, 2))
-def test_transformer_decoder_module(norm_first: bool, use_rotary: bool, gqa_factor: int) -> None:
+def test_transformer_decoder_module(use_rotary: bool, gqa_factor: int) -> None:
     bsz = 1
 
     model = mlfab.TransformerDecoder(
@@ -127,14 +120,12 @@ def test_transformer_decoder_module(norm_first: bool, use_rotary: bool, gqa_fact
             d_model=16,
             head_dims=8,
             dropout=0.0,
-            norm_first=norm_first,
             gqa_factor=gqa_factor,
         ),
         mlfab.TransformerDecoderLayer(
             d_model=16,
             head_dims=8,
             dropout=0.0,
-            norm_first=norm_first,
             gqa_factor=gqa_factor,
         ),
         num_layers=1,
