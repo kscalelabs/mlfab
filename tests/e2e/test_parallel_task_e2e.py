@@ -64,13 +64,14 @@ def test_e2e_parallel_training_mp(tmpdir: Path, lora_rank: int | None) -> None:
 
     config = Config(
         lora_rank=lora_rank,
+        pipeline_parallelism=1,
         model_parallelism=2,
         batch_size=2,
         num_train_dl_workers=0,
         max_steps=10,
     )
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()

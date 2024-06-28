@@ -535,39 +535,39 @@ def init_parallelism(
     #   [2, 3]],
     #  [[4, 5],
     #   [6, 7]]]
-    groups = torch.arange(world_size).view(data_parallelism, pipeline_parallelism, model_parallelism)
+    groups_dpm = torch.arange(world_size).view(data_parallelism, pipeline_parallelism, model_parallelism)
 
     # We split this way so that two near-by GPUs are more likely to be in the
     # same model parallel group than data parallel group. This is because for
     # typical environments we have data parallel groups that are on separate
     # devices.
-    dp_rank = rank % (model_parallelism * pipeline_parallelism)
-    pp_rank = (rank // pipeline_parallelism) % model_parallelism
-    mp_rank = rank // (model_parallelism * pipeline_parallelism)
+    dp_group_id = rank % (model_parallelism * pipeline_parallelism)
+    pp_group_id = (rank // pipeline_parallelism) % model_parallelism
+    mp_group_id = rank // (model_parallelism * pipeline_parallelism)
 
     def get_groups(groups: Sequence[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
         return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
 
     # [[0, 4], [1, 5], [2, 6], [3, 7]].
-    dp_groups = get_groups(groups.flatten(1).unbind(1), dp_backend)
+    dp_groups = get_groups(groups_dpm.flatten(1).unbind(1), dp_backend)
     # [[0, 2], [1, 3], [4, 6], [5, 7]
-    pp_groups = get_groups(groups.transpose(0, 1).flatten(1).unbind(1), pp_backend)
+    pp_groups = get_groups(groups_dpm.transpose(0, 1).flatten(1).unbind(1), pp_backend)
     # [[0, 1], [2, 3], [4, 5], [6, 7]]
-    mp_groups = get_groups(groups.flatten(0, 1).unbind(0), mp_backend)
+    mp_groups = get_groups(groups_dpm.flatten(0, 1).unbind(0), mp_backend)
 
     # We need to initialize all groups across all devices, but then we choose
     # the specific group for this device.
-    dp_group, dp_ids = dp_groups[dp_rank]
-    pp_group, pp_ids = pp_groups[pp_rank]
-    mp_group, mp_ids = mp_groups[mp_rank]
+    dp_group, dp_ids = dp_groups[dp_group_id]
+    pp_group, pp_ids = pp_groups[pp_group_id]
+    mp_group, mp_ids = mp_groups[mp_group_id]
 
-    assert len(dp_ids) == data_parallelism
-    assert len(pp_ids) == pipeline_parallelism
-    assert len(mp_ids) == model_parallelism
+    assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
+    assert len(pp_ids) == pipeline_parallelism, f"{len(pp_ids)=} != {pipeline_parallelism=}"
+    assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
 
-    mp_rank = mp_ids.index(rank)
-    pp_rank = pp_ids.index(rank)
-    dp_rank = dp_ids.index(rank)
+    dp_rank = rank // (model_parallelism * pipeline_parallelism)
+    pp_rank = (rank // model_parallelism) % pipeline_parallelism
+    mp_rank = rank % model_parallelism
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
