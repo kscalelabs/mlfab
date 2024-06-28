@@ -87,7 +87,7 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
     process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
     if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
         process_group = group_info.fp.group, group_info.dp.group
-    elif sharding_strategy:
+    else:
         process_group = group_info.fp.group
 
     if cfg.fsdp_cpu_offload:
