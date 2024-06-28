@@ -142,9 +142,11 @@ class SlurmLauncher(StagedLauncher):
         master_port: int | None = None,
         model_parallelism: int = 1,
         pipeline_parallelism: int = 1,
+        fsdp_parallelism: int = 1,
         backend: str | None = None,
         model_parallel_backend: str | None = None,
         pipeline_parallel_backend: str | None = None,
+        fsdp_parallel_backend: str | None = None,
         data_parallel_backend: str | None = None,
         account: str | None = None,
         nodelist: list[str] | None = None,
@@ -179,9 +181,11 @@ class SlurmLauncher(StagedLauncher):
         self.master_port = get_random_port(DEFAULT_MASTER_PORT) if master_port is None else master_port
         self.model_parallelism = model_parallelism
         self.pipeline_parallelism = pipeline_parallelism
+        self.fsdp_parallelism = fsdp_parallelism
         self.backend = backend
         self.model_parallel_backend = model_parallel_backend
         self.pipeline_parallel_backend = pipeline_parallel_backend
+        self.fsdp_parallel_backend = fsdp_parallel_backend
         self.data_parallel_backend = data_parallel_backend
         self.account = account
         self.nodelist = nodelist
@@ -231,12 +235,16 @@ class SlurmLauncher(StagedLauncher):
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
         if self.pipeline_parallelism > 1:
             export_lines["PIPELINE_PARALLELISM"] = str(self.pipeline_parallelism)
+        if self.fsdp_parallelism > 1:
+            export_lines["FSDP_PARALLELISM"] = str(self.fsdp_parallelism)
         if self.backend is not None:
             export_lines["BACKEND"] = self.backend
         if self.model_parallel_backend is not None:
             export_lines["MODEL_PARALLEL_BACKEND"] = self.model_parallel_backend
         if self.pipeline_parallel_backend is not None:
             export_lines["PIPELINE_PARALLEL_BACKEND"] = self.pipeline_parallel_backend
+        if self.fsdp_parallel_backend is not None:
+            export_lines["FSDP_PARALLEL_BACKEND"] = self.fsdp_parallel_backend
         if self.data_parallel_backend is not None:
             export_lines["DATA_PARALLEL_BACKEND"] = self.data_parallel_backend
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
@@ -413,17 +421,21 @@ srun \\
         # Gets parallelism environment variables.
         model_parallelism = int(os.environ.get("MODEL_PARALLELISM", "1"))
         pipeline_parallelism = int(os.environ.get("PIPELINE_PARALLELISM", "1"))
+        fsdp_parallelism = int(os.environ.get("FSDP_PARALLELISM", "1"))
         backend = os.environ.get("BACKEND", None)
         model_parallel_backend = os.environ.get("MODEL_PARALLEL_BACKEND", None)
         pipeline_parallel_backend = os.environ.get("PIPELINE_PARALLEL_BACKEND", None)
+        fsdp_parallel_backend = os.environ.get("FSDP_PARALLEL_BACKEND", None)
         data_parallel_backend = os.environ.get("DATA_PARALLEL_BACKEND", None)
 
         # Sets model parallelism.
         init_parallelism(
             model_parallelism=model_parallelism,
             pipeline_parallelism=pipeline_parallelism,
+            fsdp_parallelism=fsdp_parallelism,
             mp_backend=model_parallel_backend or backend,
             pp_backend=pipeline_parallel_backend or backend,
+            fp_backend=fsdp_parallel_backend or backend,
             dp_backend=data_parallel_backend or backend,
         )
 
