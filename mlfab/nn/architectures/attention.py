@@ -437,6 +437,8 @@ class TransformerEncoderLayer(nn.Module):
         state: The next state tensor.
     """
 
+    WRAP_FSDP = True
+
     def __init__(
         self,
         d_model: int,
@@ -617,6 +619,8 @@ class TransformerDecoderLayer(nn.Module):
         state: The next state tensor.
     """
 
+    WRAP_FSDP = True
+
     def __init__(
         self,
         d_model: int,
@@ -770,6 +774,8 @@ class TransformerEncoder(nn.Module):
 
     __constants__ = ["num_heads", "head_dim", "kdim", "vdim", "embed_dim", "is_causal", "use_rotary", "rotary_base"]
 
+    WRAP_FSDP = True
+
     def __init__(
         self,
         encoder_layer: TransformerEncoderLayer,
@@ -888,6 +894,8 @@ class TransformerDecoder(nn.Module):
     """
 
     __constants__ = ["num_heads", "head_dim", "kdim", "vdim", "embed_dim", "is_causal", "use_rotary", "rotary_base"]
+
+    WRAP_FSDP = True
 
     def __init__(
         self,
