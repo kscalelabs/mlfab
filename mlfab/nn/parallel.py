@@ -443,10 +443,32 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
     return _parallel_group_info
 
 
+def dp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.dp.rank
+
+
+def dp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
+
+
+def pp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.pp.rank
+
+
+def pp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.pp.world_size
+
+
+def mp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.mp.rank
+
+
+def mp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.mp.world_size
+
+
 def is_dp_master() -> bool:
-    if _parallel_group_info is None:
-        return is_master()
-    return _parallel_group_info.dp.rank == 0
+    return is_master() if _parallel_group_info is None else _parallel_group_info.dp.rank == 0
 
 
 def default_group_info() -> _GroupInfo | None:
@@ -800,7 +822,7 @@ class ParallelEmbedding(nn.Module):
         self._weight = None
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert embedding_dim % world_size == 0, f"{embedding_dim=} not divisible by {world_size=}"
         self.embedding_dim_per_rank = embedding_dim // world_size
 
@@ -878,7 +900,7 @@ class ColumnParallelLinear(nn.Module):
         self.stride = stride
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert out_features % world_size == 0, f"{out_features=} not divisible by {world_size=}"
         self.output_size_per_partition = out_features // world_size
 
@@ -967,7 +989,7 @@ class RowParallelLinear(nn.Module):
         self.stride = stride
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert in_features % world_size == 0, f"{in_features=} not divisible by {world_size=}"
         self.input_size_per_partition = in_features // world_size
 
