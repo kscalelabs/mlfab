@@ -48,7 +48,6 @@ attention implementation.
 """
 
 import copy
-import math
 from typing import Literal, TypeVar, cast, overload
 
 import torch
@@ -58,6 +57,7 @@ from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
+from mlfab.nn.init import InitializationType
 from mlfab.nn.norms import get_norm_linear
 from mlfab.nn.parallel import ColumnParallelLinear, RowParallelLinear
 
@@ -212,6 +212,7 @@ class MultiheadAttention(nn.Module):
         kdim: int | None = None,
         vdim: int | None = None,
         gqa_factor: int = 1,
+        init_type: InitializationType = "xavier_uniform",
     ) -> None:
         super().__init__()
 
@@ -231,38 +232,38 @@ class MultiheadAttention(nn.Module):
         self.kv_embed_dim = self.kv_num_heads * self.head_dim
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
-        self._qkv_same_embed_dim = self.kdim == embed_dim and self.vdim == embed_dim
 
-        if not self._qkv_same_embed_dim:
-            self.q_proj_weight = nn.Parameter(torch.empty((embed_dim, embed_dim)))
-            self.k_proj_weight = nn.Parameter(torch.empty((self.kv_embed_dim, self.kdim)))
-            self.v_proj_weight = nn.Parameter(torch.empty((self.kv_embed_dim, self.vdim)))
-            self.register_parameter("in_proj_weight", None)
-        else:
-            self.in_proj_weight = nn.Parameter(torch.empty((embed_dim + 2 * self.kv_embed_dim, embed_dim)))
-            self.register_parameter("q_proj_weight", None)
-            self.register_parameter("k_proj_weight", None)
-            self.register_parameter("v_proj_weight", None)
+        self.qproj = ColumnParallelLinear(
+            embed_dim,
+            embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-        if bias:
-            self.in_proj_bias = nn.Parameter(torch.empty(embed_dim + 2 * self.kv_embed_dim))
-        else:
-            self.register_parameter("in_proj_bias", None)
-        self.out_proj = RowParallelLinear(embed_dim, embed_dim, bias=bias, input_is_parallel=True)
+        self.kproj = ColumnParallelLinear(
+            self.kdim,
+            self.kv_embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-        self._reset_parameters()
+        self.vproj = ColumnParallelLinear(
+            self.vdim,
+            self.kv_embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-    def _reset_parameters(self) -> None:
-        if self._qkv_same_embed_dim:
-            nn.init.normal_(self.in_proj_weight, std=math.sqrt(1 / self.embed_dim))
-        else:
-            nn.init.normal_(self.q_proj_weight, std=math.sqrt(1 / self.embed_dim))
-            nn.init.normal_(self.k_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
-            nn.init.normal_(self.v_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
-
-        if self.in_proj_bias is not None:
-            nn.init.constant_(self.in_proj_bias, 0.0)
-            nn.init.constant_(self.out_proj.bias, 0.0)
+        self.out_proj = RowParallelLinear(
+            embed_dim,
+            embed_dim,
+            bias=bias,
+            input_is_parallel=True,
+            init_type=init_type,
+        )
 
     def forward_matmuls(
         self,
@@ -272,20 +273,12 @@ class MultiheadAttention(nn.Module):
         rotary_q_2qc: Tensor | None = None,
         rotary_k_2kc: Tensor | None = None,
     ) -> tuple[Tq, Tk, Tv]:
-        # Gets the query, key, and value weights and biases.
-        splits = (self.embed_dim, self.kv_embed_dim, self.kv_embed_dim)
-        if self._qkv_same_embed_dim:
-            qw_cc, kw_cc, vw_cc = self.in_proj_weight.split(splits, dim=0)
-        else:
-            qw_cc, kw_cc, vw_cc = self.q_proj_weight, self.k_proj_weight, self.v_proj_weight
-        qb_c, kb_c, vb_c = (None, None, None) if self.in_proj_bias is None else self.in_proj_bias.split(splits, dim=0)
-
         # Computes the query projection.
         if query_bqc is None:
             xq_bghqd = None
         else:
             assert query_bqc.dim() == 3
-            xq_bqc = F.linear(query_bqc, qw_cc, qb_c)
+            xq_bqc = self.qproj(query_bqc)
             xq_bghqd = xq_bqc.unflatten(-1, (self.gqa_factor, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
             if rotary_q_2qc is not None:
                 xq_bghqd = apply_rotary_embeddings(xq_bghqd.flatten(0, 2), rotary_q_2qc).view(xq_bghqd.shape)
@@ -295,7 +288,7 @@ class MultiheadAttention(nn.Module):
             xk_bghkd = None
         else:
             assert key_bkc.dim() == 3
-            xk_bkc = F.linear(key_bkc, kw_cc, kb_c)
+            xk_bkc = self.kproj(key_bkc)
             xk_bghkd = xk_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
             if rotary_k_2kc is not None:
                 xk_bghkd = apply_rotary_embeddings(xk_bghkd.flatten(0, 2), rotary_k_2kc).view(xk_bghkd.shape)
@@ -305,7 +298,7 @@ class MultiheadAttention(nn.Module):
             xv_bghkd = None
         else:
             assert value_bkc.dim() == 3
-            xv_bkc = F.linear(value_bkc, vw_cc, vb_c)
+            xv_bkc = self.vproj(value_bkc)
             xv_bghkd = xv_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
 
         return xq_bghqd, xk_bghkd, xv_bghkd
