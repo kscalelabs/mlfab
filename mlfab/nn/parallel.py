@@ -516,6 +516,7 @@ def init_parallelism(
             number of GPUs processing a single input will be the product
             of ``model_parallelism`` and ``pipeline_parallelism``.
         fsdp_parallelism: Number of FSDP parallel groups for hybrid sharding.
+            Use -1 to set FSDP parallelism to equal the local world size.
         mp_backend: Backend to use for model parallelism.
         pp_backend: Backend to use for pipeline parallelism.
         fp_backend: Backend to use for FSDP parallelism.
@@ -532,7 +533,9 @@ def init_parallelism(
     if not dist.is_initialized():
         raise ParallismError("Distributed training is not initialized.")
 
-    rank, world_size = dist.get_rank(), dist.get_world_size()
+    rank, world_size = get_rank(), get_world_size()
+    if fsdp_parallelism == -1:
+        fsdp_parallelism = get_local_world_size()
 
     # This is specific behavior - if model parallelism is too large for the
     # current machine, we just clamp it to whatever the world size is. We
@@ -595,7 +598,7 @@ def init_parallelism(
         return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
 
     dp_groups = get_groups(groups_dfpm.flatten(1).unbind(1), dp_backend)
-    fp_groups = get_groups(groups_dfpm.permute(1, 0, 2, 3).flatten(1).unbind(1), pp_backend)
+    fp_groups = get_groups(groups_dfpm.permute(1, 0, 2, 3).flatten(1).unbind(1), fp_backend)
     pp_groups = get_groups(groups_dfpm.permute(2, 0, 1, 3).flatten(1).unbind(1), pp_backend)
     mp_groups = get_groups(groups_dfpm.permute(3, 0, 1, 2).flatten(1).unbind(1), mp_backend)
 
