@@ -443,10 +443,32 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
     return _parallel_group_info
 
 
+def dp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.dp.rank
+
+
+def dp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
+
+
+def pp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.pp.rank
+
+
+def pp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.pp.world_size
+
+
+def mp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.mp.rank
+
+
+def mp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.mp.world_size
+
+
 def is_dp_master() -> bool:
-    if _parallel_group_info is None:
-        return is_master()
-    return _parallel_group_info.dp.rank == 0
+    return is_master() if _parallel_group_info is None else _parallel_group_info.dp.rank == 0
 
 
 def default_group_info() -> _GroupInfo | None:
@@ -613,7 +635,7 @@ class _ModelParallelCopy(Function):
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.reduce(grad, op=ctx.op), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.reduce(grad, op=ctx.op), None
 
 
 def mp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
@@ -640,7 +662,7 @@ class _ModelParallelReduce(Function):
         op: Any,  # noqa: ANN401
     ) -> Tensor:
         ctx.mark_dirty(x)
-        return parallel_group_info().mp.reduce(x, op=op)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.reduce(x, op=op)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
@@ -667,11 +689,11 @@ class _ModelParallelScatter(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return parallel_group_info().mp.split(x, dim=dim)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.split(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.gather(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.gather(grad, dim=ctx.dim), None
 
 
 def mp_scatter(x: Tensor, dim: int = -1) -> Tensor:
@@ -691,11 +713,11 @@ class _ModelParallelGather(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return parallel_group_info().mp.gather(x, dim=dim)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.gather(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.split(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.split(grad, dim=ctx.dim), None
 
 
 def mp_gather(x: Tensor, dim: int = -1) -> Tensor:
@@ -735,8 +757,7 @@ def initialize_model_parallel_affine_weight_(
     if weight.is_meta:
         return
 
-    mp_info = parallel_group_info().mp
-    rank, world_size = mp_info.rank, mp_info.world_size
+    rank, world_size = mp_rank(), mp_world_size()
 
     # For single GPU cases, just initialize normally.
     if world_size == 1:
@@ -800,7 +821,7 @@ class ParallelEmbedding(nn.Module):
         self._weight = None
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert embedding_dim % world_size == 0, f"{embedding_dim=} not divisible by {world_size=}"
         self.embedding_dim_per_rank = embedding_dim // world_size
 
@@ -878,7 +899,7 @@ class ColumnParallelLinear(nn.Module):
         self.stride = stride
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert out_features % world_size == 0, f"{out_features=} not divisible by {world_size=}"
         self.output_size_per_partition = out_features // world_size
 
@@ -967,7 +988,7 @@ class RowParallelLinear(nn.Module):
         self.stride = stride
 
         # Splits by world size.
-        world_size = parallel_group_info().mp.world_size
+        world_size = mp_world_size()
         assert in_features % world_size == 0, f"{in_features=} not divisible by {world_size=}"
         self.input_size_per_partition = in_features // world_size
 

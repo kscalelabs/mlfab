@@ -48,7 +48,6 @@ attention implementation.
 """
 
 import copy
-import math
 from typing import Literal, TypeVar, cast, overload
 
 import torch
@@ -58,7 +57,9 @@ from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
+from mlfab.nn.init import InitializationType
 from mlfab.nn.norms import get_norm_linear
+from mlfab.nn.parallel import ColumnParallelLinear, RowParallelLinear
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -207,10 +208,11 @@ class MultiheadAttention(nn.Module):
         embed_dim: int,
         head_dim: int,
         dropout: float = 0.0,
-        bias: bool = True,
+        bias: bool = False,
         kdim: int | None = None,
         vdim: int | None = None,
         gqa_factor: int = 1,
+        init_type: InitializationType = "xavier_uniform",
     ) -> None:
         super().__init__()
 
@@ -230,38 +232,38 @@ class MultiheadAttention(nn.Module):
         self.kv_embed_dim = self.kv_num_heads * self.head_dim
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
-        self._qkv_same_embed_dim = self.kdim == embed_dim and self.vdim == embed_dim
 
-        if not self._qkv_same_embed_dim:
-            self.q_proj_weight = nn.Parameter(torch.empty((embed_dim, embed_dim)))
-            self.k_proj_weight = nn.Parameter(torch.empty((self.kv_embed_dim, self.kdim)))
-            self.v_proj_weight = nn.Parameter(torch.empty((self.kv_embed_dim, self.vdim)))
-            self.register_parameter("in_proj_weight", None)
-        else:
-            self.in_proj_weight = nn.Parameter(torch.empty((embed_dim + 2 * self.kv_embed_dim, embed_dim)))
-            self.register_parameter("q_proj_weight", None)
-            self.register_parameter("k_proj_weight", None)
-            self.register_parameter("v_proj_weight", None)
+        self.qproj = ColumnParallelLinear(
+            embed_dim,
+            embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-        if bias:
-            self.in_proj_bias = nn.Parameter(torch.empty(embed_dim + 2 * self.kv_embed_dim))
-        else:
-            self.register_parameter("in_proj_bias", None)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.kproj = ColumnParallelLinear(
+            self.kdim,
+            self.kv_embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-        self._reset_parameters()
+        self.vproj = ColumnParallelLinear(
+            self.vdim,
+            self.kv_embed_dim,
+            bias=bias,
+            gather_output=False,
+            init_type=init_type,
+        )
 
-    def _reset_parameters(self) -> None:
-        if self._qkv_same_embed_dim:
-            nn.init.normal_(self.in_proj_weight, std=math.sqrt(1 / self.embed_dim))
-        else:
-            nn.init.normal_(self.q_proj_weight, std=math.sqrt(1 / self.embed_dim))
-            nn.init.normal_(self.k_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
-            nn.init.normal_(self.v_proj_weight, std=math.sqrt(2 / (self.kv_embed_dim + self.embed_dim)))
-
-        if self.in_proj_bias is not None:
-            nn.init.constant_(self.in_proj_bias, 0.0)
-            nn.init.constant_(self.out_proj.bias, 0.0)
+        self.out_proj = RowParallelLinear(
+            embed_dim,
+            embed_dim,
+            bias=bias,
+            input_is_parallel=True,
+            init_type=init_type,
+        )
 
     def forward_matmuls(
         self,
@@ -271,20 +273,12 @@ class MultiheadAttention(nn.Module):
         rotary_q_2qc: Tensor | None = None,
         rotary_k_2kc: Tensor | None = None,
     ) -> tuple[Tq, Tk, Tv]:
-        # Gets the query, key, and value weights and biases.
-        splits = (self.embed_dim, self.kv_embed_dim, self.kv_embed_dim)
-        if self._qkv_same_embed_dim:
-            qw_cc, kw_cc, vw_cc = self.in_proj_weight.split(splits, dim=0)
-        else:
-            qw_cc, kw_cc, vw_cc = self.q_proj_weight, self.k_proj_weight, self.v_proj_weight
-        qb_c, kb_c, vb_c = (None, None, None) if self.in_proj_bias is None else self.in_proj_bias.split(splits, dim=0)
-
         # Computes the query projection.
         if query_bqc is None:
             xq_bghqd = None
         else:
             assert query_bqc.dim() == 3
-            xq_bqc = F.linear(query_bqc, qw_cc, qb_c)
+            xq_bqc = self.qproj(query_bqc)
             xq_bghqd = xq_bqc.unflatten(-1, (self.gqa_factor, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
             if rotary_q_2qc is not None:
                 xq_bghqd = apply_rotary_embeddings(xq_bghqd.flatten(0, 2), rotary_q_2qc).view(xq_bghqd.shape)
@@ -294,7 +288,7 @@ class MultiheadAttention(nn.Module):
             xk_bghkd = None
         else:
             assert key_bkc.dim() == 3
-            xk_bkc = F.linear(key_bkc, kw_cc, kb_c)
+            xk_bkc = self.kproj(key_bkc)
             xk_bghkd = xk_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
             if rotary_k_2kc is not None:
                 xk_bghkd = apply_rotary_embeddings(xk_bghkd.flatten(0, 2), rotary_k_2kc).view(xk_bghkd.shape)
@@ -304,7 +298,7 @@ class MultiheadAttention(nn.Module):
             xv_bghkd = None
         else:
             assert value_bkc.dim() == 3
-            xv_bkc = F.linear(value_bkc, vw_cc, vb_c)
+            xv_bkc = self.vproj(value_bkc)
             xv_bghkd = xv_bkc.unflatten(-1, (1, self.kv_num_heads, self.head_dim)).permute(0, 2, 3, 1, 4)
 
         return xq_bghqd, xk_bghkd, xv_bghkd
@@ -416,8 +410,6 @@ class TransformerEncoderLayer(nn.Module):
             is multiplied to get the feedforward hidden dimension.
         dropout: The dropout probability, applied to the attention matrix.
         norm_eps: The layer normalization epsilon value.
-        norm_first: Whether to apply layer normalization before the attention
-            layer.
         norm_type: The type of normalization to use.
         gqa_factor: The GQA factor to use, meaning the ratio of the number of
             queries to the number of keys. Higher values will result in more
@@ -445,8 +437,6 @@ class TransformerEncoderLayer(nn.Module):
         state: The next state tensor.
     """
 
-    __constants__ = ["norm_first"]
-
     def __init__(
         self,
         d_model: int,
@@ -454,7 +444,6 @@ class TransformerEncoderLayer(nn.Module):
         feedforward_factor: float = 4.0,
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
-        norm_first: bool = True,
         norm_type: Literal["layer", "rms"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
@@ -476,13 +465,12 @@ class TransformerEncoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = nn.Linear(d_model, hidden_dim)
+        self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
         self.dropout = nn.Dropout(dropout)
-        self.activation = nn.ReLU()
-        self.linear2 = nn.Linear(hidden_dim, d_model)
+        self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
+        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
 
         # Extras (norms and dropout).
-        self.norm_first = norm_first
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
@@ -498,15 +486,10 @@ class TransformerEncoderLayer(nn.Module):
         mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         x_btc = src_btc
-        if self.norm_first:
-            xi_btc = self.norm1(x_btc)
-            xi_btc, state = self._sa_block(xi_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
-            x_btc = x_btc + xi_btc
-            x_btc = x_btc + self._ff_block(self.norm2(x_btc))
-        else:
-            xi_btc, state = self._sa_block(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
-            x_btc = self.norm1(x_btc + xi_btc)
-            x_btc = self.norm2(x_btc + self._ff_block(x_btc))
+        xi_btc = self.norm1(x_btc)
+        xi_btc, state = self._sa_block(xi_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+        x_btc = x_btc + xi_btc
+        x_btc = x_btc + self._ff_block(self.norm2(x_btc))
         return x_btc, state
 
     def _get_qkv(
@@ -580,7 +563,9 @@ class TransformerEncoderLayer(nn.Module):
         )
 
     def _ff_block_inner(self, x_btc: Tensor) -> Tensor:
-        x_btc = self.linear2(self.dropout(self.activation(self.linear1(x_btc))))
+        # LLaMa-3 matrix multiplication.
+        x_btc = self.dropout(F.silu(self.linear1(x_btc)) * self.linear3(x_btc))
+        x_btc = self.linear2(x_btc)
         return self.dropout2(x_btc)
 
     def _ff_block(self, x_btc: Tensor) -> Tensor:
@@ -609,8 +594,6 @@ class TransformerDecoderLayer(nn.Module):
             is multiplied to get the feedforward hidden dimension.
         dropout: The dropout probability, applied to the attention matrix.
         norm_eps: The layer normalization epsilon value.
-        norm_first: Whether to apply layer normalization before the attention
-            layer.
         gqa_factor: The GQA factor to use, meaning the ratio of the number of
             queries to the number of keys. Higher values will result in more
             queries than keys, which can speed up inference.
@@ -634,8 +617,6 @@ class TransformerDecoderLayer(nn.Module):
         state: The next state tensor.
     """
 
-    __constants__ = ["norm_first"]
-
     def __init__(
         self,
         d_model: int,
@@ -644,7 +625,6 @@ class TransformerDecoderLayer(nn.Module):
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
-        norm_first: bool = True,
         gqa_factor: int = 1,
         memory_dims: int | None = None,
         use_checkpointing: bool = False,
@@ -666,13 +646,12 @@ class TransformerDecoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = nn.Linear(d_model, hidden_dim)
+        self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
         self.dropout = nn.Dropout(dropout)
-        self.activation = nn.ReLU()
-        self.linear2 = nn.Linear(hidden_dim, d_model)
+        self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
+        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
 
         # Extras (norms and dropout).
-        self.norm_first = norm_first
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
@@ -686,15 +665,10 @@ class TransformerDecoderLayer(nn.Module):
         mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         x_bqc = src_bqc
-        if self.norm_first:
-            xi_bqc = self.norm1(x_bqc)
-            xi_bqc, state = self._sa_block(xi_bqc, memory_bkc, state, mask_bqk)
-            x_bqc = x_bqc + xi_bqc
-            x_bqc = x_bqc + self._ff_block(self.norm2(x_bqc))
-        else:
-            xi_bqc, state = self._sa_block(x_bqc, memory_bkc, state, mask_bqk)
-            x_bqc = self.norm1(x_bqc + xi_bqc)
-            x_bqc = self.norm2(x_bqc + self._ff_block(x_bqc))
+        xi_bqc = self.norm1(x_bqc)
+        xi_bqc, state = self._sa_block(xi_bqc, memory_bkc, state, mask_bqk)
+        x_bqc = x_bqc + xi_bqc
+        x_bqc = x_bqc + self._ff_block(self.norm2(x_bqc))
         return x_bqc, state
 
     def _get_qkv(self, x_bqc: Tensor, memory_bkc: Tensor, state: Tensor | None) -> tuple[Tensor, Tensor, Tensor]:
@@ -740,7 +714,9 @@ class TransformerDecoderLayer(nn.Module):
         )
 
     def _ff_block_inner(self, x_bqc: Tensor) -> Tensor:
-        x_bqc = self.linear2(self.dropout(self.activation(self.linear1(x_bqc))))
+        # LLaMa-3 matrix multiplication.
+        x_bqc = self.dropout(F.silu(self.linear1(x_bqc)) * self.linear3(x_bqc))
+        x_bqc = self.linear2(x_bqc)
         return self.dropout2(x_bqc)
 
     def _ff_block(self, x_bqc: Tensor) -> Tensor:
@@ -1035,7 +1011,6 @@ class NextTokenTransformer(nn.Module):
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
-        norm_first: bool = True,
         final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
@@ -1054,7 +1029,6 @@ class NextTokenTransformer(nn.Module):
                 dropout=dropout,
                 norm_eps=norm_eps,
                 norm_type=norm_type,
-                norm_first=norm_first,
                 gqa_factor=gqa_factor,
                 max_kv_cache_len=max_kv_cache_len,
             ),
@@ -1062,16 +1036,14 @@ class NextTokenTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Sequential(
-            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
-            nn.Linear(d_model, vocab_size),
-        )
+        self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
+        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False, gather_output=True)
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
         x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
         x_btc, _ = self.attn(x_btc, is_causal=True)
-        logits_btc = self.proj(x_btc)
+        logits_btc = self.proj(self.norm(x_btc))
         return logits_btc
 
     def infer(
@@ -1085,14 +1057,14 @@ class NextTokenTransformer(nn.Module):
     ) -> Tensor:
         x_b1c: Tensor = self.init_emb.expand(bsz, 1, -1)
         x_b1c, state = self.attn(x_b1c)
-        logits_b1l = self.proj(x_b1c)
+        logits_b1l = self.proj(self.norm(x_b1c))
         tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
         tokens_b1 = tokens_bt[:, :1]
 
         for _ in range(1, t):
             x_b1c = self.embeddings(tokens_b1)
             x_b1c, state = self.attn(x_b1c, state)
-            logits_b1l = self.proj(x_b1c)
+            logits_b1l = self.proj(self.norm(x_b1c))
             tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
             tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
 
@@ -1117,7 +1089,6 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         dropout: float = 0.1,
         norm_eps: float = 1e-5,
         norm_type: Literal["layer", "rms"] = "rms",
-        norm_first: bool = True,
         final_norm_type: Literal["layer", "rms", "no_norm"] = "rms",
         gqa_factor: int = 1,
         max_kv_cache_len: int | None = None,
@@ -1136,7 +1107,6 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
                 dropout=dropout,
                 norm_eps=norm_eps,
                 norm_type=norm_type,
-                norm_first=norm_first,
                 gqa_factor=gqa_factor,
                 max_kv_cache_len=max_kv_cache_len,
             ),
@@ -1144,17 +1114,15 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             use_rotary=use_rotary,
             rotary_base=rotary_base,
         )
-        self.proj = nn.Sequential(
-            get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps),
-            nn.Linear(d_model, vocab_size),
-        )
+        self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
+        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])
         x_btc = torch.cat((self.init_emb.expand(x_btc.size(0), 1, -1), x_btc), dim=1)
         x_btc = x_btc + emb_btc
         x_btc, _ = self.attn(x_btc, is_causal=True)
-        logits_btc = self.proj(x_btc)
+        logits_btc = self.proj(self.norm(x_btc))
         return logits_btc, x_btc
 
     def infer(
@@ -1168,7 +1136,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
         x_b1c: Tensor = self.init_emb.expand(emb_btc.size(0), 1, -1)
         x_b1c = x_b1c + emb_btc[:, :1]
         x_b1c, state = self.attn(x_b1c)
-        logits_b1l = self.proj(x_b1c)
+        logits_b1l = self.proj(self.norm(x_b1c))
         tokens_bt = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
         tokens_b1 = tokens_bt[:, :1]
 
@@ -1177,7 +1145,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             x_b1c = self.embeddings(tokens_b1) + emb_btc[:, t : t + 1]
             x_b1c, state = self.attn(x_b1c, state)
             x_list_btc.append(x_b1c)
-            logits_b1l = self.proj(x_b1c)
+            logits_b1l = self.proj(self.norm(x_b1c))
             tokens_b1 = sample_from_logits(logits_b1l, sampling_strategy, k=k, p=p, temperature=temperature)
             tokens_bt = torch.cat((tokens_bt, tokens_b1), dim=1)
 
