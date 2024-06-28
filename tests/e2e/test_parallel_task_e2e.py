@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 import torch
 from dpshdl.dataset import Dataset
-from omegaconf import MISSING
 from torch import Tensor
 
 import mlfab
