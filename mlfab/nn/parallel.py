@@ -422,6 +422,7 @@ class _GroupInfo:
 class _GroupsInfos:
     mp: _GroupInfo
     pp: _GroupInfo
+    fp: _GroupInfo
     dp: _GroupInfo
 
 
@@ -443,12 +444,12 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
     return _parallel_group_info
 
 
-def dp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.dp.rank
+def mp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.mp.rank
 
 
-def dp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
+def mp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.mp.world_size
 
 
 def pp_rank() -> int:
@@ -459,12 +460,20 @@ def pp_world_size() -> int:
     return 1 if _parallel_group_info is None else _parallel_group_info.pp.world_size
 
 
-def mp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.mp.rank
+def fp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.fp.rank
 
 
-def mp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.mp.world_size
+def fp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.fp.world_size
+
+
+def dp_rank() -> int:
+    return 0 if _parallel_group_info is None else _parallel_group_info.dp.rank
+
+
+def dp_world_size() -> int:
+    return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
 
 
 def is_dp_master() -> bool:
@@ -491,9 +500,11 @@ class ParallismError(Exception):
 def init_parallelism(
     model_parallelism: int = 1,
     pipeline_parallelism: int = 1,
+    fsdp_parallelism: int = 1,
     *,
     mp_backend: str | Backend | None = None,
     pp_backend: str | Backend | None = None,
+    fp_backend: str | Backend | None = None,
     dp_backend: str | Backend | None = None,
 ) -> None:
     """Initializes parallelism groups and parameters.
@@ -504,8 +515,10 @@ def init_parallelism(
         pipeline_parallelism: Number of pipeline parallel layers. The total
             number of GPUs processing a single input will be the product
             of ``model_parallelism`` and ``pipeline_parallelism``.
+        fsdp_parallelism: Number of FSDP parallel groups for hybrid sharding.
         mp_backend: Backend to use for model parallelism.
         pp_backend: Backend to use for pipeline parallelism.
+        fp_backend: Backend to use for FSDP parallelism.
         dp_backend: Backend to use for data parallelism.
 
     Raises:
@@ -537,18 +550,23 @@ def init_parallelism(
     # Validates parallelism for current world size.
     if world_size % model_parallelism != 0:
         raise ParallismError(f"{world_size=} is not divisible by {model_parallelism=}")
-    if world_size % (model_parallelism * pipeline_parallelism) != 0:
-        pipeline_size = model_parallelism * pipeline_parallelism
+    if world_size % (model_parallelism * pipeline_parallelism * fsdp_parallelism) != 0:
+        pipeline_size = model_parallelism * pipeline_parallelism * fsdp_parallelism
         raise ParallismError(f"{world_size=} is not divisible by {pipeline_size=}")
 
-    data_parallelism = world_size // (model_parallelism * pipeline_parallelism)
+    data_parallelism = world_size // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
 
     logger.info(
-        "Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s\n ↪ %s parallelism %s",
+        (
+            "Parallism configuration\n ↪ %s parallelism %s\n ↪ %s "
+            "parallelism %s\n ↪ %s parallelism %s\n ↪ %s parallelism %s"
+        ),
         colored("Model", "light-green"),
         colored(str(model_parallelism), "light-cyan", bold=True),
         colored("Pipeline", "light-green"),
         colored(str(pipeline_parallelism), "light-cyan", bold=True),
+        colored("FSDP", "light-green"),
+        colored(str(fsdp_parallelism), "light-cyan", bold=True),
         colored("Data", "light-green"),
         colored(str(data_parallelism), "light-cyan", bold=True),
     )
@@ -557,37 +575,44 @@ def init_parallelism(
     #   [2, 3]],
     #  [[4, 5],
     #   [6, 7]]]
-    groups_dpm = torch.arange(world_size).view(data_parallelism, pipeline_parallelism, model_parallelism)
+    groups_dfpm = torch.arange(world_size).view(
+        data_parallelism,
+        fsdp_parallelism,
+        pipeline_parallelism,
+        model_parallelism,
+    )
 
     # We split this way so that two near-by GPUs are more likely to be in the
     # same model parallel group than data parallel group. This is because for
     # typical environments we have data parallel groups that are on separate
     # devices.
-    dp_group_id = rank % (model_parallelism * pipeline_parallelism)
-    pp_group_id = (rank // pipeline_parallelism) % model_parallelism
-    mp_group_id = rank // (model_parallelism * pipeline_parallelism)
+    dp_group_id = rank % (model_parallelism * pipeline_parallelism * fsdp_parallelism)
+    fp_group_id = (rank // fsdp_parallelism) % (model_parallelism * pipeline_parallelism)
+    pp_group_id = (rank // (pipeline_parallelism * fsdp_parallelism)) % model_parallelism
+    mp_group_id = rank // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
 
     def get_groups(groups: Sequence[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
         return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
 
-    # [[0, 4], [1, 5], [2, 6], [3, 7]].
-    dp_groups = get_groups(groups_dpm.flatten(1).unbind(1), dp_backend)
-    # [[0, 2], [1, 3], [4, 6], [5, 7]
-    pp_groups = get_groups(groups_dpm.transpose(0, 1).flatten(1).unbind(1), pp_backend)
-    # [[0, 1], [2, 3], [4, 5], [6, 7]]
-    mp_groups = get_groups(groups_dpm.flatten(0, 1).unbind(0), mp_backend)
+    dp_groups = get_groups(groups_dfpm.flatten(1).unbind(1), dp_backend)
+    fp_groups = get_groups(groups_dfpm.permute(1, 0, 2, 3).flatten(1).unbind(1), pp_backend)
+    pp_groups = get_groups(groups_dfpm.permute(2, 0, 1, 3).flatten(1).unbind(1), pp_backend)
+    mp_groups = get_groups(groups_dfpm.permute(3, 0, 1, 2).flatten(1).unbind(1), mp_backend)
 
     # We need to initialize all groups across all devices, but then we choose
     # the specific group for this device.
     dp_group, dp_ids = dp_groups[dp_group_id]
+    fp_group, fp_ids = fp_groups[fp_group_id]
     pp_group, pp_ids = pp_groups[pp_group_id]
     mp_group, mp_ids = mp_groups[mp_group_id]
 
     assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
+    assert len(fp_ids) == fsdp_parallelism, f"{len(fp_ids)=} != {fsdp_parallelism=}"
     assert len(pp_ids) == pipeline_parallelism, f"{len(pp_ids)=} != {pipeline_parallelism=}"
     assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
 
-    dp_rank = rank // (model_parallelism * pipeline_parallelism)
+    dp_rank = rank // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
+    fp_rank = (rank // (model_parallelism * pipeline_parallelism)) % fsdp_parallelism
     pp_rank = (rank // model_parallelism) % pipeline_parallelism
     mp_rank = rank % model_parallelism
 
@@ -603,6 +628,12 @@ def init_parallelism(
             group=pp_group,
             global_ranks=pp_ids,
             rank=pp_rank,
+            world_size=pipeline_parallelism,
+        ),
+        fp=_GroupInfo(
+            group=fp_group,
+            global_ranks=fp_ids,
+            rank=fp_rank,
             world_size=pipeline_parallelism,
         ),
         dp=_GroupInfo(
@@ -1171,9 +1202,11 @@ class MultiProcessConfig:
     init_method: str = field("env://", help="The initialization method")
     model_parallelism: int = field(1, help="The number of model parallel processes")
     pipeline_parallelism: int = field(1, help="The number of pipeline parallel processes")
+    fsdp_parallelism: int = field(1, help="The number of hybrid shards for the FSDP process group")
     distributed_backend: str | None = field(None, help="The distributed backend")
     model_parallel_backend: str | None = field(None, help="The model parallel backend")
     pipeline_parallel_backend: str | None = field(None, help="The pipeline parallel backend")
+    fsdp_parallel_backend: str | None = field(None, help="The FSDP parallel backend")
     data_parallel_backend: str | None = field(None, help="The data parallel backend")
     multiprocess_launch_method: str = field("spawn", help="The launch method for multiprocessing")
 
@@ -1260,8 +1293,10 @@ def init_and_run(
     init_parallelism(
         model_parallelism=cfg.model_parallelism,
         pipeline_parallelism=cfg.pipeline_parallelism,
+        fsdp_parallelism=cfg.fsdp_parallelism,
         mp_backend=cfg.distributed_backend if cfg.model_parallel_backend is None else cfg.model_parallel_backend,
         pp_backend=cfg.distributed_backend if cfg.pipeline_parallel_backend is None else cfg.pipeline_parallel_backend,
+        fp_backend=cfg.distributed_backend if cfg.fsdp_parallel_backend is None else cfg.fsdp_parallel_backend,
         dp_backend=cfg.distributed_backend if cfg.data_parallel_backend is None else cfg.data_parallel_backend,
     )
 
