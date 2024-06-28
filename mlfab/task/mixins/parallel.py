@@ -148,6 +148,8 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if (use_ddp := self.config.use_ddp) is None:
             use_ddp = parallel_group_info().fp.world_size == 1
         if use_ddp:
+            if parallel_group_info().fp.world_size > 1:
+                raise RuntimeError("FSDP process groups aren't supported with DDP")
             return ddp(model)
         if not torch.cuda.is_available():
             raise RuntimeError("FSDP requires CUDA")
