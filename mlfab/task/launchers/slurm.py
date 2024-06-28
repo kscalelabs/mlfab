@@ -249,11 +249,11 @@ class SlurmLauncher(StagedLauncher):
     @property
     def extra_export_lines(self) -> str:
         export_lines: dict[str, str] = {}
-        if self.model_parallelism > 1:
+        if self.model_parallelism != 1:
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
-        if self.pipeline_parallelism > 1:
+        if self.pipeline_parallelism != 1:
             export_lines["PIPELINE_PARALLELISM"] = str(self.pipeline_parallelism)
-        if self.fsdp_parallelism > 1:
+        if self.fsdp_parallelism != 1:
             export_lines["FSDP_PARALLELISM"] = str(self.fsdp_parallelism)
         if self.backend is not None:
             export_lines["BACKEND"] = self.backend
