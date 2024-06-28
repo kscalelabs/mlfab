@@ -468,7 +468,7 @@ class TransformerEncoderLayer(nn.Module):
         self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = ColumnParallelLinear(hidden_dim, d_model, bias=False, gather_output=False)
+        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
@@ -649,7 +649,7 @@ class TransformerDecoderLayer(nn.Module):
         self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = ColumnParallelLinear(hidden_dim, d_model, bias=False, gather_output=False)
+        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
