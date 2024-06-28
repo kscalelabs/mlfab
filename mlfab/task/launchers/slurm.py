@@ -114,10 +114,16 @@ def parse_sinfo_output() -> list[PartitionInfo]:
 class SlurmArgs:
     partition: str | None
     gpus_per_node: int | None
+    cpus_per_gpu: int | None
     num_nodes: int
+    gpu_type: str | None
+    exclusive: bool
+    time_limit: str | None
     num_jobs: int
+    comment: str | None
     account: str | None
     nodelist: list[str] | None
+    master_port: int | None
 
 
 class SlurmLauncher(StagedLauncher):
@@ -139,6 +145,8 @@ class SlurmLauncher(StagedLauncher):
         time_limit: str | None = None,
         num_jobs: int = 1,
         comment: str | None = None,
+        account: str | None = None,
+        nodelist: list[str] | None = None,
         master_port: int | None = None,
         model_parallelism: int = 1,
         pipeline_parallelism: int = 1,
@@ -148,8 +156,6 @@ class SlurmLauncher(StagedLauncher):
         pipeline_parallel_backend: str | None = None,
         fsdp_parallel_backend: str | None = None,
         data_parallel_backend: str | None = None,
-        account: str | None = None,
-        nodelist: list[str] | None = None,
     ) -> None:
         super().__init__()
 
@@ -195,20 +201,32 @@ class SlurmLauncher(StagedLauncher):
         parser = argparse.ArgumentParser(description="Launches a Slurm job.")
         parser.add_argument("--partition", type=str, default=None, help="The partition to use")
         parser.add_argument("--gpus-per-node", type=int, default=None, help="The number of GPUs per node")
+        parser.add_argument("--cpus-per-gpu", type=int, default=None, help="The number of CPUs per GPU")
         parser.add_argument("--num-nodes", type=int, default=1, help="The number of nodes to use")
+        parser.add_argument("--gpu-type", type=str, default=None, help="Type of GPU to use")
+        parser.add_argument("--exclusive", action="store_true", help="If set, use exclusive nodes")
+        parser.add_argument("--time-limit", type=str, default=None, help="Time limit for each job")
         parser.add_argument("--num-jobs", type=int, default=1, help="The number of jobs to launch")
+        parser.add_argument("--comment", type=str, default=None, help="Comment to add to each job")
         parser.add_argument("--account", type=str, default=None, help="The account to use")
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
+        parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
             SlurmArgs(
                 partition=args.partition,
                 gpus_per_node=args.gpus_per_node,
+                cpus_per_gpu=args.cpus_per_gpu,
                 num_nodes=args.num_nodes,
+                gpu_type=args.gpu_type,
+                exclusive=args.exclusive,
+                time_limit=args.time_limit,
                 num_jobs=args.num_jobs,
+                comment=args.comment,
                 account=args.account,
                 nodelist=args.nodelist,
+                master_port=args.master_port,
             ),
             remaining_args,
         )
