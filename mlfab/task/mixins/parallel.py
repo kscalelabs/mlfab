@@ -70,7 +70,7 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
     group_info = parallel_group_info()
 
     if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
-        if group_info.mp.world_size == 1:
+        if group_info.fp.world_size == 1:
             logger.info("Using NO_SHARD FSDP strategy")
             sharding_strategy = ShardingStrategy.NO_SHARD
         elif group_info.dp.world_size == 1:
@@ -82,9 +82,9 @@ def fsdp(model: nn.Module, cfg: ParallelConfig, mixed_precision: MixedPrecision 
 
     process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
     if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-        process_group = group_info.mp.group, group_info.dp.group
-    else:
-        process_group = group_info.mp.group
+        process_group = group_info.fp.group, group_info.dp.group
+    elif sharding_strategy:
+        process_group = group_info.fp.group
 
     if cfg.fsdp_cpu_offload:
         logger.warning("CPU offloading doesn't support gradient accumulation")
