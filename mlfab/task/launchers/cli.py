@@ -41,7 +41,11 @@ class CliLauncher(BaseLauncher):
             case "single":
                 SingleProcessLauncher().launch(task, *cfgs, use_cli=use_cli_next)
             case "mp":
-                MultiProcessLauncher().launch(task, *cfgs, use_cli=use_cli_next)
+                multi_process_args, cli_args_rest = MultiProcessLauncher.parse_args_from_cli(cli_args_rest)
+                use_cli_next = False if not use_cli else cli_args_rest
+                MultiProcessLauncher(
+                    num_processes=multi_process_args.num_processes,
+                ).launch(task, *cfgs, use_cli=use_cli_next)
             case "slurm":
                 slurm_args, cli_args_rest = SlurmLauncher.parse_args_from_cli(cli_args_rest)
                 use_cli_next = False if not use_cli else cli_args_rest

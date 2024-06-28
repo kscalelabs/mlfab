@@ -120,7 +120,7 @@ def test_parallel_model(use_lora: bool) -> None:
         master_addr="127.0.0.1",
         master_port=port,
         init_method=f"tcp://127.0.0.1:{port}",
-        backend="gloo",
+        distributed_backend="gloo",
         model_parallelism=2,
         pipeline_parallelism=1,
     )

@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from types import FrameType
 from typing import Callable, TypeVar
 
+from mlfab.nn.parallel import MultiProcessConfig
 from mlfab.task.base import BaseConfig, BaseTask, RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
 
 
 @dataclass(kw_only=True)
-class RunnableConfig(BaseConfig):
+class RunnableConfig(BaseConfig, MultiProcessConfig):
     pass
 
 

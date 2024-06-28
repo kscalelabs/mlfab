@@ -64,8 +64,10 @@ import functools
 import logging
 import math
 import os
+import pickle as pkl
 import socket
 import sys
+import tempfile
 import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, ParamSpec, Sequence, TypeVar, cast, overload
@@ -427,9 +429,24 @@ _parallel_group_info: _GroupsInfos | None = None
 _default_group_info: _GroupInfo | None = None
 
 
-def parallel_group_info() -> _GroupsInfos:
-    assert _parallel_group_info is not None
+@overload
+def parallel_group_info(required: Literal[True] = True) -> _GroupsInfos: ...
+
+
+@overload
+def parallel_group_info(required: Literal[False]) -> _GroupsInfos | None: ...
+
+
+def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
+    if required:
+        assert _parallel_group_info is not None
     return _parallel_group_info
+
+
+def is_dp_master() -> bool:
+    if _parallel_group_info is None:
+        return is_master()
+    return _parallel_group_info.dp.rank == 0
 
 
 def default_group_info() -> _GroupInfo | None:
@@ -518,31 +535,39 @@ def init_parallelism(
     #   [2, 3]],
     #  [[4, 5],
     #   [6, 7]]]
-    groups = torch.arange(world_size).view(data_parallelism, pipeline_parallelism, model_parallelism)
+    groups_dpm = torch.arange(world_size).view(data_parallelism, pipeline_parallelism, model_parallelism)
 
     # We split this way so that two near-by GPUs are more likely to be in the
     # same model parallel group than data parallel group. This is because for
     # typical environments we have data parallel groups that are on separate
     # devices.
-    dp_rank = rank % (model_parallelism * pipeline_parallelism)
-    pp_rank = (rank // pipeline_parallelism) % model_parallelism
-    mp_rank = rank // (model_parallelism * pipeline_parallelism)
+    dp_group_id = rank % (model_parallelism * pipeline_parallelism)
+    pp_group_id = (rank // pipeline_parallelism) % model_parallelism
+    mp_group_id = rank // (model_parallelism * pipeline_parallelism)
 
     def get_groups(groups: Sequence[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
         return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
 
     # [[0, 4], [1, 5], [2, 6], [3, 7]].
-    dp_groups = get_groups(groups.flatten(1).unbind(1), dp_backend)
+    dp_groups = get_groups(groups_dpm.flatten(1).unbind(1), dp_backend)
     # [[0, 2], [1, 3], [4, 6], [5, 7]
-    pp_groups = get_groups(groups.transpose(0, 1).flatten(1).unbind(1), pp_backend)
+    pp_groups = get_groups(groups_dpm.transpose(0, 1).flatten(1).unbind(1), pp_backend)
     # [[0, 1], [2, 3], [4, 5], [6, 7]]
-    mp_groups = get_groups(groups.flatten(0, 1).unbind(0), mp_backend)
+    mp_groups = get_groups(groups_dpm.flatten(0, 1).unbind(0), mp_backend)
 
     # We need to initialize all groups across all devices, but then we choose
     # the specific group for this device.
-    dp_group, dp_ids = dp_groups[dp_rank]
-    pp_group, pp_ids = pp_groups[pp_rank]
-    mp_group, mp_ids = mp_groups[mp_rank]
+    dp_group, dp_ids = dp_groups[dp_group_id]
+    pp_group, pp_ids = pp_groups[pp_group_id]
+    mp_group, mp_ids = mp_groups[mp_group_id]
+
+    assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
+    assert len(pp_ids) == pipeline_parallelism, f"{len(pp_ids)=} != {pipeline_parallelism=}"
+    assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
+
+    dp_rank = rank // (model_parallelism * pipeline_parallelism)
+    pp_rank = (rank // model_parallelism) % pipeline_parallelism
+    mp_rank = rank % model_parallelism
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
@@ -1125,11 +1150,11 @@ class MultiProcessConfig:
     init_method: str = field("env://", help="The initialization method")
     model_parallelism: int = field(1, help="The number of model parallel processes")
     pipeline_parallelism: int = field(1, help="The number of pipeline parallel processes")
-    backend: str | None = field(None, help="The distributed backend")
+    distributed_backend: str | None = field(None, help="The distributed backend")
     model_parallel_backend: str | None = field(None, help="The model parallel backend")
     pipeline_parallel_backend: str | None = field(None, help="The pipeline parallel backend")
     data_parallel_backend: str | None = field(None, help="The data parallel backend")
-    launch_method: str = field("spawn", help="The launch method for multiprocessing")
+    multiprocess_launch_method: str = field("spawn", help="The launch method for multiprocessing")
 
 
 def init_process_group_from_backend(backend: str | dist.Backend | None = None) -> None:
@@ -1208,15 +1233,15 @@ def init_and_run(
         master_addr=cfg.master_addr,
         master_port=cfg.master_port,
         init_method=cfg.init_method,
-        backend=cfg.backend,
+        backend=cfg.distributed_backend,
     )
 
     init_parallelism(
         model_parallelism=cfg.model_parallelism,
         pipeline_parallelism=cfg.pipeline_parallelism,
-        mp_backend=cfg.backend if cfg.model_parallel_backend is None else cfg.model_parallel_backend,
-        pp_backend=cfg.backend if cfg.pipeline_parallel_backend is None else cfg.pipeline_parallel_backend,
-        dp_backend=cfg.backend if cfg.data_parallel_backend is None else cfg.data_parallel_backend,
+        mp_backend=cfg.distributed_backend if cfg.model_parallel_backend is None else cfg.model_parallel_backend,
+        pp_backend=cfg.distributed_backend if cfg.pipeline_parallel_backend is None else cfg.pipeline_parallel_backend,
+        dp_backend=cfg.distributed_backend if cfg.data_parallel_backend is None else cfg.data_parallel_backend,
     )
 
     func(*args, **kwargs)
@@ -1226,7 +1251,7 @@ def _func_wrapped(
     func: Callable[P, None],
     setup: Callable[[], None] | None,
     cfg: MultiProcessConfig,
-    error_queue: "mp.SimpleQueue[str | None]",
+    error_file: str,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
@@ -1240,10 +1265,9 @@ def _func_wrapped(
         logger.info("Caught KeyboardInterrupt; exiting")
 
     except Exception:
-        error_queue.put(traceback.format_exc())
+        with open(error_file, "wb") as fh:
+            pkl.dump(traceback.format_exc(), fh)
         sys.exit(1)
-
-    error_queue.put(None)
 
 
 def cleanup() -> None:
@@ -1258,6 +1282,7 @@ def launch_subprocesses(
     cfg: MultiProcessConfig | None = None,
     setup: Callable[[], None] | None = None,
     rank_offset: int = 0,
+    daemon: bool = False,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
@@ -1269,10 +1294,9 @@ def launch_subprocesses(
         args: The positional arguments to pass to the function.
         setup: A function to run before launching the subprocesses.
         rank_offset: The offset to add to the rank of each subprocess.
+        daemon: The spawned processes' daemon flag. If set to True, daemonic
+            processes will be created.
         kwargs: The keyword arguments to pass to the function.
-
-    Raises:
-        RuntimeError: If the function fails in any subprocess.
     """
     if cfg is None:
         cfg = MultiProcessConfig()
@@ -1286,37 +1310,37 @@ def launch_subprocesses(
         cfg.local_rank = 0
         init_and_run(func, cfg, *args, **kwargs)
         cleanup()
-        return
+        return None
 
     logger.info("Launching %d training workers", cfg.world_size)
-    ctx = mp.get_context(cfg.launch_method)
-    error_queues: list["mp.SimpleQueue[str | None]"] = []
+    ctx = mp.get_context(cfg.multiprocess_launch_method)
+    error_files: list[str | None] = []
     procs = []
     for rank in range(cfg.world_size):
         rank = rank + rank_offset
-        error_queue = ctx.SimpleQueue()
         cfg.rank = rank
         cfg.local_rank = rank % cfg.local_world_size
+
+        # Using a tempfile to write error logs to.
+        tf = tempfile.NamedTemporaryFile(prefix="mlfab-errorfile-", suffix=".pickle", delete=False)
+        tf.close()
+        os.unlink(tf.name)
+
         proc = ctx.Process(
             target=_func_wrapped,
-            args=[func, setup, cfg, error_queue, *args],
+            args=[func, setup, cfg, tf.name, *args],
             kwargs=kwargs,
-            daemon=False,
+            daemon=daemon,
             name=f"worker-{rank}",
         )
         logger.debug("Started process %d", rank)
         proc.start()
-        error_queues.append(error_queue)
+        error_files.append(tf.name)
         procs.append(proc)
 
-    pctx = mp.ProcessContext(procs, error_queues)
+    pctx = mp.ProcessContext(procs, error_files)
     while not pctx.join():
         pass
-
-    for rank, error_queue in enumerate(error_queues):
-        error = error_queue.get()
-        if error:
-            raise RuntimeError(f"Process {rank} failed with error:\n{error}")
 
     cleanup()
 

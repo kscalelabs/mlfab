@@ -14,7 +14,7 @@ from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import is_master
+from mlfab.nn.parallel import is_dp_master, parallel_group_info
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
@@ -31,9 +31,16 @@ def get_ckpt_path(exp_dir: Path, state: State | None = None) -> Path:
     Returns:
         The path to the PyTorch checkpoint to save or load
     """
-    if state is None:
-        return exp_dir / "checkpoints" / "ckpt.pt"
-    return exp_dir / "checkpoints" / f"ckpt.{state.num_steps}.pt"
+    name = "ckpt"
+    ginfo = parallel_group_info(required=False)
+    if ginfo is not None:
+        world_size = ginfo.mp.world_size * ginfo.pp.world_size
+        if world_size > 1:
+            rank = ginfo.mp.rank * ginfo.pp.world_size + ginfo.pp.rank
+            name += f"_{rank}"
+    if state is not None:
+        name += f".{state.num_steps}"
+    return exp_dir / "checkpoints" / f"{name}.pt"
 
 
 @dataclass(kw_only=True)
@@ -282,7 +289,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
-        if not is_master():
+        if not is_dp_master():
             return ckpt_path
 
         # Gets the path to the last checkpoint.
