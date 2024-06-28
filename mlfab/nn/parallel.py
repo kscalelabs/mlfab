@@ -635,7 +635,7 @@ class _ModelParallelCopy(Function):
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.reduce(grad, op=ctx.op), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.reduce(grad, op=ctx.op), None
 
 
 def mp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
@@ -662,7 +662,7 @@ class _ModelParallelReduce(Function):
         op: Any,  # noqa: ANN401
     ) -> Tensor:
         ctx.mark_dirty(x)
-        return parallel_group_info().mp.reduce(x, op=op)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.reduce(x, op=op)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
@@ -689,11 +689,11 @@ class _ModelParallelScatter(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return parallel_group_info().mp.split(x, dim=dim)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.split(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.gather(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.gather(grad, dim=ctx.dim), None
 
 
 def mp_scatter(x: Tensor, dim: int = -1) -> Tensor:
@@ -713,11 +713,11 @@ class _ModelParallelGather(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return parallel_group_info().mp.gather(x, dim=dim)
+        return x if _parallel_group_info is None else _parallel_group_info.mp.gather(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return parallel_group_info().mp.split(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else _parallel_group_info.mp.split(grad, dim=ctx.dim), None
 
 
 def mp_gather(x: Tensor, dim: int = -1) -> Tensor:
@@ -757,8 +757,7 @@ def initialize_model_parallel_affine_weight_(
     if weight.is_meta:
         return
 
-    mp_info = parallel_group_info().mp
-    rank, world_size = mp_info.rank, mp_info.world_size
+    rank, world_size = mp_rank(), mp_world_size()
 
     # For single GPU cases, just initialize normally.
     if world_size == 1:
