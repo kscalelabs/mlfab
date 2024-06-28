@@ -17,7 +17,6 @@ import mlfab
 @dataclass(kw_only=True)
 class Config(mlfab.Config):
     use_ddp: bool = mlfab.field(True)
-    lora_rank: int | None = mlfab.field(MISSING)
     learning_rate: float = mlfab.field(1e-3)
     betas: tuple[float, float] = mlfab.field((0.9, 0.999))
     weight_decay: float = mlfab.field(1e-4)
@@ -37,9 +36,9 @@ class DummyTask(mlfab.Task[Config]):
         super().__init__(config)
 
         # A simple embedding layer plus two-layer MLP.
-        self.emb = mlfab.maybe_lora(mlfab.ParallelEmbedding(10, 12), config.lora_rank, freeze=False)
-        self.l1 = mlfab.maybe_lora(mlfab.ColumnParallelLinear(12, 16, bias=False), config.lora_rank, freeze=False)
-        self.l2 = mlfab.maybe_lora(mlfab.RowParallelLinear(16, 8, bias=False), config.lora_rank, freeze=False)
+        self.emb = mlfab.ParallelEmbedding(10, 12)
+        self.l1 = mlfab.ColumnParallelLinear(12, 16, bias=False)
+        self.l2 = mlfab.RowParallelLinear(16, 8, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.l2(self.l1(self.emb(x)))
@@ -53,8 +52,7 @@ class DummyTask(mlfab.Task[Config]):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("lora_rank", (None, 2))
-def test_e2e_parallel_training_mp(tmpdir: Path, lora_rank: int | None) -> None:
+def test_e2e_parallel_training_mp(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
@@ -63,7 +61,6 @@ def test_e2e_parallel_training_mp(tmpdir: Path, lora_rank: int | None) -> None:
     mlfab.configure_logging()
 
     config = Config(
-        lora_rank=lora_rank,
         pipeline_parallelism=1,
         model_parallelism=2,
         batch_size=2,
@@ -95,4 +92,4 @@ def test_e2e_parallel_training_mp(tmpdir: Path, lora_rank: int | None) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_parallel_task_e2e
-    test_e2e_parallel_training_mp(Path(tempfile.mkdtemp()), None)
+    test_e2e_parallel_training_mp(Path(tempfile.mkdtemp()))
