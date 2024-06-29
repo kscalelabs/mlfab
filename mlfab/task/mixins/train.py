@@ -476,12 +476,12 @@ class TrainMixin(
         self.set_loggers()
 
         with self.step_context("model_to_device"):
-            mod = TrainableModule(self)
-            self.device_manager.module_to(mod)
-            mod = self.get_wrapped_model(mod)
+            wrapped_module = TrainableModule(self)
+            self.device_manager.module_to(wrapped_module)
+            self.module = self.get_wrapped_model(wrapped_module)
 
         with self.step_context("create_optimizers"):
-            self.set_optimizer(mod)
+            self.set_optimizer(self.module)
 
         if is_master():
             Thread(target=self.log_state, daemon=True).start()
@@ -550,12 +550,12 @@ class TrainMixin(
                         raise TrainingFinishedError
 
                     if self.is_valid_step(state):
-                        self.val_step(mod, next(valid_pf_iter), state)
+                        self.val_step(self.module, next(valid_pf_iter), state)
 
                     with self.step_context("on_step_start"):
                         self.on_step_start(state)
 
-                    loss_dict = self.train_step(mod, batch_iterator(), state)
+                    loss_dict = self.train_step(self.module, batch_iterator(), state)
 
                     if self.should_checkpoint(state):
                         with self.step_context("save_checkpoint"):

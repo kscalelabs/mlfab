@@ -17,6 +17,11 @@ from typing import Generic, Self, TypeVar, cast
 
 from omegaconf import Container, DictConfig, OmegaConf
 from torch import Tensor, nn
+from torch.distributed.fsdp import (
+    FullStateDictConfig,
+    FullyShardedDataParallel as FSDP,
+    StateDictType,
+)
 
 from mlfab.core.state import State, field
 from mlfab.utils.text import camelcase_to_snakecase
@@ -68,9 +73,22 @@ class BaseTask(nn.Module, Generic[Config]):
         super().__init__()
 
         self.config = config
+        self._module: nn.Module | None = None
 
         if isinstance(self.config, Container):
             OmegaConf.resolve(self.config)
+
+    @property
+    def module(self) -> nn.Module:
+        if self._module is None:
+            raise RuntimeError("Module has not been set!")
+        return self._module
+
+    @module.setter
+    def module(self, module: nn.Module) -> None:
+        if self._module is not None:
+            raise RuntimeError("Module has already been set!")
+        self._module = module
 
     def on_before_forward_step(self, state: State) -> None:
         pass
@@ -106,11 +124,20 @@ class BaseTask(nn.Module, Generic[Config]):
         assign: bool = False,
         weights_only: bool = False,
     ) -> None:
-        weights = state_dict.pop("weights")
-        return self.load_state_dict(weights, strict=strict, assign=assign)
+        if self._module is not None:
+            weights = state_dict.pop("weights")
+            self._module.load_state_dict(weights, strict=strict, assign=assign)
 
     def task_state_dict(self) -> dict:
-        return {"weights": self.state_dict()}
+        if self._module is None:
+            return {}
+        if isinstance(self._module, FSDP):
+            save_policy = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+            with FSDP.state_dict_type(self._module, StateDictType.FULL_STATE_DICT, save_policy):
+                cpu_state = self._module.state_dict()
+        else:
+            cpu_state = self._module.state_dict()
+        return {"weights": cpu_state}
 
     @functools.cached_property
     def task_class_name(self) -> str:
