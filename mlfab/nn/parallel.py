@@ -70,7 +70,7 @@ import sys
 import tempfile
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, ParamSpec, Sequence, TypeVar, cast, overload
+from typing import Any, Callable, Literal, ParamSpec, TypeVar, cast, overload
 
 import torch
 import torch.distributed as dist
@@ -582,10 +582,10 @@ def init_parallelism(
         colored(str(data_parallelism), "light-cyan", bold=True),
     )
 
-    # [[[0, 1],
-    #   [2, 3]],
-    #  [[4, 5],
-    #   [6, 7]]]
+    # We split this way so that two near-by GPUs are more likely to be in the
+    # same model parallel group than data parallel group. This is because for
+    # typical environments we have data parallel groups that are on separate
+    # devices.
     groups_dfpm = torch.arange(world_size).view(
         data_parallelism,
         fsdp_parallelism,
@@ -593,29 +593,29 @@ def init_parallelism(
         model_parallelism,
     )
 
-    # We split this way so that two near-by GPUs are more likely to be in the
-    # same model parallel group than data parallel group. This is because for
-    # typical environments we have data parallel groups that are on separate
-    # devices.
-    dp_group_id = rank % (model_parallelism * pipeline_parallelism * fsdp_parallelism)
-    fp_group_id = (rank // fsdp_parallelism) % (model_parallelism * pipeline_parallelism)
-    pp_group_id = (rank // (pipeline_parallelism * fsdp_parallelism)) % model_parallelism
-    mp_group_id = rank // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
-
-    def get_groups(groups: Sequence[Tensor], backend: str | Backend | None) -> list[tuple[ProcessGroup, list[int]]]:
-        return [(dist.new_group(group.tolist(), backend=backend), group.tolist()) for group in groups]
-
-    dp_groups = get_groups(groups_dfpm.flatten(1).unbind(1), dp_backend)
-    fp_groups = get_groups(groups_dfpm.permute(1, 0, 2, 3).flatten(1).unbind(1), fp_backend)
-    pp_groups = get_groups(groups_dfpm.permute(2, 0, 1, 3).flatten(1).unbind(1), pp_backend)
-    mp_groups = get_groups(groups_dfpm.permute(3, 0, 1, 2).flatten(1).unbind(1), mp_backend)
+    def get_group(groups_nd: Tensor, backend: str | Backend | None) -> tuple[ProcessGroup, list[int]]:
+        assert groups_nd.dim() == 2
+        group: tuple[ProcessGroup, list[int]] | None = None
+        for i in range(groups_nd.size(0)):
+            group_ranks = groups_nd[i].tolist()
+            group_i = dist.new_group(group_ranks, backend=backend)
+            if rank in group_ranks:
+                group = (group_i, group_ranks)
+        if group is None:
+            raise RuntimeError(f"{rank=} not found in {groups_nd}")
+        return group
 
     # We need to initialize all groups across all devices, but then we choose
     # the specific group for this device.
-    dp_group, dp_ids = dp_groups[dp_group_id]
-    fp_group, fp_ids = fp_groups[fp_group_id]
-    pp_group, pp_ids = pp_groups[pp_group_id]
-    mp_group, mp_ids = mp_groups[mp_group_id]
+    dp_group, dp_ids = get_group(groups_dfpm.permute(1, 2, 3, 0).flatten(0, 2), dp_backend)
+    fp_group, fp_ids = get_group(groups_dfpm.permute(0, 2, 3, 1).flatten(0, 2), fp_backend)
+    pp_group, pp_ids = get_group(groups_dfpm.permute(0, 1, 3, 2).flatten(0, 2), pp_backend)
+    mp_group, mp_ids = get_group(groups_dfpm.permute(0, 1, 2, 3).flatten(0, 2), mp_backend)
+
+    assert isinstance(dp_group, ProcessGroup), dp_group
+    assert isinstance(fp_group, ProcessGroup), fp_group
+    assert isinstance(pp_group, ProcessGroup), pp_group
+    assert isinstance(mp_group, ProcessGroup), mp_group
 
     assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
     assert len(fp_ids) == fsdp_parallelism, f"{len(fp_ids)=} != {fsdp_parallelism=}"
