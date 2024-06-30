@@ -34,12 +34,7 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
 
         self._optimizer: Optimizer | None = None
 
-    @property
-    def optimizer(self) -> Optimizer:
-        assert self._optimizer is not None
-        return self._optimizer
-
-    def build_optimizer(self) -> OptType:
+    def get_optimizer_builder(self) -> OptType:
         """Gets the optimizer builder for the current model.
 
         If the return type is a single optimizer, then a constant learning rate
@@ -61,31 +56,8 @@ class OptimizerMixin(BaseTask[Config], Generic[Config], ABC):
             weight_decay=self.config.weight_decay,
         )
 
-    def set_optimizer(self, model: nn.Module) -> None:
-        if self._optimizer is not None:
-            raise RuntimeError("Optimizer has already been set!")
-        optimizer_builder = self.build_optimizer()
-        self._optimizer = optimizer_builder(model)
+    def build_optimizer(self, model: nn.Module) -> Optimizer:
+        return self.get_optimizer_builder()(model)
 
-    def zero_optimizer(self) -> None:
-        self.optimizer.zero_grad(set_to_none=self.config.set_grads_to_none)
-
-    def load_task_state_dict_(
-        self,
-        state_dict: dict,
-        strict: bool = True,
-        assign: bool = False,
-        weights_only: bool = False,
-    ) -> None:
-        if self._optimizer is None:
-            return super().load_task_state_dict_(state_dict, strict, assign, weights_only)
-        optimizer_state = state_dict.pop("optimizer", [])
-        if not weights_only:
-            self._optimizer.load_state_dict(optimizer_state)
-        return super().load_task_state_dict_(state_dict, strict, assign, weights_only)
-
-    def task_state_dict(self) -> dict:
-        state_dict = super().task_state_dict()
-        if self._optimizer is not None:
-            state_dict.update({"optimizer": self._optimizer.state_dict()})
-        return state_dict
+    def zero_optimizer(self, optimizer: Optimizer) -> None:
+        optimizer.zero_grad(set_to_none=self.config.set_grads_to_none)

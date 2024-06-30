@@ -1,15 +1,24 @@
 """Defines a mixin for handling model checkpointing."""
 
+import contextlib
 import json
 import logging
 import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Literal, Self, TypeVar, cast, overload
+from typing import Callable, ContextManager, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
 from omegaconf import DictConfig, OmegaConf
+from torch import nn
+from torch.distributed.fsdp import (
+    FullOptimStateDictConfig,
+    FullStateDictConfig,
+    FullyShardedDataParallel as FSDP,
+    StateDictType,
+)
+from torch.optim.optimizer import Optimizer
 from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
@@ -238,8 +247,21 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
+    @classmethod
+    def state_dict_context(cls, mod: nn.Module, opt: Optimizer) -> ContextManager:
+        if isinstance(mod, FSDP):
+            return FSDP.state_dict_type(
+                module=mod,
+                state_dict_type=StateDictType.FULL_STATE_DICT,
+                state_dict_config=FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+                optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True),
+            )
+        return contextlib.nullcontext()
+
     def load_checkpoint_(
         self,
+        module: nn.Module,
+        optimizer: Optimizer | None = None,
         ckpt_path: str | Path | None = None,
         map_location: MAP_LOCATION = None,
         mmap: bool | None = None,
@@ -281,7 +303,13 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return True
         return False
 
-    def save_checkpoint(self, state: State, ckpt_path: str | Path | None = None) -> Path:
+    def save_checkpoint(
+        self,
+        state: State,
+        module: nn.Module,
+        optimizer: Optimizer,
+        ckpt_path: str | Path | None = None,
+    ) -> Path:
         ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
@@ -299,7 +327,11 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 base_ckpt.unlink()
 
         # Saves the complete state dict to the checkpoint.
-        state_dict = self.task_state_dict()
+        state_dict: dict = {}
+        with self.state_dict_context(module, optimizer):
+            state_dict["model"] = module.state_dict()
+            state_dict["optimizer"] = optimizer.state_dict()
+        state_dict["task"] = self.task_state_dict()
         state_dict["state"] = json.dumps(asdict(state))
         state_dict["config"] = OmegaConf.to_yaml(self.config)
         torch.save(state_dict, ckpt_path)

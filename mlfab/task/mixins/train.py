@@ -18,6 +18,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 from torch import Tensor, nn
+from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import Phase, State
@@ -310,13 +311,19 @@ class TrainMixin(
             for k, v in d.items():
                 self.log_scalar(k, v, namespace=ns)
 
-    def train_step(self, mod: nn.Module, batches: Iterator[tuple[Batch, bool]], state: State) -> dict[str, Tensor]:
+    def train_step(
+        self,
+        mod: nn.Module,
+        opt: Optimizer,
+        batches: Iterator[tuple[Batch, bool]],
+        state: State,
+    ) -> dict[str, Tensor]:
         with self.step_context("change_mode"):
             state.set_phase(self, "train")
         total_bsz: int | None = None
         losses: dict[str, tuple[Tensor, int]] = {}
         with self.step_context("zero_grads"):
-            self.zero_optimizer()
+            self.zero_optimizer(opt)
         num_steps = 0
         with self.autocast_context:
             for batch, is_last in batches:
@@ -345,7 +352,7 @@ class TrainMixin(
             loss_dict = {k: value / count for k, (value, count) in losses.items()}
             self.log_loss_dict(loss_dict, state)
         with self.step_context("step"):
-            self.step_optimizer(mod, self.optimizer, num_steps)
+            self.step_optimizer(mod, opt, num_steps)
         with self.step_context("write_logs"), self.autocast_context:
             self.write_logs(state)
         with self.step_context("update_state"):
@@ -476,18 +483,20 @@ class TrainMixin(
         self.set_loggers()
 
         with self.step_context("model_to_device"):
-            wrapped_module = TrainableModule(self)
-            self.device_manager.module_to(wrapped_module)
-            self.module = self.get_wrapped_model(wrapped_module)
+            mod = TrainableModule(self)
+            self.device_manager.module_to(mod)
+            mod = self.get_wrapped_model(mod)
 
         with self.step_context("create_optimizers"):
-            self.set_optimizer(self.module)
+            opt = self.build_optimizer(mod)
 
         if is_master():
             Thread(target=self.log_state, daemon=True).start()
 
         with self.step_context("load_checkpoint"):
             state = self.load_checkpoint_(
+                module=mod,
+                optimizer=opt,
                 map_location=self.device_manager.device,
                 strict=self.config.init_state_strict,
                 mmap=self.config.init_state_mmap,
@@ -511,7 +520,7 @@ class TrainMixin(
         self.on_training_start(state)
 
         def on_exit() -> None:
-            self.save_checkpoint(state)
+            self.save_checkpoint(state, mod, opt)
 
         # Handle user-defined interrupts during the training loop.
         self.add_signal_handler(on_exit, signal.SIGUSR1)
@@ -550,16 +559,16 @@ class TrainMixin(
                         raise TrainingFinishedError
 
                     if self.is_valid_step(state):
-                        self.val_step(self.module, next(valid_pf_iter), state)
+                        self.val_step(mod, next(valid_pf_iter), state)
 
                     with self.step_context("on_step_start"):
                         self.on_step_start(state)
 
-                    loss_dict = self.train_step(self.module, batch_iterator(), state)
+                    loss_dict = self.train_step(mod, opt, batch_iterator(), state)
 
                     if self.should_checkpoint(state):
                         with self.step_context("save_checkpoint"):
-                            self.save_checkpoint(state)
+                            self.save_checkpoint(state, mod, opt)
 
                     if profile is not None:
                         profile.step()
@@ -569,7 +578,7 @@ class TrainMixin(
 
         except TrainingFinishedError:
             with self.step_context("save_checkpoint"):
-                self.save_checkpoint(state)
+                self.save_checkpoint(state, mod, opt)
             if is_master():
                 show_info(
                     f"Finished training after {state.num_steps} steps, {state.num_samples} samples",

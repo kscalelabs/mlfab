@@ -78,9 +78,9 @@ def test_e2e_parallel_training_mp(tmpdir: Path) -> None:
         ckpt = torch.load(ckpt_path)
 
         # Checks that the model was saved correctly.
-        assert ckpt["weights"]["emb.weight"].shape == (10, 6)
-        assert ckpt["weights"]["l1.weight"].shape == (8, 12)
-        assert ckpt["weights"]["l2.weight"].shape == (8, 8)
+        assert ckpt["model"]["module.mod.emb.weight"].shape == (10, 6)
+        assert ckpt["model"]["module.mod.l1.weight"].shape == (8, 12)
+        assert ckpt["model"]["module.mod.l2.weight"].shape == (8, 8)
 
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)

@@ -22,7 +22,7 @@ from torch.distributed.fsdp.wrap import (
     CustomPolicy,
 )
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
-from torch.optim import Optimizer
+from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.nn.parallel import all_params_are_cuda, get_world_size, parallel_group_info

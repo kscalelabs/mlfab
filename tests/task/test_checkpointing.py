@@ -4,6 +4,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 import torch
 from dpshdl.dataset import Dataset
 from torch import Tensor, nn
@@ -42,13 +43,16 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
+@pytest.mark.slow
 def test_model_serialization(tmpdir: Path) -> None:
     task = DummyTask(Config(batch_size=1))
+    mod = task
+    opt = task.build_optimizer(mod)
     ckpt_path = Path(tmpdir / "ckpt.pt")
-    task.save_checkpoint(mlfab.State.init_state(), ckpt_path)
+    task.save_checkpoint(mlfab.State.init_state(), mod, opt, ckpt_path)
     _, raw_checkpoint = task.load_raw_checkpoint(ckpt_path)
-    assert not any(k.startswith("pretrained") for k in raw_checkpoint["weights"].keys())
-    task.load_checkpoint_(ckpt_path)
+    assert not any(k.startswith("pretrained") for k in raw_checkpoint["model"].keys())
+    task.load_checkpoint_(mod, opt, ckpt_path)
 
 
 if __name__ == "__main__":
