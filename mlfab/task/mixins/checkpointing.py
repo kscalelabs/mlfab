@@ -7,11 +7,14 @@ import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, ContextManager, Generic, Literal, Self, TypeVar, cast, overload
+from typing import Any, Callable, ContextManager, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
 from omegaconf import DictConfig, OmegaConf
-from torch import nn
+from torch import Tensor, nn
+from torch.distributed._tensor.api import DTensor
+from torch.distributed.checkpoint import load as load_ckpt, save as save_ckpt
+from torch.distributed.checkpoint.filesystem import FileSystemReader, FileSystemWriter
 from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     ShardedOptimStateDictConfig,
@@ -20,45 +23,50 @@ from torch.distributed.fsdp import (
 )
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torch.optim.optimizer import Optimizer
-from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import dp_rank, get_rank, mp_rank, mp_world_size
+from mlfab.nn.functions import recursive_apply_all
+from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
 logger = logging.getLogger(__name__)
 
 
-def get_ckpt_path(exp_dir: Path, state: State | None = None) -> Path:
-    """Defines the path to the checkpoint for a given state.
+def dtensor_to_tensor(t: Any) -> Any:  # noqa: ANN401
+    if isinstance(t, DTensor):
+        return t.to_local()
+    return t
 
-    Args:
-        exp_dir: The experiment directory
-        state: The current trainer state
 
-    Returns:
-        The path to the PyTorch checkpoint to save or load
-    """
-    name = "ckpt"
-    if mp_world_size() > 1:
-        name += f"_{mp_rank()}"
-    if state is not None:
-        name += f".{state.num_steps}"
-    return exp_dir / "checkpoints" / f"{name}.pt"
+def dtensors_to_tensors(t: Any) -> Any:  # noqa: ANN401
+    return recursive_apply_all(t, dtensor_to_tensor)
+
+
+def tensor_to_dtensor(t: Any) -> Any:  # noqa: ANN401
+    if isinstance(t, Tensor):
+        return DTensor.from_local(t, device_mesh=device_mesh(t.device.type)["tp"])
+    return t
+
+
+def tensors_to_dtensors(t: Any) -> Any:  # noqa: ANN401
+    return recursive_apply_all(t, tensor_to_dtensor)
 
 
 @dataclass(kw_only=True)
 class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
-    only_save_most_recent: bool = field(True, help="Only keep the most recent checkpoint")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
-    load_ckpt_strict: bool = field(True, help="If set, only load weights for which have a matching key in the model")
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
+
+
+class CustomPickler(pickle.Pickler):
+    def persistent_id(self, obj: Any) -> Any:  # noqa: ANN401
+        return None
 
 
 class CustomUnpickler(pickle.Unpickler):
@@ -70,6 +78,7 @@ class CustomUnpickler(pickle.Unpickler):
 
 
 class CustomPickleModule:
+    Pickler = CustomPickler
     Unpickler = CustomUnpickler
 
 
@@ -79,16 +88,11 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         self.__last_ckpt_time = 0.0
 
-    def get_ckpt_path(self, state: State | None = None) -> Path:
-        return get_ckpt_path(self.exp_dir, state)
+    def get_ckpt_path(self) -> Path:
+        return self.exp_dir / "checkpoints"
 
     @classmethod
-    def read_state_dict(
-        cls,
-        path: str | Path,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
-    ) -> dict:
+    def read_state_dict(cls, path: str | Path) -> dict:
         """Reads a state dict from a checkpoint file.
 
         Args:
@@ -99,7 +103,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         Returns:
             The state dict loaded from the checkpoint
         """
-        return torch.load(path, map_location=map_location, mmap=mmap, pickle_module=CustomPickleModule)
+        ckpt_path = Path(path)
+        weight_dict: dict = {}
+        load_ckpt(
+            state_dict=weight_dict,
+            storage_reader=FileSystemReader(ckpt_path),
+            # process_group=mp_group(),
+        )
+        state_dict = torch.load(ckpt_path / "state_dict.pth", map_location="cpu", pickle_module=CustomPickleModule)
+        return {**weight_dict, **state_dict}
 
     @overload
     @classmethod
@@ -110,8 +122,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         missing_ok: Literal[True],
         raw: Literal[True],
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[DictConfig, dict]: ...
 
@@ -124,8 +134,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         missing_ok: Literal[False] = False,
         raw: Literal[True],
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[DictConfig, dict]: ...
 
@@ -138,8 +146,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         missing_ok: Literal[True],
         raw: Literal[False] = False,
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[Config | None, dict]: ...
 
@@ -152,8 +158,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         missing_ok: Literal[False] = False,
         raw: Literal[False] = False,
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[Config, dict]: ...
 
@@ -165,8 +169,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         missing_ok: bool = False,
         raw: bool = False,
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> tuple[Config | DictConfig | None, dict]:
         """Loads a raw checkpoint from a file.
@@ -177,15 +179,13 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             raw: If set, return the raw config, otherwise parse against the
                 config dataclass
             use_cli: Whether to use CLI overrides
-            map_location: The device to map the state dict to
-            mmap: Whether to map the checkpoint to memory
             config_fn: A function to apply to the loaded config, to help with
                 versioning checkpoints
 
         Returns:
             The raw config and state dict loaded from the checkpoint
         """
-        state_dict = cls.read_state_dict(path, map_location=map_location, mmap=mmap)
+        state_dict = cls.read_state_dict(path)
         raw_config = state_dict.pop("config", None)
         if raw_config is None:
             if missing_ok:
@@ -205,8 +205,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         strict: bool = True,
         assign: bool = False,
         use_cli: bool | list[str] = False,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         config_fn: Callable[[DictConfig], DictConfig] = lambda x: x,
     ) -> Self:
         """Loads a task from a checkpoint file.
@@ -216,8 +214,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             strict: Whether to strictly load the checkpoint
             assign: Whether to assign the checkpoint to the task
             use_cli: Whether to use CLI overrides
-            map_location: The device to map the state dict to
-            mmap: Whether to map the checkpoint to memory
             config_fn: A function to apply to the loaded config
 
         Returns:
@@ -226,8 +222,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cfg, state_dict = cls.load_raw_checkpoint(
             path,
             use_cli=use_cli,
-            map_location=map_location,
-            mmap=mmap,
             config_fn=config_fn,
         )
         task = cls(cfg)
@@ -264,8 +258,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         module: nn.Module,
         optimizer: Optimizer,
         ckpt_path: str | Path | None = None,
-        map_location: MAP_LOCATION = None,
-        mmap: bool | None = None,
         strict: bool = True,
         assign: bool = False,
     ) -> State:
@@ -275,13 +267,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return State.init_state()
         else:
             ckpt_path = Path(ckpt_path)
-        raw_config, state_dict = self.load_raw_checkpoint(
-            ckpt_path,
-            missing_ok=False,
-            raw=True,
-            map_location=map_location,
-            mmap=mmap,
-        )
+        raw_config, state_dict = self.load_raw_checkpoint(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
@@ -291,8 +277,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         with self.state_dict_context(module, optimizer):
             if (module_state_dict := state_dict.pop("model", None)) is not None:
                 consume_prefix_in_state_dict_if_present(module_state_dict, "module.")
+                module_state_dict = tensors_to_dtensors(module_state_dict)
                 module.load_state_dict(module_state_dict)
             if (optimizer_state_dict := state_dict.pop("optimizer", None)) is not None:
+                optimizer_state_dict = tensors_to_dtensors(optimizer_state_dict)
                 if isinstance(module, FSDP):
                     optimizer_state_dict = FSDP.optim_state_dict_to_load(module, optimizer, optimizer_state_dict)
                 optimizer.load_state_dict(optimizer_state_dict)
@@ -322,46 +310,44 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         ckpt_path: str | Path | None = None,
     ) -> Path:
-        ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
+        ckpt_path = self.get_ckpt_path() if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
-        last_ckpt_path = self.get_ckpt_path()
-        ckpt_path.parent.mkdir(exist_ok=True, parents=True)
-
-        # Potentially removes the last checkpoint.
-        if last_ckpt_path.exists() and self.config.only_save_most_recent:
-            if (base_ckpt := last_ckpt_path.resolve()).is_file():
-                base_ckpt.unlink()
+        ckpt_path.mkdir(exist_ok=True, parents=True)
 
         # Saves the complete state dict to the checkpoint.
-        state_dict: dict = {}
+        weight_dict: dict = {}
         with self.state_dict_context(module, optimizer):
-            state_dict["model"] = module.state_dict()
+            module_state_dict = module.state_dict()
+            # module_state_dict = dtensors_to_tensors(module.state_dict())
+            weight_dict["model"] = module_state_dict
+
             if isinstance(module, FSDP):
-                state_dict["optimizer"] = FSDP.optim_state_dict(module, optimizer)
+                optimizer_state_dict = FSDP.optim_state_dict(module, optimizer)
             else:
-                state_dict["optimizer"] = optimizer.state_dict()
-        state_dict["task"] = self.task_state_dict()
-        state_dict["state"] = json.dumps(asdict(state))
-        state_dict["config"] = OmegaConf.to_yaml(self.config)
+                optimizer_state_dict = optimizer.state_dict()
+            # optimizer_state_dict = dtensors_to_tensors(optimizer_state_dict)
+            weight_dict["optimizer"] = optimizer_state_dict
 
         if dp_rank() == 0:
-            torch.save(state_dict, ckpt_path)
+            save_ckpt(
+                state_dict=weight_dict,
+                storage_writer=FileSystemWriter(ckpt_path),
+                process_group=mp_group(),
+            )
 
-        # Updates the symlink to the new checkpoint.
-        last_ckpt_path.unlink(missing_ok=True)
-        try:
-            last_ckpt_path.symlink_to(ckpt_path.relative_to(last_ckpt_path.parent))
-        except FileExistsError:
-            logger.exception("Exception while trying to update %s", ckpt_path)
-        except ValueError:
-            logger.warning("Could not create symlink to %s", ckpt_path)
-
-        # Marks directory as having artifacts which shouldn't be overwritten.
         if get_rank() == 0:
+            state_dict: dict = {}
+            state_dict["task"] = self.task_state_dict()
+            state_dict["state"] = json.dumps(asdict(state))
+            state_dict["config"] = OmegaConf.to_yaml(self.config)
+            torch.save(state_dict, ckpt_path / "state_dict.pth", pickle_module=CustomPickleModule)
+
+            # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)
+
         self.on_after_save_checkpoint(ckpt_path)
 
         return ckpt_path

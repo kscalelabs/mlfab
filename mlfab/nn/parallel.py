@@ -5,58 +5,6 @@ Before using this module, you should initialize all the process groups
 using :func:`mlfab.nn.parallel.init_dist`. This will create two process group
 for model parallelism and data parallelism. The process group information can
 be accessed using :func:`mlfab.nn.parallel.parallel_group_info`.
-
-The following layers are defined:
-
-- :class:`ParallelEmbedding`: A model-parallel embedding layer.
-- :class:`ColumnParallelLinear`: A column model-parallel linear layer.
-- :class:`RowParallelLinear`: A row model-parallel linear layer.
-
-The :class:`RowParallelLinear` and :class:`ColumnParallelLinear` layers can
-be used to create a model parallel two-layer MLP, as shown below.
-
-.. code-block:: python
-
-    # Create a parallel embedding layer.
-    parallel_embedding = ParallelEmbedding(
-        num_embeddings=vocab_size,
-        embedding_dim=in_features,
-    )
-
-    # Create a column parallel linear layer.
-    column_parallel_linear = ColumnParallelLinear(
-        in_features=in_features,
-        out_features=out_features,
-        bias=bias,
-        gather_output=False,
-    )
-
-    # Create a row parallel linear layer.
-    row_parallel_linear = RowParallelLinear(
-        in_features=out_features,
-        out_features=out_features,
-        bias=bias,
-        input_is_parallel=True,
-    )
-
-    # Applies the two linear layers together.
-    x = torch.randint(0, vocab_size - 1, (bsz, tsz))
-    y = row_parallel_linear(column_parallel_linear(parallel_embedding(x)))
-
-This is equivalent to the following single-process implementation.
-
-.. code-block:: python
-
-    # Create a sequential model.
-    model = nn.Sequential(
-        nn.Embedding(vocab_size, in_features),
-        nn.Linear(in_features, out_features, bias=bias),
-        nn.Linear(out_features, out_features, bias=bias),
-    )
-
-    # Applies the sequential model.
-    x = torch.randint(0, vocab_size - 1, (bsz, tsz))
-    y = model(x)
 """
 
 import functools
@@ -74,12 +22,12 @@ from typing import Any, Callable, Literal, NotRequired, ParamSpec, TypedDict, Ty
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
-import torch.nn.functional as F
 from omegaconf import II, Container as OmegaConfContainer, OmegaConf
 from torch import Tensor, nn
 from torch.autograd.function import Function, FunctionCtx
 from torch.distributed import ProcessGroup
 from torch.distributed._tensor import DeviceMesh
+from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.distributed_c10d import ReduceOp, Work
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
@@ -258,14 +206,14 @@ class _GroupInfo:
 
 @dataclass(kw_only=True)
 class _GroupsInfos:
-    mp: _GroupInfo
+    tp: _GroupInfo
     dp: _GroupInfo
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
-        return DeviceMesh(
-            device_type=device_type,
-            mesh=torch.arange(self.dp.world_size * self.mp.world_size).view(self.dp.world_size, self.mp.world_size),
-            mesh_dim_names=("data", "model"),
+        return init_device_mesh(
+            device_type,
+            (self.dp.world_size, self.tp.world_size),
+            mesh_dim_names=("dp", "tp"),
         )
 
 
@@ -286,10 +234,15 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
     return _parallel_group_info
 
 
+@functools.lru_cache(None)
+def device_mesh(device_type: str) -> DeviceMesh:
+    return parallel_group_info().device_mesh(device_type)
+
+
 def mp_info() -> _GroupInfo:
     if _parallel_group_info is None:
         raise RuntimeError("Parallel process groups have not been initialized!")
-    return _parallel_group_info.mp
+    return _parallel_group_info.tp
 
 
 def dp_info() -> _GroupInfo:
@@ -488,269 +441,6 @@ def initialize_model_parallel_affine_weight_(
     rank_weight_list = weight_list[rank::world_size]
     with torch.no_grad():
         torch.cat(rank_weight_list, dim=partition_dim, out=weight)
-
-
-class ParallelEmbedding(nn.Module):
-    __constants__ = ["num_embeddings", "embedding_dim", "padding_idx", "max_norm", "scale_grad_by_freq", "sparse"]
-    __ignore_fsdp__ = True
-
-    def __init__(
-        self,
-        num_embeddings: int,
-        embedding_dim: int,
-        padding_idx: int | None = None,
-        max_norm: float | None = None,
-        norm_type: float = 2.0,
-        scale_grad_by_freq: bool = False,
-        sparse: bool = False,
-        init_type: InitializationType = "xavier_normal",
-    ) -> None:
-        """Model-parallel embeddings.
-
-        Embeddings are partitioned along the ``embedding_dim`` dimension.
-
-        Args:
-            num_embeddings: Number of embeddings (vocabulary size).
-            embedding_dim: Embedding dimension; must be divisible by the
-                model-parallel size.
-            padding_idx: See ``nn.Embedding``.
-            max_norm: See ``nn.Embedding``.
-            norm_type: See ``nn.Embedding``.
-            scale_grad_by_freq: See ``nn.Embedding``.
-            sparse: See ``nn.Embedding``.
-            init_type: Initialization type.
-        """
-        super().__init__()
-
-        self.num_embeddings = num_embeddings
-        self.embedding_dim = embedding_dim
-        self.padding_idx = padding_idx
-        self.max_norm = max_norm
-        self.norm_type = norm_type
-        self.scale_grad_by_freq = scale_grad_by_freq
-        self.sparse = sparse
-        self.init_type = init_type
-        self._weight = None
-
-        # Splits by world size.
-        world_size = mp_world_size()
-        assert embedding_dim % world_size == 0, f"{embedding_dim=} not divisible by {world_size=}"
-        self.embedding_dim_per_rank = embedding_dim // world_size
-
-        # Allocate weights for current rank.
-        self.weight = nn.Parameter(torch.empty(num_embeddings, self.embedding_dim_per_rank))
-
-        self.reset_parameters()
-
-    @property
-    def master_weight(self) -> Tensor:
-        return mp_gather(self.weight, dim=1)
-
-    def reset_parameters(self) -> None:
-        initialize_model_parallel_affine_weight_(
-            weight=self.weight,
-            out_features=self.num_embeddings,
-            in_features=self.embedding_dim,
-            per_partition_size=self.embedding_dim_per_rank,
-            partition_dim=1,
-            init_type=self.init_type,
-            stride=1,
-        )
-
-    def forward(self, x: Tensor) -> Tensor:
-        x = mp_copy(x)
-
-        output_parallel = F.embedding(
-            x,
-            self.weight,
-            self.padding_idx,
-            self.max_norm,
-            self.norm_type,
-            self.scale_grad_by_freq,
-            self.sparse,
-        )
-
-        return mp_gather(output_parallel)
-
-
-class ColumnParallelLinear(nn.Module):
-    __constants__ = ["in_features", "out_features", "gather_output", "init_type", "stride"]
-    __ignore_fsdp__ = True
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        bias: bool = True,
-        gather_output: bool = True,
-        init_type: InitializationType = "xavier_normal",
-        stride: int = 1,
-    ) -> None:
-        """A column parallel linear layer.
-
-        This layer splits the weight matrix along the output feature dimension,
-        and each rank is only responsible for ``out_features // world_size``
-        number of output features.
-
-        Args:
-            in_features: Number of input features.
-            out_features: Number of output features.
-            bias: Whether to include a bias term.
-            gather_output: Whether to gather the output from all the model
-                parallel GPUs.
-            init_type: Initialization type.
-            stride: Stride for the initialization.
-            lora_rank: The LoRA rank to use, if any.
-        """
-        super().__init__()
-
-        # Keep input parameters
-        self.in_features = in_features
-        self.out_features = out_features
-        self.gather_output = gather_output
-        self.init_type = init_type
-        self.stride = stride
-
-        # Splits by world size.
-        world_size = mp_world_size()
-        assert out_features % world_size == 0, f"{out_features=} not divisible by {world_size=}"
-        self.output_size_per_partition = out_features // world_size
-
-        # Initializes the per-rank weight.
-        self.weight = nn.Parameter(torch.empty(self.output_size_per_partition, self.in_features))
-        if bias:
-            self.bias = nn.Parameter(torch.empty(self.output_size_per_partition))
-            with torch.no_grad():
-                self.bias.zero_()
-        else:
-            self.register_parameter("bias", None)
-
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        initialize_model_parallel_affine_weight_(
-            weight=self.weight,
-            out_features=self.out_features,
-            in_features=self.in_features,
-            per_partition_size=self.output_size_per_partition,
-            partition_dim=0,
-            init_type=self.init_type,
-            stride=self.stride,
-        )
-
-    @property
-    def master_weight(self) -> Tensor:
-        return mp_gather(self.weight, dim=0)
-
-    @property
-    def master_bias(self) -> Tensor | None:
-        return None if self.bias is None else mp_gather(self.bias, dim=0)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """Forward method.
-
-        Args:
-            x: input tensor of size ``(*, in_features)``
-
-        Returns:
-            Output tensor of size ``(*, out_features // world_size)``, or
-            ``(*, out_features)`` if ``gather_output`` is set to ``True``.
-        """
-        input_parallel = mp_copy(x)
-        output_parallel = F.linear(input_parallel, self.weight, self.bias)
-        return mp_gather(output_parallel) if self.gather_output else output_parallel
-
-
-class RowParallelLinear(nn.Module):
-    __constants__ = ["in_features", "out_features", "input_is_parallel", "init_type", "stride"]
-    __ignore_fsdp__ = True
-
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        bias: bool = True,
-        input_is_parallel: bool = False,
-        init_type: InitializationType = "xavier_normal",
-        stride: int = 1,
-    ) -> None:
-        """A row parallel linear layer.
-
-        This layer splits the weight matrix along the input feature dimension,
-        and each rank is only responsible for ``in_features // world_size``
-        number of input features.
-
-        This can be paired with a column parallel layer to create a model
-        parallel two-stage linear layer.
-
-        Args:
-            in_features: Number of input features.
-            out_features: Number of output features.
-            bias: Whether to include a bias term.
-            input_is_parallel: Whether the input tensor is already split
-                along the feature dimension.
-            init_type: Initialization type.
-            stride: Stride for the initialization.
-        """
-        super(RowParallelLinear, self).__init__()
-
-        # Keep input parameters
-        self.in_features = in_features
-        self.out_features = out_features
-        self.input_is_parallel = input_is_parallel
-        self.init_type = init_type
-        self.stride = stride
-
-        # Splits by world size.
-        world_size = mp_world_size()
-        assert in_features % world_size == 0, f"{in_features=} not divisible by {world_size=}"
-        self.input_size_per_partition = in_features // world_size
-
-        # Initializes the per-rank weight.
-        self.weight = nn.Parameter(Tensor(self.out_features, self.input_size_per_partition))
-        if bias:
-            self.bias = nn.Parameter(Tensor(self.out_features))
-            with torch.no_grad():
-                self.bias.zero_()
-        else:
-            self.register_parameter("bias", None)
-
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        initialize_model_parallel_affine_weight_(
-            weight=self.weight,
-            out_features=self.out_features,
-            in_features=self.in_features,
-            per_partition_size=self.input_size_per_partition,
-            partition_dim=-1,
-            init_type=self.init_type,
-            stride=self.stride,
-        )
-
-    @property
-    def master_weight(self) -> Tensor:
-        return mp_gather(self.weight, dim=-1)
-
-    @property
-    def master_bias(self) -> Tensor | None:
-        return None if self.bias is None else mp_gather(self.bias, dim=-1)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """Forward method.
-
-        Args:
-            x: input tensor of size ``(*, in_features)``, or
-                ``(*, in_features // world_size)`` if ``input_is_parallel``
-                is set to ``True``.
-
-        Returns:
-            Output tensor of size ``(*, out_features)``.
-        """
-        input_parallel = x if self.input_is_parallel else mp_scatter(x)
-        output_parallel = F.linear(input_parallel, self.weight, self.bias)
-        output = mp_reduce(output_parallel)
-        return output if self.bias is None else output + self.bias
 
 
 @dataclass(kw_only=True)
@@ -992,7 +682,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
-        mp=_GroupInfo(
+        tp=_GroupInfo(
             group=mp_group,
             global_ranks=mp_ids,
             rank=mp_rank,

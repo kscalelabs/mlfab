@@ -25,7 +25,7 @@ from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
-from mlfab.nn.parallel import all_params_are_cuda, get_world_size, parallel_group_info
+from mlfab.nn.parallel import all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
@@ -77,11 +77,12 @@ def fsdp(
     cfg: ParallelConfig,
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
+    use_process_groups: bool = False,
 ) -> FSDP:
     group_info = parallel_group_info()
 
     if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
-        if group_info.mp.world_size == 1:
+        if group_info.tp.world_size == 1:
             logger.info("Using NO_SHARD FSDP strategy")
             sharding_strategy = ShardingStrategy.NO_SHARD
         elif group_info.dp.world_size == 1:
@@ -91,39 +92,40 @@ def fsdp(
             logger.info("Using HYBRID_SHARD FSDP strategy")
             sharding_strategy = ShardingStrategy.HYBRID_SHARD
 
-    process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
-    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-        process_group = group_info.mp.group, group_info.dp.group
-    else:
-        process_group = group_info.mp.group
-
     if cfg.fsdp_cpu_offload:
         logger.warning("CPU offloading doesn't support gradient accumulation")
 
     def should_wrap(mod: nn.Module) -> bool:
-        return bool(getattr(mod, "WRAP_FSDP", False))
+        return bool(getattr(mod, "__wrap_fsdp__", False))
 
-    ignored_modules: list[nn.Module] = []
-    for module in model.modules():
-        if getattr(module, "__ignore_fsdp__", False):
-            ignored_modules.append(module)
+    kwargs = {
+        "sharding_strategy": sharding_strategy,
+        "auto_wrap_policy": CustomPolicy(should_wrap) if cfg.fsdp_wrap else None,
+        "cpu_offload": CPUOffload(cfg.fsdp_cpu_offload),
+        "backward_prefetch": cfg.fsdp_backward_prefetch,
+        "mixed_precision": mixed_precision,
+        "device_id": device,
+        "sync_module_states": cfg.fsdp_sync_module_states and all_params_are_cuda(model),
+        "forward_prefetch": cfg.fsdp_forward_prefetch,
+        "limit_all_gathers": cfg.fsdp_limit_all_gathers,
+        "use_orig_params": cfg.fsdp_use_orig_params,
+    }
 
-    return FSDP(
-        model,
-        process_group=process_group,
-        sharding_strategy=sharding_strategy,
-        auto_wrap_policy=CustomPolicy(should_wrap) if cfg.fsdp_wrap else None,
-        cpu_offload=CPUOffload(cfg.fsdp_cpu_offload),
-        backward_prefetch=cfg.fsdp_backward_prefetch,
-        mixed_precision=mixed_precision,
-        ignored_modules=ignored_modules,
-        device_id=device,
-        sync_module_states=cfg.fsdp_sync_module_states and all_params_are_cuda(model),
-        forward_prefetch=cfg.fsdp_forward_prefetch,
-        limit_all_gathers=cfg.fsdp_limit_all_gathers,
-        use_orig_params=cfg.fsdp_use_orig_params,
-        # device_mesh=parallel_group_info().device_mesh(device.type),
-    )
+    if use_process_groups:
+        process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
+        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+            process_group = group_info.tp.group, group_info.dp.group
+        else:
+            process_group = group_info.tp.group
+        return FSDP(model, process_group=process_group, **kwargs)
+
+    else:
+        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+            mesh = device_mesh(device.type)
+        else:
+            mesh = device_mesh(device.type)["dp"]
+
+        return FSDP(model, device_mesh=mesh, **kwargs)
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
@@ -163,9 +165,9 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if isinstance(model, (FSDP, DDP)):
             return model
         if (use_ddp := self.config.use_ddp) is None:
-            use_ddp = parallel_group_info().mp.world_size == 1
+            use_ddp = parallel_group_info().tp.world_size == 1
         if use_ddp:
-            if parallel_group_info().mp.world_size > 1:
+            if parallel_group_info().tp.world_size > 1:
                 raise RuntimeError("FSDP process groups aren't supported with DDP")
             return ddp(model)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())

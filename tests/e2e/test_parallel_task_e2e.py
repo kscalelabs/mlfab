@@ -34,16 +34,12 @@ class DummyTask(mlfab.Task[Config]):
         super().__init__(config)
 
         # A simple embedding layer plus two-layer MLP.
-        # self.emb = mlfab.ParallelEmbedding(10, 12)
-        # self.l1 = mlfab.ColumnParallelLinear(12, 16, bias=False)
-        # self.l2 = mlfab.RowParallelLinear(16, 8, bias=False)
-        self.emb = nn.Embedding(10, 8)
-        self.l3 = nn.Linear(8, 8, bias=False)
+        self.emb = nn.Embedding(10, 12)
+        self.l1 = nn.Linear(12, 16, bias=False)
+        self.l2 = nn.Linear(16, 8, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
-        # return self.l3(self.l2(self.l1(self.emb(x))))
-        # return self.l2(self.l1(self.emb(x)))
-        return self.l3(self.emb(x))
+        return self.l2(self.l1(self.emb(x)))
 
     def get_loss(self, batch: Tensor, state: mlfab.State) -> Tensor:
         o = self(batch).sum()
@@ -75,19 +71,6 @@ def _test_common(tmpdir: Path, use_ddp: bool, model_parallelism: int) -> None:
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
 
-    # Make sure a checkpoint was saved.
-    if model_parallelism == 1:
-        assert Path(exp_dir / "checkpoints" / "ckpt.pt").exists()
-    else:
-        for i in range(model_parallelism):
-            assert Path(exp_dir / "checkpoints" / f"ckpt_{i}.pt").exists()
-
-            # Checks that the model was saved correctly.
-            # assert ckpt["model"]["mod.emb.weight"].shape == (10, 6)
-            # assert ckpt["model"]["mod.l1.weight"].shape == (8, 12)
-            # assert ckpt["model"]["mod.l2.weight"].shape == (8, 8)
-            # assert ckpt["model"]["mod.l3.weight"].shape == (8, 8)
-
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
@@ -95,6 +78,9 @@ def _test_common(tmpdir: Path, use_ddp: bool, model_parallelism: int) -> None:
     # Launches the second task with a single data parallel worker per model
     # parallel worker.
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=model_parallelism), use_cli=False)
+
+    # Run from the same experiment directory.
+    config.max_steps = 30
 
 
 @pytest.mark.slow
@@ -109,5 +95,5 @@ def test_e2e_parallel_training_fsdp(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_parallel_task_e2e
-    # test_e2e_parallel_training_ddp(Path(tempfile.mkdtemp()))
-    test_e2e_parallel_training_fsdp(Path(tempfile.mkdtemp()))
+    test_e2e_parallel_training_ddp(Path(tempfile.mkdtemp()))
+    # test_e2e_parallel_training_fsdp(Path(tempfile.mkdtemp()))

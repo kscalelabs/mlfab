@@ -497,9 +497,7 @@ class TrainMixin(
             state = self.load_checkpoint_(
                 module=mod,
                 optimizer=opt,
-                map_location=self.device_manager.device,
                 strict=self.config.init_state_strict,
-                mmap=self.config.init_state_mmap,
             )
 
         # Gets the datasets.
