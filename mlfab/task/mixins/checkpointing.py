@@ -27,7 +27,7 @@ from torch.optim.optimizer import Optimizer
 from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.functions import recursive_apply_all
-from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group_nullable
+from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group_nullable, mp_rank
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
@@ -89,7 +89,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.__last_ckpt_time = 0.0
 
     def get_ckpt_path(self) -> Path:
-        return self.exp_dir / "checkpoints"
+        return self.exp_dir / "checkpoints" / f"ckpt_{mp_rank()}.pt"
 
     @classmethod
     def read_state_dict(cls, path: str | Path) -> dict:
@@ -107,8 +107,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         weight_dict: dict = {}
         load_ckpt(
             state_dict=weight_dict,
-            storage_reader=FileSystemReader(ckpt_path),
-            # process_group=mp_group(),
+            checkpoint_id=ckpt_path,
+            storage_reader=FileSystemReader(ckpt_path.parent),
+            process_group=mp_group_nullable(),
         )
         state_dict = torch.load(ckpt_path / "state_dict.pth", map_location="cpu", pickle_module=CustomPickleModule)
         return {**weight_dict, **state_dict}
@@ -219,11 +220,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         Returns:
             The task loaded from the checkpoint
         """
-        cfg, state_dict = cls.load_raw_checkpoint(
-            path,
-            use_cli=use_cli,
-            config_fn=config_fn,
-        )
+        cfg, state_dict = cls.load_raw_checkpoint(path, use_cli=use_cli, config_fn=config_fn)
         task = cls(cfg)
         task.load_task_state_dict_(
             state_dict,
@@ -275,15 +272,16 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
 
         with self.state_dict_context(module, optimizer):
-            if (module_state_dict := state_dict.pop("model", None)) is not None:
-                consume_prefix_in_state_dict_if_present(module_state_dict, "module.")
-                module_state_dict = tensors_to_dtensors(module_state_dict)
-                module.load_state_dict(module_state_dict)
-            if (optimizer_state_dict := state_dict.pop("optimizer", None)) is not None:
-                optimizer_state_dict = tensors_to_dtensors(optimizer_state_dict)
-                if isinstance(module, FSDP):
-                    optimizer_state_dict = FSDP.optim_state_dict_to_load(module, optimizer, optimizer_state_dict)
-                optimizer.load_state_dict(optimizer_state_dict)
+            module_state_dict = state_dict.pop("model")
+            consume_prefix_in_state_dict_if_present(module_state_dict, "module.")
+            module_state_dict = tensors_to_dtensors(module_state_dict)
+            module.load_state_dict(module_state_dict)
+
+            optimizer_state_dict = state_dict.pop("optimizer")
+            optimizer_state_dict = tensors_to_dtensors(optimizer_state_dict)
+            if isinstance(module, FSDP):
+                optimizer_state_dict = FSDP.optim_state_dict_to_load(module, optimizer, optimizer_state_dict)
+            optimizer.load_state_dict(optimizer_state_dict)
 
         self.load_task_state_dict_(state_dict, strict, assign)
         if raw_state is not None:
@@ -334,7 +332,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if dp_rank() == 0:
             save_ckpt(
                 state_dict=weight_dict,
-                storage_writer=FileSystemWriter(ckpt_path),
+                checkpoint_id=ckpt_path,
+                storage_writer=FileSystemWriter(ckpt_path.parent),
                 process_group=mp_group_nullable(),
             )
 
