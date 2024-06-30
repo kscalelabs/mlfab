@@ -267,6 +267,10 @@ def mp_group() -> ProcessGroup:
     return mp_info().group
 
 
+def mp_group_nullable() -> ProcessGroup | None:
+    return None if _parallel_group_info is None else mp_group()
+
+
 def dp_rank() -> int:
     return 0 if _parallel_group_info is None else dp_info().rank
 
@@ -281,6 +285,10 @@ def dp_ranks() -> list[int]:
 
 def dp_group() -> ProcessGroup:
     return dp_info().group
+
+
+def dp_group_nullable() -> ProcessGroup | None:
+    return None if _parallel_group_info is None else dp_group()
 
 
 class ParallismError(Exception):

@@ -27,7 +27,7 @@ from torch.optim.optimizer import Optimizer
 from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.functions import recursive_apply_all
-from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group
+from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group_nullable
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
@@ -335,7 +335,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             save_ckpt(
                 state_dict=weight_dict,
                 storage_writer=FileSystemWriter(ckpt_path),
-                process_group=mp_group(),
+                process_group=mp_group_nullable(),
             )
 
         if get_rank() == 0:
