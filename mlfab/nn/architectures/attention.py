@@ -57,7 +57,6 @@ from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
-from mlfab.nn.init import InitializationType
 from mlfab.nn.norms import get_norm_linear
 
 MaskMode = Literal["causal", "lengths", "combine"]
@@ -211,7 +210,6 @@ class MultiheadAttention(nn.Module):
         kdim: int | None = None,
         vdim: int | None = None,
         gqa_factor: int = 1,
-        init_type: InitializationType = "xavier_uniform",
     ) -> None:
         super().__init__()
 
@@ -232,37 +230,10 @@ class MultiheadAttention(nn.Module):
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
 
-        self.qproj = nn.Linear(
-            embed_dim,
-            embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.kproj = nn.Linear(
-            self.kdim,
-            self.kv_embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.vproj = nn.Linear(
-            self.vdim,
-            self.kv_embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.out_proj = nn.Linear(
-            embed_dim,
-            embed_dim,
-            bias=bias,
-            input_is_parallel=True,
-            init_type=init_type,
-        )
+        self.qproj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.kproj = nn.Linear(self.kdim, self.kv_embed_dim, bias=bias)
+        self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
 
     def forward_matmuls(
         self,
@@ -467,10 +438,10 @@ class TransformerEncoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False)
+        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
@@ -651,10 +622,10 @@ class TransformerDecoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False)
+        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
@@ -1046,7 +1017,7 @@ class NextTokenTransformer(nn.Module):
             rotary_base=rotary_base,
         )
         self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
-        self.proj = nn.Linear(d_model, vocab_size, bias=False, gather_output=True)
+        self.proj = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
