@@ -79,6 +79,7 @@ from omegaconf import II, Container as OmegaConfContainer, OmegaConf
 from torch import Tensor, nn
 from torch.autograd.function import Function, FunctionCtx
 from torch.distributed import ProcessGroup
+from torch.distributed._tensor import DeviceMesh
 from torch.distributed.distributed_c10d import ReduceOp, Work
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
@@ -259,6 +260,13 @@ class _GroupInfo:
 class _GroupsInfos:
     mp: _GroupInfo
     dp: _GroupInfo
+
+    def device_mesh(self, device_type: str) -> DeviceMesh:
+        return DeviceMesh(
+            device_type=device_type,
+            mesh=torch.arange(self.dp.world_size * self.mp.world_size).view(self.dp.world_size, self.mp.world_size),
+            mesh_dim_names=("data", "model"),
+        )
 
 
 _parallel_group_info: _GroupsInfos | None = None
@@ -1001,11 +1009,11 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
 
 def cleanup_dist() -> None:
     global _parallel_group_info
-    if (pg := dist.GroupMember.WORLD) is not None:
-        dist.destroy_process_group(pg)
     if _parallel_group_info is not None:
         dist.destroy_process_group(dp_info().group)
         dist.destroy_process_group(mp_info().group)
+    if (pg := dist.GroupMember.WORLD) is not None:
+        dist.destroy_process_group(pg)
     _parallel_group_info = None
 
 
@@ -1034,6 +1042,7 @@ def init_and_run(
     configure_logging(rank=cfg.rank, world_size=cfg.world_size)
     init_dist(cfg)
     func(*args, **kwargs)
+    cleanup_dist()
 
 
 def _func_wrapped(
@@ -1091,7 +1100,6 @@ def launch_subprocesses(
         cfg.rank = 0
         cfg.local_rank = 0
         init_and_run(func, cfg, *args, **kwargs)
-        cleanup_dist()
         return
 
     logger.info("Launching %d training workers", cfg.world_size)
@@ -1123,8 +1131,6 @@ def launch_subprocesses(
     pctx = mp.ProcessContext(procs, error_files)
     while not pctx.join():
         pass
-
-    cleanup_dist()
 
 
 class _AllToAll(Function):

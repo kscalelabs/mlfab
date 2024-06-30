@@ -16,7 +16,8 @@ from pathlib import Path
 import torch
 
 from mlfab.nn.parallel import (
-    init_parallelism,
+    MultiProcessConfig,
+    init_dist,
     is_master,
 )
 from mlfab.task.base import RawConfigType
@@ -405,7 +406,6 @@ srun \\
         local_rank = int(os.environ["SLURM_LOCALID"])
         node_world_size = int(os.environ["SLURM_NNODES"])
         local_world_size = int(os.environ["SLURM_NTASKS_PER_NODE"])
-
         rank = node_rank * node_world_size + local_rank
         world_size = node_world_size * local_world_size
 
@@ -414,16 +414,19 @@ srun \\
 
         # Gets parallelism environment variables.
         model_parallelism = int(os.environ.get("MODEL_PARALLELISM", "1"))
-        backend = os.environ.get("BACKEND", None)
-        model_parallel_backend = os.environ.get("MODEL_PARALLEL_BACKEND", None)
-        data_parallel_backend = os.environ.get("DATA_PARALLEL_BACKEND", None)
 
         # Sets model parallelism.
-        init_parallelism(
+        cfg = MultiProcessConfig(
+            rank=rank,
+            local_rank=local_rank,
+            world_size=world_size,
+            local_world_size=local_world_size,
+            master_addr=host,
+            master_port=port,
+            init_method="env://",
             model_parallelism=model_parallelism,
-            mp_backend=model_parallel_backend or backend,
-            dp_backend=data_parallel_backend or backend,
         )
+        init_dist(cfg)
 
         task.add_signal_handler(requeue_job, signal.SIGUSR1)
 

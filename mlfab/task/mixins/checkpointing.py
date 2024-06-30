@@ -18,12 +18,13 @@ from torch.distributed.fsdp import (
     ShardedStateDictConfig,
     StateDictType,
 )
+from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torch.optim.optimizer import Optimizer
 from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import dp_rank, mp_rank, mp_world_size
+from mlfab.nn.parallel import dp_rank, get_rank, mp_rank, mp_world_size
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
@@ -289,6 +290,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         with self.state_dict_context(module, optimizer):
             if (module_state_dict := state_dict.pop("model", None)) is not None:
+                consume_prefix_in_state_dict_if_present(module_state_dict, "module.")
                 module.load_state_dict(module_state_dict)
             if (optimizer_state_dict := state_dict.pop("optimizer", None)) is not None:
                 if isinstance(module, FSDP):
@@ -323,9 +325,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
-        if dp_rank() > 0:
-            return ckpt_path
-
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
         last_ckpt_path = self.get_ckpt_path()
@@ -347,7 +346,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         state_dict["task"] = self.task_state_dict()
         state_dict["state"] = json.dumps(asdict(state))
         state_dict["config"] = OmegaConf.to_yaml(self.config)
-        torch.save(state_dict, ckpt_path)
+
+        if dp_rank() == 0:
+            torch.save(state_dict, ckpt_path)
 
         # Updates the symlink to the new checkpoint.
         last_ckpt_path.unlink(missing_ok=True)
@@ -359,7 +360,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             logger.warning("Could not create symlink to %s", ckpt_path)
 
         # Marks directory as having artifacts which shouldn't be overwritten.
-        self.add_lock_file("ckpt", exists_ok=True)
+        if get_rank() == 0:
+            self.add_lock_file("ckpt", exists_ok=True)
         self.on_after_save_checkpoint(ckpt_path)
 
         return ckpt_path

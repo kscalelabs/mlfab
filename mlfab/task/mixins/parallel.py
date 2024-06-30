@@ -46,7 +46,7 @@ class GradScalerConfig:
 @dataclass(kw_only=True)
 class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_cpu_offload: bool = field(False, help="CPU offloading for FSDP")
-    fsdp_use_orig_params: bool = field(True, help="Use original parameters for FSDP")
+    fsdp_use_orig_params: bool = field(False, help="Use original parameters for FSDP")
     fsdp_wrap: bool = field(False, help="If set, use FSDP wrapping")
     fsdp_forward_prefetch: bool = field(True, help="Prefetch forward pass of FSDP")
     fsdp_backward_prefetch: BackwardPrefetch | None = field(BackwardPrefetch.BACKWARD_PRE, help="Backward prefetching")
@@ -75,8 +75,8 @@ def ddp(model: nn.Module) -> DDP:
 def fsdp(
     model: nn.Module,
     cfg: ParallelConfig,
+    device: torch.device,
     mixed_precision: MixedPrecision | None = None,
-    device: torch.device | None = None,
 ) -> FSDP:
     group_info = parallel_group_info()
 
@@ -122,6 +122,7 @@ def fsdp(
         forward_prefetch=cfg.fsdp_forward_prefetch,
         limit_all_gathers=cfg.fsdp_limit_all_gathers,
         use_orig_params=cfg.fsdp_use_orig_params,
+        # device_mesh=parallel_group_info().device_mesh(device.type),
     )
 
 
@@ -167,7 +168,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             if parallel_group_info().mp.world_size > 1:
                 raise RuntimeError("FSDP process groups aren't supported with DDP")
             return ddp(model)
-        return fsdp(model, self.config, self.get_fsdp_mixed_precision(), self.torch_device)
+        return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
         if isinstance(mod, (FSDP, DDP)) and not is_last:
