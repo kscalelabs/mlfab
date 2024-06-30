@@ -87,7 +87,7 @@ def get_world_size() -> int:
 
 
 def is_master() -> bool:
-    return dist.get_rank() == 0
+    return not dist.is_initialized() or dist.get_rank() == 0
 
 
 @dataclass(kw_only=True)
