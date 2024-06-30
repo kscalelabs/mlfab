@@ -1,11 +1,10 @@
-# mypy: disable-error-code="override"
+# mypy: disable-error-code="override, misc"
 """Defines primitive model parallel layers.
 
-Before using this module, you should initialize the parallel process groups
-using :func:`mlfab.nn.parallel.init_parallelism`. This will create
-three process group for model parallelism, pipeline parallelism, and data
-parallelism. The process group information can be accessed using
-:func:`mlfab.nn.parallel.parallel_group_info`.
+Before using this module, you should initialize all the process groups
+using :func:`mlfab.nn.parallel.init_dist`. This will create two process group
+for model parallelism and data parallelism. The process group information can
+be accessed using :func:`mlfab.nn.parallel.parallel_group_info`.
 
 The following layers are defined:
 
@@ -70,7 +69,7 @@ import sys
 import tempfile
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, ParamSpec, TypeVar, cast, overload
+from typing import Any, Callable, Literal, NotRequired, ParamSpec, TypedDict, TypeVar, Unpack, cast, overload
 
 import torch
 import torch.distributed as dist
@@ -80,7 +79,7 @@ from omegaconf import II, Container as OmegaConfContainer, OmegaConf
 from torch import Tensor, nn
 from torch.autograd.function import Function, FunctionCtx
 from torch.distributed import ProcessGroup
-from torch.distributed.distributed_c10d import Backend, ReduceOp, Work, _get_default_group, is_initialized
+from torch.distributed.distributed_c10d import ReduceOp, Work
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
@@ -95,213 +94,51 @@ DEFAULT_PORT = 29500
 P = ParamSpec("P")
 T = TypeVar("T", bound=nn.Module)
 
-_RANK: int | None = None
-_LOCAL_RANK: int | None = None
-_WORLD_SIZE: int | None = None
-_LOCAL_WORLD_SIZE: int | None = None
-_MASTER_ADDR: str | None = None
-_MASTER_PORT: int | None = None
-_INIT_METHOD: str | None = None
+
+class MultiProcessKwargs(TypedDict):
+    rank: NotRequired[int]
+    local_rank: NotRequired[int]
+    world_size: NotRequired[int]
+    local_world_size: NotRequired[int]
+    master_addr: NotRequired[str]
+    master_port: NotRequired[int]
+    init_method: NotRequired[str]
+    model_parallelism: NotRequired[int | str]
+    multiprocess_launch_method: NotRequired[str]
 
 
-def set_rank(rank: int) -> None:
-    global _RANK
+@dataclass(kw_only=True)
+class MultiProcessConfig:
+    rank: int = field(-1, help="The rank of the process")
+    local_rank: int = field(-1, help="The local rank of the process")
+    world_size: int = field(II("mlfab.device_count:1"), help="The total number of processes")
+    local_world_size: int = field(II("world_size"), help="The number of processes per machine")
+    master_addr: str = field("127.0.0.1", help="The address of the master process")
+    master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
+    init_method: str = field("env://", help="The initialization method")
+    model_parallelism: int | str = field(1, help="The number of model parallel processes")
+    multiprocess_launch_method: str = field("spawn", help="The launch method for multiprocessing")
 
-    if rank != _RANK:
-        _RANK = rank
-        os.environ["RANK"] = str(rank)
-    else:
-        raise ValueError(f"Rank {rank} is already set")
-
-
-def get_rank_optional() -> int | None:
-    return _RANK
+    @classmethod
+    def default_config(cls, **kwargs: Unpack[MultiProcessKwargs]) -> "MultiProcessConfig":
+        kwargs.setdefault("rank", 0)
+        kwargs.setdefault("local_rank", kwargs["rank"])
+        kwargs.setdefault("world_size", 1)
+        kwargs.setdefault("local_world_size", kwargs["world_size"])
+        kwargs.setdefault("master_port", get_unused_port())
+        return MultiProcessConfig(**kwargs)
 
 
 def get_rank() -> int:
-    return 0 if _RANK is None else _RANK
-
-
-def clear_rank() -> None:
-    global _RANK
-
-    _RANK = None
-    os.environ.pop("RANK", None)
-
-
-def set_local_rank(rank: int) -> None:
-    global _LOCAL_RANK
-
-    if rank != _LOCAL_RANK:
-        _LOCAL_RANK = rank
-        os.environ["LOCAL_RANK"] = str(rank)
-    else:
-        raise ValueError(f"Local rank {rank} is already set")
-
-
-def get_local_rank_optional() -> int | None:
-    return _LOCAL_RANK
-
-
-def get_local_rank() -> int:
-    return 0 if _LOCAL_RANK is None else _LOCAL_RANK
-
-
-def clear_local_rank() -> None:
-    global _LOCAL_RANK
-
-    _LOCAL_RANK = None
-    os.environ.pop("LOCAL_RANK", None)
-
-
-def set_world_size(world_size: int) -> None:
-    global _WORLD_SIZE
-
-    if world_size != _WORLD_SIZE:
-        _WORLD_SIZE = world_size
-        os.environ["WORLD_SIZE"] = str(world_size)
-    else:
-        raise ValueError(f"World size {world_size} is already set")
-
-
-def get_world_size_optional() -> int | None:
-    return _WORLD_SIZE
+    return dist.get_rank() if dist.is_initialized() else 0
 
 
 def get_world_size() -> int:
-    return 1 if _WORLD_SIZE is None else _WORLD_SIZE
-
-
-def clear_world_size() -> None:
-    global _WORLD_SIZE
-
-    _WORLD_SIZE = None
-    os.environ.pop("WORLD_SIZE", None)
-
-
-def set_local_world_size(local_world_size: int) -> None:
-    global _LOCAL_WORLD_SIZE
-
-    if local_world_size != _LOCAL_WORLD_SIZE:
-        _LOCAL_WORLD_SIZE = local_world_size
-        os.environ["LOCAL_WORLD_SIZE"] = str(local_world_size)
-    else:
-        raise ValueError(f"World size {local_world_size} is already set")
-
-
-def get_local_world_size_optional() -> int | None:
-    return _LOCAL_WORLD_SIZE
-
-
-def get_local_world_size() -> int:
-    return 1 if _LOCAL_WORLD_SIZE is None else _LOCAL_WORLD_SIZE
-
-
-def clear_local_world_size() -> None:
-    global _LOCAL_WORLD_SIZE
-
-    _LOCAL_WORLD_SIZE = None
-    os.environ.pop("LOCAL_WORLD_SIZE", None)
-
-
-def set_master_addr(master_addr: str) -> None:
-    global _MASTER_ADDR
-
-    if master_addr != _MASTER_ADDR:
-        os.environ["MASTER_ADDR"] = _MASTER_ADDR = master_addr
-    else:
-        raise ValueError(f"Master address {master_addr} is already set")
-
-
-def get_master_addr() -> str:
-    assert _MASTER_ADDR is not None, "Master address is not yet set"
-    return _MASTER_ADDR
-
-
-def clear_master_addr() -> None:
-    global _MASTER_ADDR
-
-    _MASTER_ADDR = None
-    os.environ.pop("MASTER_ADDR", None)
-
-
-def set_master_port(port: int) -> None:
-    global _MASTER_PORT
-
-    if port != _MASTER_PORT:
-        _MASTER_PORT = port
-        os.environ["MASTER_PORT"] = str(port)
-    else:
-        raise ValueError(f"Master port {port} is already set")
-
-
-def get_master_port() -> int:
-    assert _MASTER_PORT is not None, "Master port is not yet set"
-    return _MASTER_PORT
-
-
-def clear_master_port() -> None:
-    global _MASTER_PORT
-
-    _MASTER_PORT = None
-    os.environ.pop("MASTER_PORT", None)
+    return dist.get_world_size() if dist.is_initialized() else 1
 
 
 def is_master() -> bool:
-    return get_rank() == 0
-
-
-def is_distributed() -> bool:
-    return _INIT_METHOD is not None
-
-
-def set_init_method(init_method: str) -> None:
-    global _INIT_METHOD
-
-    if init_method != _INIT_METHOD:
-        os.environ["INIT_METHOD"] = _INIT_METHOD = init_method
-    else:
-        raise ValueError(f"Init method {init_method} is already set")
-
-
-def get_init_method() -> str:
-    assert _INIT_METHOD is not None, "Init method is not yet set"
-    return _INIT_METHOD
-
-
-def clear_init_method() -> None:
-    global _INIT_METHOD
-
-    _INIT_METHOD = None
-    os.environ.pop("INIT_METHOD", None)
-
-
-def set_dist(
-    rank: int,
-    local_rank: int,
-    world_size: int,
-    local_world_size: int,
-    master_addr: str,
-    master_port: int,
-    init_method: str,
-) -> None:
-    set_rank(rank)
-    set_local_rank(local_rank)
-    set_world_size(world_size)
-    set_local_world_size(local_world_size)
-    set_master_addr(master_addr)
-    set_master_port(master_port)
-    set_init_method(init_method)
-
-
-def clear_dist() -> None:
-    clear_rank()
-    clear_local_rank()
-    clear_world_size()
-    clear_local_world_size()
-    clear_master_addr()
-    clear_master_port()
-    clear_init_method()
+    return dist.get_rank() == 0
 
 
 @dataclass(kw_only=True)
@@ -421,13 +258,10 @@ class _GroupInfo:
 @dataclass(kw_only=True)
 class _GroupsInfos:
     mp: _GroupInfo
-    pp: _GroupInfo
-    fp: _GroupInfo
     dp: _GroupInfo
 
 
 _parallel_group_info: _GroupsInfos | None = None
-_default_group_info: _GroupInfo | None = None
 
 
 @overload
@@ -444,225 +278,52 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
     return _parallel_group_info
 
 
+def mp_info() -> _GroupInfo:
+    if _parallel_group_info is None:
+        raise RuntimeError("Parallel process groups have not been initialized!")
+    return _parallel_group_info.mp
+
+
+def dp_info() -> _GroupInfo:
+    if _parallel_group_info is None:
+        raise RuntimeError("Parallel process groups have not been initialized!")
+    return _parallel_group_info.dp
+
+
 def mp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.mp.rank
+    return 0 if _parallel_group_info is None else mp_info().rank
 
 
 def mp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.mp.world_size
+    return 1 if _parallel_group_info is None else mp_info().world_size
 
 
-def pp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.pp.rank
+def mp_ranks() -> list[int]:
+    return mp_info().global_ranks
 
 
-def pp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.pp.world_size
-
-
-def fp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.fp.rank
-
-
-def fp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.fp.world_size
+def mp_group() -> ProcessGroup:
+    return mp_info().group
 
 
 def dp_rank() -> int:
-    return 0 if _parallel_group_info is None else _parallel_group_info.dp.rank
+    return 0 if _parallel_group_info is None else dp_info().rank
 
 
 def dp_world_size() -> int:
-    return 1 if _parallel_group_info is None else _parallel_group_info.dp.world_size
+    return 1 if _parallel_group_info is None else dp_info().world_size
 
 
-def is_ckpt_master() -> bool:
-    return dp_rank() == 0 and fp_rank() == 0
+def dp_ranks() -> list[int]:
+    return dp_info().global_ranks
 
 
-def ckpt_id() -> int:
-    return pp_rank() * mp_world_size() + mp_rank()
-
-
-def num_ckpts() -> int:
-    return mp_world_size() * pp_world_size()
-
-
-def default_group_info() -> _GroupInfo | None:
-    global _default_group_info
-    if _default_group_info is None and is_initialized():
-        rank, world_size = dist.get_rank(), dist.get_world_size()
-        _default_group_info = _GroupInfo(
-            group=_get_default_group(),
-            global_ranks=list(range(world_size)),
-            rank=rank,
-            world_size=world_size,
-        )
-    return _default_group_info
+def dp_group() -> ProcessGroup:
+    return dp_info().group
 
 
 class ParallismError(Exception):
     pass
-
-
-def init_parallelism(
-    model_parallelism: int = 1,
-    pipeline_parallelism: int = 1,
-    fsdp_parallelism: int = 1,
-    *,
-    mp_backend: str | Backend | None = None,
-    pp_backend: str | Backend | None = None,
-    fp_backend: str | Backend | None = None,
-    dp_backend: str | Backend | None = None,
-) -> None:
-    """Initializes parallelism groups and parameters.
-
-    Args:
-        model_parallelism: Number of model parallel GPUs. Each layer of
-            computation will simultaneously run on this many GPUs.
-        pipeline_parallelism: Number of pipeline parallel layers. The total
-            number of GPUs processing a single input will be the product
-            of ``model_parallelism`` and ``pipeline_parallelism``.
-        fsdp_parallelism: Number of FSDP parallel groups for hybrid sharding.
-            Use -1 to set FSDP parallelism to equal the local world size.
-        mp_backend: Backend to use for model parallelism.
-        pp_backend: Backend to use for pipeline parallelism.
-        fp_backend: Backend to use for FSDP parallelism.
-        dp_backend: Backend to use for data parallelism.
-
-    Raises:
-        ParallismError: If some settings are invalid.
-    """
-    global _parallel_group_info
-
-    if _parallel_group_info is not None:
-        raise ParallismError("Parallelism is already initialized; call `reset_parallelism` first.")
-
-    if not dist.is_initialized():
-        raise ParallismError("Distributed training is not initialized.")
-
-    rank, world_size = dist.get_rank(), dist.get_world_size()
-    if fsdp_parallelism == -1:
-        fsdp_parallelism = get_local_world_size()
-
-    # This is specific behavior - if model parallelism is too large for the
-    # current machine, we just clamp it to whatever the world size is. We
-    # don't do this for pipeline parallelism because there are fewer use cases
-    # where it is necessary.
-    if model_parallelism > world_size:
-        logger.warning(
-            "Model parallelism %d is greater than world size %d, setting to %d",
-            model_parallelism,
-            world_size,
-            world_size,
-        )
-        model_parallelism = world_size
-
-    # Validates parallelism for current world size.
-    if world_size % model_parallelism != 0:
-        raise ParallismError(f"{world_size=} is not divisible by {model_parallelism=}")
-    if world_size % (model_parallelism * pipeline_parallelism * fsdp_parallelism) != 0:
-        pipeline_size = model_parallelism * pipeline_parallelism * fsdp_parallelism
-        raise ParallismError(f"{world_size=} is not divisible by {pipeline_size=}")
-
-    data_parallelism = world_size // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
-
-    logger.info(
-        (
-            "Parallism configuration\n ↪ %s parallelism %s\n ↪ %s "
-            "parallelism %s\n ↪ %s parallelism %s\n ↪ %s parallelism %s"
-        ),
-        colored("Model", "light-green"),
-        colored(str(model_parallelism), "light-cyan", bold=True),
-        colored("Pipeline", "light-green"),
-        colored(str(pipeline_parallelism), "light-cyan", bold=True),
-        colored("FSDP", "light-green"),
-        colored(str(fsdp_parallelism), "light-cyan", bold=True),
-        colored("Data", "light-green"),
-        colored(str(data_parallelism), "light-cyan", bold=True),
-    )
-
-    # We split this way so that two near-by GPUs are more likely to be in the
-    # same model parallel group than data parallel group. This is because for
-    # typical environments we have data parallel groups that are on separate
-    # devices.
-    groups_dfpm = torch.arange(world_size).view(
-        data_parallelism,
-        fsdp_parallelism,
-        pipeline_parallelism,
-        model_parallelism,
-    )
-
-    def get_group(groups_nd: Tensor, backend: str | Backend | None) -> tuple[ProcessGroup, list[int]]:
-        assert groups_nd.dim() == 2
-        group: tuple[ProcessGroup, list[int]] | None = None
-        for i in range(groups_nd.size(0)):
-            group_ranks = groups_nd[i].tolist()
-            group_i = dist.new_group(group_ranks, backend=backend)
-            if rank in group_ranks:
-                group = (group_i, group_ranks)
-        if group is None:
-            raise RuntimeError(f"{rank=} not found in {groups_nd}")
-        return group
-
-    # We need to initialize all groups across all devices, but then we choose
-    # the specific group for this device.
-    dp_group, dp_ids = get_group(groups_dfpm.permute(1, 2, 3, 0).flatten(0, 2), dp_backend)
-    fp_group, fp_ids = get_group(groups_dfpm.permute(0, 2, 3, 1).flatten(0, 2), fp_backend)
-    pp_group, pp_ids = get_group(groups_dfpm.permute(0, 1, 3, 2).flatten(0, 2), pp_backend)
-    mp_group, mp_ids = get_group(groups_dfpm.permute(0, 1, 2, 3).flatten(0, 2), mp_backend)
-
-    assert isinstance(dp_group, ProcessGroup), dp_group
-    assert isinstance(fp_group, ProcessGroup), fp_group
-    assert isinstance(pp_group, ProcessGroup), pp_group
-    assert isinstance(mp_group, ProcessGroup), mp_group
-
-    assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
-    assert len(fp_ids) == fsdp_parallelism, f"{len(fp_ids)=} != {fsdp_parallelism=}"
-    assert len(pp_ids) == pipeline_parallelism, f"{len(pp_ids)=} != {pipeline_parallelism=}"
-    assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
-
-    dp_rank = rank // (model_parallelism * pipeline_parallelism * fsdp_parallelism)
-    fp_rank = (rank // (model_parallelism * pipeline_parallelism)) % fsdp_parallelism
-    pp_rank = (rank // model_parallelism) % pipeline_parallelism
-    mp_rank = rank % model_parallelism
-
-    # Sets the group info now that it is initialized.
-    _parallel_group_info = _GroupsInfos(
-        mp=_GroupInfo(
-            group=mp_group,
-            global_ranks=mp_ids,
-            rank=mp_rank,
-            world_size=model_parallelism,
-        ),
-        pp=_GroupInfo(
-            group=pp_group,
-            global_ranks=pp_ids,
-            rank=pp_rank,
-            world_size=pipeline_parallelism,
-        ),
-        fp=_GroupInfo(
-            group=fp_group,
-            global_ranks=fp_ids,
-            rank=fp_rank,
-            world_size=fsdp_parallelism,
-        ),
-        dp=_GroupInfo(
-            group=dp_group,
-            global_ranks=dp_ids,
-            rank=dp_rank,
-            world_size=data_parallelism,
-        ),
-    )
-
-
-def parallelism_is_initialized() -> bool:
-    return _parallel_group_info is not None
-
-
-def reset_parallelism() -> None:
-    global _parallel_group_info
-    _parallel_group_info = None
 
 
 class _ModelParallelCopy(Function):
@@ -677,7 +338,7 @@ class _ModelParallelCopy(Function):
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else _parallel_group_info.mp.reduce(grad, op=ctx.op), None
+        return grad if _parallel_group_info is None else mp_info().reduce(grad, op=ctx.op), None
 
 
 def mp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
@@ -704,7 +365,7 @@ class _ModelParallelReduce(Function):
         op: Any,  # noqa: ANN401
     ) -> Tensor:
         ctx.mark_dirty(x)
-        return x if _parallel_group_info is None else _parallel_group_info.mp.reduce(x, op=op)
+        return x if _parallel_group_info is None else mp_info().reduce(x, op=op)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
@@ -731,11 +392,11 @@ class _ModelParallelScatter(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return x if _parallel_group_info is None else _parallel_group_info.mp.split(x, dim=dim)
+        return x if _parallel_group_info is None else mp_info().split(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else _parallel_group_info.mp.gather(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else mp_info().gather(grad, dim=ctx.dim), None
 
 
 def mp_scatter(x: Tensor, dim: int = -1) -> Tensor:
@@ -755,11 +416,11 @@ class _ModelParallelGather(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return x if _parallel_group_info is None else _parallel_group_info.mp.gather(x, dim=dim)
+        return x if _parallel_group_info is None else mp_info().gather(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else _parallel_group_info.mp.split(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else mp_info().split(grad, dim=ctx.dim), None
 
 
 def mp_gather(x: Tensor, dim: int = -1) -> Tensor:
@@ -823,6 +484,7 @@ def initialize_model_parallel_affine_weight_(
 
 class ParallelEmbedding(nn.Module):
     __constants__ = ["num_embeddings", "embedding_dim", "padding_idx", "max_norm", "scale_grad_by_freq", "sparse"]
+    __ignore_fsdp__ = True
 
     def __init__(
         self,
@@ -905,6 +567,7 @@ class ParallelEmbedding(nn.Module):
 
 class ColumnParallelLinear(nn.Module):
     __constants__ = ["in_features", "out_features", "gather_output", "init_type", "stride"]
+    __ignore_fsdp__ = True
 
     def __init__(
         self,
@@ -992,6 +655,7 @@ class ColumnParallelLinear(nn.Module):
 
 class RowParallelLinear(nn.Module):
     __constants__ = ["in_features", "out_features", "input_is_parallel", "init_type", "stride"]
+    __ignore_fsdp__ = True
 
     def __init__(
         self,
@@ -1202,68 +866,147 @@ def all_params_are_cuda(model: nn.Module) -> bool:
     return all(p.is_cuda for p in model.parameters())
 
 
-@dataclass(kw_only=True)
-class MultiProcessConfig:
-    rank: int = field(-1, help="The rank of the process")
-    local_rank: int = field(-1, help="The local rank of the process")
-    world_size: int = field(II("mlfab.device_count:1"), help="The total number of processes")
-    local_world_size: int = field(II("world_size"), help="The number of processes per machine")
-    master_addr: str = field("127.0.0.1", help="The address of the master process")
-    master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
-    init_method: str = field("env://", help="The initialization method")
-    model_parallelism: int = field(1, help="The number of model parallel processes")
-    pipeline_parallelism: int = field(1, help="The number of pipeline parallel processes")
-    fsdp_parallelism: int = field(1, help="The number of hybrid shards for the FSDP process group")
-    distributed_backend: str | None = field(None, help="The distributed backend")
-    model_parallel_backend: str | None = field(None, help="The model parallel backend")
-    pipeline_parallel_backend: str | None = field(None, help="The pipeline parallel backend")
-    fsdp_parallel_backend: str | None = field(None, help="The FSDP parallel backend")
-    data_parallel_backend: str | None = field(None, help="The data parallel backend")
-    multiprocess_launch_method: str = field("spawn", help="The launch method for multiprocessing")
-
-
-def init_process_group_from_backend(backend: str | dist.Backend | None = None) -> None:
-    if backend is None:
-        backend = get_distributed_backend()
-    init_method, world_size, rank = get_init_method(), get_world_size(), get_rank()
-
-    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", rank, world_size, init_method, backend)
-    dist.init_process_group(backend=backend, init_method=init_method, world_size=world_size, rank=rank)
-
-    if torch.cuda.is_available():
-        dev_id = (local_rank := get_local_rank()) % (dev_cnt := torch.cuda.device_count())
-        logger.log(LOG_DEBUG_ALL, "Setting device %d (local rank %d with %d device(s))", dev_id, local_rank, dev_cnt)
-        torch.cuda.set_device(dev_id)
-
-    logger.info("Initialized process group; running dummy all-reduce")
-    dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
-    logger.info("Dummy all-reduce succeeded")
-
-
-def init_dist(
-    rank: int,
-    local_rank: int,
-    world_size: int,
-    local_world_size: int,
-    master_addr: str,
-    master_port: int,
-    init_method: str,
-    backend: str | dist.Backend | None = None,
-) -> None:
+def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) -> None:
     """Initializes distributed environment.
 
     Args:
-        rank: The rank of the current process.
-        local_rank: The local rank of the current process.
-        world_size: The total number of processes.
-        local_world_size: The number of processes per machine.
-        master_addr: The address of the master process.
-        master_port: The port of the master process.
-        init_method: The initialization method.
-        backend: The distributed backend.
+        cfg: The multi-processs configuration.
+        all_reduce: If set, run a dummy all-reduce after initialization.
     """
-    set_dist(rank, local_rank, world_size, local_world_size, master_addr, master_port, init_method)
-    init_process_group_from_backend(backend)
+    global _parallel_group_info
+
+    if cfg is None:
+        cfg = MultiProcessConfig.default_config()
+
+    backend = get_distributed_backend()
+
+    os.environ["MASTER_ADDR"] = cfg.master_addr
+    os.environ["MASTER_PORT"] = str(cfg.master_port)
+
+    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", cfg.rank, cfg.world_size, cfg.init_method, backend)
+    dist.init_process_group(
+        backend=backend,
+        init_method=cfg.init_method,
+        world_size=cfg.world_size,
+        rank=cfg.rank,
+    )
+
+    if torch.cuda.is_available():
+        dev_id = (local_rank := cfg.local_rank) % (dev_cnt := torch.cuda.device_count())
+        logger.log(LOG_DEBUG_ALL, "Setting device %d (local rank %d with %d device(s))", dev_id, local_rank, dev_cnt)
+        torch.cuda.set_device(dev_id)
+
+    logger.debug("Initialized process group")
+    if all_reduce:
+        dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
+        logger.debug("Dummy all-reduce succeeded")
+
+    if _parallel_group_info is not None:
+        raise ParallismError("Parallelism is already initialized; call `reset_parallelism` first.")
+
+    if not dist.is_initialized():
+        raise ParallismError("Distributed training is not initialized.")
+
+    global_rank, global_world_size = dist.get_rank(), dist.get_world_size()
+
+    model_parallelism = cfg.model_parallelism
+
+    # Converts special keys.
+    special_values: dict[str, int] = {
+        "local": cfg.local_world_size,
+        "global": global_world_size,
+    }
+    if isinstance(model_parallelism, str):
+        model_parallelism = model_parallelism.lower()
+        if model_parallelism not in special_values:
+            special_str = "[" + ", ".join(sorted(special_values.keys())) + "]"
+            raise NotImplementedError(f"Invalid model parallelism: {model_parallelism}, should be one of {special_str}")
+        model_parallelism = special_values[model_parallelism]
+
+    if model_parallelism <= 0:
+        raise ValueError(f"Model parallelism must be positive, got {model_parallelism}")
+
+    # This is specific behavior - if model parallelism is too large for the
+    # current machine, we just clamp it to whatever the world size is.
+    if model_parallelism > global_world_size:
+        logger.warning(
+            "Model parallelism %d is greater than world size %d, setting to %d",
+            model_parallelism,
+            global_world_size,
+            global_world_size,
+        )
+        model_parallelism = global_world_size
+
+    # Validates parallelism for current world size.
+    if global_world_size % model_parallelism != 0:
+        raise ParallismError(f"{global_world_size=} is not divisible by {model_parallelism=}")
+    data_parallelism = global_world_size // model_parallelism
+
+    logger.info(
+        ("Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s"),
+        colored("Model", "light-green"),
+        colored(str(model_parallelism), "light-cyan", bold=True),
+        colored("Data", "light-green"),
+        colored(str(data_parallelism), "light-cyan", bold=True),
+    )
+
+    # We split this way so that two near-by GPUs are more likely to be in the
+    # same model parallel group than data parallel group. This is because for
+    # typical environments we have data parallel groups that are on separate
+    # devices.
+    groups_dm = torch.arange(global_world_size).view(data_parallelism, model_parallelism)
+
+    def get_group(groups_nd: Tensor) -> tuple[ProcessGroup, list[int]]:
+        assert groups_nd.dim() == 2
+        group: tuple[ProcessGroup, list[int]] | None = None
+        for i in range(groups_nd.size(0)):
+            group_ranks = groups_nd[i].tolist()
+            group_i = dist.new_group(group_ranks)
+            if global_rank in group_ranks:
+                group = (group_i, group_ranks)
+        if group is None:
+            raise RuntimeError(f"{global_rank=} not found in {groups_nd}")
+        return group
+
+    # We need to initialize all groups across all devices, but then we choose
+    # the specific group for this device.
+    dp_group, dp_ids = get_group(groups_dm.permute(1, 0))
+    mp_group, mp_ids = get_group(groups_dm)
+
+    assert isinstance(dp_group, ProcessGroup), dp_group
+    assert isinstance(mp_group, ProcessGroup), mp_group
+
+    assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
+    assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
+
+    dp_rank = global_rank // model_parallelism
+    mp_rank = global_rank % model_parallelism
+
+    # Sets the group info now that it is initialized.
+    _parallel_group_info = _GroupsInfos(
+        mp=_GroupInfo(
+            group=mp_group,
+            global_ranks=mp_ids,
+            rank=mp_rank,
+            world_size=model_parallelism,
+        ),
+        dp=_GroupInfo(
+            group=dp_group,
+            global_ranks=dp_ids,
+            rank=dp_rank,
+            world_size=data_parallelism,
+        ),
+    )
+
+
+def cleanup_dist() -> None:
+    global _parallel_group_info
+    if (pg := dist.GroupMember.WORLD) is not None:
+        dist.destroy_process_group(pg)
+    if _parallel_group_info is not None:
+        dist.destroy_process_group(dp_info().group)
+        dist.destroy_process_group(mp_info().group)
+    _parallel_group_info = None
 
 
 @functools.lru_cache(maxsize=None)
@@ -1280,39 +1023,16 @@ def get_distributed_backend() -> dist.Backend:
     return dist.Backend(os.environ.get("TORCH_DISTRIBUTED_BACKEND", default_backend()))
 
 
-def set_distributed_backend(backend: str) -> None:
-    os.environ["TORCH_DISTRIBUTED_BACKEND"] = backend
-
-
 def init_and_run(
     func: Callable[P, None],
-    cfg: MultiProcessConfig,
+    cfg: MultiProcessConfig | None = None,
     *args: P.args,
     **kwargs: P.kwargs,
 ) -> None:
+    if cfg is None:
+        cfg = MultiProcessConfig.default_config()
     configure_logging(rank=cfg.rank, world_size=cfg.world_size)
-
-    init_dist(
-        rank=cfg.rank,
-        local_rank=cfg.local_rank,
-        world_size=cfg.world_size,
-        local_world_size=cfg.local_world_size,
-        master_addr=cfg.master_addr,
-        master_port=cfg.master_port,
-        init_method=cfg.init_method,
-        backend=cfg.distributed_backend,
-    )
-
-    init_parallelism(
-        model_parallelism=cfg.model_parallelism,
-        pipeline_parallelism=cfg.pipeline_parallelism,
-        fsdp_parallelism=cfg.fsdp_parallelism,
-        mp_backend=cfg.distributed_backend if cfg.model_parallel_backend is None else cfg.model_parallel_backend,
-        pp_backend=cfg.distributed_backend if cfg.pipeline_parallel_backend is None else cfg.pipeline_parallel_backend,
-        fp_backend=cfg.distributed_backend if cfg.fsdp_parallel_backend is None else cfg.fsdp_parallel_backend,
-        dp_backend=cfg.distributed_backend if cfg.data_parallel_backend is None else cfg.data_parallel_backend,
-    )
-
+    init_dist(cfg)
     func(*args, **kwargs)
 
 
@@ -1337,13 +1057,6 @@ def _func_wrapped(
         with open(error_file, "wb") as fh:
             pkl.dump(traceback.format_exc(), fh)
         sys.exit(1)
-
-
-def cleanup() -> None:
-    if dist.GroupMember.WORLD is not None:
-        dist.destroy_process_group()
-    clear_dist()
-    reset_parallelism()
 
 
 def launch_subprocesses(
@@ -1378,7 +1091,7 @@ def launch_subprocesses(
         cfg.rank = 0
         cfg.local_rank = 0
         init_and_run(func, cfg, *args, **kwargs)
-        cleanup()
+        cleanup_dist()
         return
 
     logger.info("Launching %d training workers", cfg.world_size)
@@ -1411,7 +1124,7 @@ def launch_subprocesses(
     while not pctx.join():
         pass
 
-    cleanup()
+    cleanup_dist()
 
 
 class _AllToAll(Function):

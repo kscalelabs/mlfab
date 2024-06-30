@@ -17,15 +17,7 @@ import torch
 
 from mlfab.nn.parallel import (
     init_parallelism,
-    init_process_group_from_backend,
     is_master,
-    set_init_method,
-    set_local_rank,
-    set_local_world_size,
-    set_master_addr,
-    set_master_port,
-    set_rank,
-    set_world_size,
 )
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.staged import StagedLauncher
@@ -38,21 +30,22 @@ from mlfab.utils.text import show_info
 DEFAULT_MASTER_PORT = 29500
 
 
-def set_slurm_rank_and_world_size() -> tuple[int, int]:
+def set_slurm_rank_and_world_size() -> tuple[int, int, int, int]:
     node_id = int(os.environ["SLURM_NODEID"])
     local_id = int(os.environ["SLURM_LOCALID"])
     tasks_per_node = int(os.environ["SLURM_NTASKS_PER_NODE"])
     num_nodes = int(os.environ["SLURM_NNODES"])
+
     rank = node_id * tasks_per_node + local_id
+    local_rank = local_id
+
     world_size = num_nodes * tasks_per_node
-    set_rank(rank)
-    set_world_size(world_size)
-    set_local_rank(local_id)
-    set_local_world_size(tasks_per_node)
-    return rank, world_size
+    local_world_size = tasks_per_node
+
+    return rank, local_rank, world_size, local_world_size
 
 
-def set_slurm_master_addr_and_port() -> str:
+def get_slurm_master_addr_and_port() -> tuple[str, int]:
     node_list = os.environ.get("SLURM_STEP_NODELIST")
     if node_list is None:
         node_list = os.environ.get("SLURM_JOB_NODELIST")
@@ -60,9 +53,7 @@ def set_slurm_master_addr_and_port() -> str:
     hostnames = subprocess.check_output(["scontrol", "show", "hostnames", node_list])
     host = hostnames.split()[0].decode("utf-8")
     port = int(os.environ.get("MASTER_PORT", str(DEFAULT_MASTER_PORT)))
-    set_master_addr(host)
-    set_master_port(port)
-    return host
+    return host, port
 
 
 def write_message(message: str) -> None:
@@ -149,14 +140,7 @@ class SlurmLauncher(StagedLauncher):
         account: str | None = None,
         nodelist: list[str] | None = None,
         master_port: int | None = None,
-        model_parallelism: int = 1,
-        pipeline_parallelism: int = 1,
-        fsdp_parallelism: int = 1,
-        backend: str | None = None,
-        model_parallel_backend: str | None = None,
-        pipeline_parallel_backend: str | None = None,
-        fsdp_parallel_backend: str | None = None,
-        data_parallel_backend: str | None = None,
+        model_parallelism: int | str = 1,
         debug_nccl: bool = False,
     ) -> None:
         super().__init__()
@@ -188,13 +172,6 @@ class SlurmLauncher(StagedLauncher):
         self.comment = comment
         self.master_port = get_random_port(DEFAULT_MASTER_PORT) if master_port is None else master_port
         self.model_parallelism = model_parallelism
-        self.pipeline_parallelism = pipeline_parallelism
-        self.fsdp_parallelism = fsdp_parallelism
-        self.backend = backend
-        self.model_parallel_backend = model_parallel_backend
-        self.pipeline_parallel_backend = pipeline_parallel_backend
-        self.fsdp_parallel_backend = fsdp_parallel_backend
-        self.data_parallel_backend = data_parallel_backend
         self.account = account
         self.nodelist = nodelist
         self.debug_nccl = debug_nccl
@@ -256,20 +233,6 @@ class SlurmLauncher(StagedLauncher):
         export_lines: dict[str, str] = {}
         if self.model_parallelism != 1:
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
-        if self.pipeline_parallelism != 1:
-            export_lines["PIPELINE_PARALLELISM"] = str(self.pipeline_parallelism)
-        if self.fsdp_parallelism != 1:
-            export_lines["FSDP_PARALLELISM"] = str(self.fsdp_parallelism)
-        if self.backend is not None:
-            export_lines["BACKEND"] = self.backend
-        if self.model_parallel_backend is not None:
-            export_lines["MODEL_PARALLEL_BACKEND"] = self.model_parallel_backend
-        if self.pipeline_parallel_backend is not None:
-            export_lines["PIPELINE_PARALLEL_BACKEND"] = self.pipeline_parallel_backend
-        if self.fsdp_parallel_backend is not None:
-            export_lines["FSDP_PARALLEL_BACKEND"] = self.fsdp_parallel_backend
-        if self.data_parallel_backend is not None:
-            export_lines["DATA_PARALLEL_BACKEND"] = self.data_parallel_backend
         if self.debug_nccl:
             export_lines["NCCL_DEBUG"] = "INFO"
             export_lines["NCCL_DEBUG_SUBSYS"] = "ALL"
@@ -436,33 +399,29 @@ srun \\
         task.add_lock_file("running", exists_ok=True)
         task.remove_lock_file("scheduled", missing_ok=True)
 
-        # Sets environment variables from Slurm environment variables.
-        set_slurm_master_addr_and_port()
-        rank, world_size = set_slurm_rank_and_world_size()
+        # Gets Slurm information.
+        host, port = get_slurm_master_addr_and_port()
+        node_rank = int(os.environ["SLURM_NODEID"])
+        local_rank = int(os.environ["SLURM_LOCALID"])
+        node_world_size = int(os.environ["SLURM_NNODES"])
+        local_world_size = int(os.environ["SLURM_NTASKS_PER_NODE"])
+
+        rank = node_rank * node_world_size + local_rank
+        world_size = node_world_size * local_world_size
 
         # Sets the initialization method and configures per-rank logging.
-        set_init_method("env://")
         configure_logging(rank=rank, world_size=world_size)
-        init_process_group_from_backend()
 
         # Gets parallelism environment variables.
         model_parallelism = int(os.environ.get("MODEL_PARALLELISM", "1"))
-        pipeline_parallelism = int(os.environ.get("PIPELINE_PARALLELISM", "1"))
-        fsdp_parallelism = int(os.environ.get("FSDP_PARALLELISM", "1"))
         backend = os.environ.get("BACKEND", None)
         model_parallel_backend = os.environ.get("MODEL_PARALLEL_BACKEND", None)
-        pipeline_parallel_backend = os.environ.get("PIPELINE_PARALLEL_BACKEND", None)
-        fsdp_parallel_backend = os.environ.get("FSDP_PARALLEL_BACKEND", None)
         data_parallel_backend = os.environ.get("DATA_PARALLEL_BACKEND", None)
 
         # Sets model parallelism.
         init_parallelism(
             model_parallelism=model_parallelism,
-            pipeline_parallelism=pipeline_parallelism,
-            fsdp_parallelism=fsdp_parallelism,
             mp_backend=model_parallel_backend or backend,
-            pp_backend=pipeline_parallel_backend or backend,
-            fp_backend=fsdp_parallel_backend or backend,
             dp_backend=data_parallel_backend or backend,
         )
 

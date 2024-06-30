@@ -13,9 +13,9 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.fsdp import (
-    FullOptimStateDictConfig,
-    FullStateDictConfig,
     FullyShardedDataParallel as FSDP,
+    ShardedOptimStateDictConfig,
+    ShardedStateDictConfig,
     StateDictType,
 )
 from torch.optim.optimizer import Optimizer
@@ -23,7 +23,7 @@ from torch.serialization import MAP_LOCATION
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import ckpt_id, is_ckpt_master, num_ckpts
+from mlfab.nn.parallel import dp_rank, mp_rank, mp_world_size
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
@@ -41,8 +41,8 @@ def get_ckpt_path(exp_dir: Path, state: State | None = None) -> Path:
         The path to the PyTorch checkpoint to save or load
     """
     name = "ckpt"
-    if num_ckpts() > 1:
-        name += f"_{ckpt_id()}"
+    if mp_world_size() > 1:
+        name += f"_{mp_rank()}"
     if state is not None:
         name += f".{state.num_steps}"
     return exp_dir / "checkpoints" / f"{name}.pt"
@@ -252,16 +252,16 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(mod, FSDP):
             return FSDP.state_dict_type(
                 module=mod,
-                state_dict_type=StateDictType.FULL_STATE_DICT,
-                state_dict_config=FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
-                optim_state_dict_config=FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True),
+                state_dict_type=StateDictType.SHARDED_STATE_DICT,
+                state_dict_config=ShardedStateDictConfig(offload_to_cpu=True),
+                optim_state_dict_config=ShardedOptimStateDictConfig(offload_to_cpu=True),
             )
         return contextlib.nullcontext()
 
     def load_checkpoint_(
         self,
         module: nn.Module,
-        optimizer: Optimizer | None = None,
+        optimizer: Optimizer,
         ckpt_path: str | Path | None = None,
         map_location: MAP_LOCATION = None,
         mmap: bool | None = None,
@@ -286,9 +286,19 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
+
+        with self.state_dict_context(module, optimizer):
+            if (module_state_dict := state_dict.pop("model", None)) is not None:
+                module.load_state_dict(module_state_dict)
+            if (optimizer_state_dict := state_dict.pop("optimizer", None)) is not None:
+                if isinstance(module, FSDP):
+                    optimizer_state_dict = FSDP.optim_state_dict_to_load(module, optimizer, optimizer_state_dict)
+                optimizer.load_state_dict(optimizer_state_dict)
+
         self.load_task_state_dict_(state_dict, strict, assign)
         if raw_state is not None:
             return State(**json.loads(raw_state))
+
         warnings.warn("No state found in checkpoint! Using default initial state.")
         return State.init_state()
 
@@ -313,7 +323,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path = self.get_ckpt_path(state) if ckpt_path is None else Path(ckpt_path)
         self.on_before_save_checkpoint(ckpt_path)
 
-        if not is_ckpt_master():
+        if dp_rank() > 0:
             return ckpt_path
 
         # Gets the path to the last checkpoint.
@@ -330,7 +340,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         state_dict: dict = {}
         with self.state_dict_context(module, optimizer):
             state_dict["model"] = module.state_dict()
-            state_dict["optimizer"] = optimizer.state_dict()
+            if isinstance(module, FSDP):
+                state_dict["optimizer"] = FSDP.optim_state_dict(module, optimizer)
+            else:
+                state_dict["optimizer"] = optimizer.state_dict()
         state_dict["task"] = self.task_state_dict()
         state_dict["state"] = json.dumps(asdict(state))
         state_dict["config"] = OmegaConf.to_yaml(self.config)

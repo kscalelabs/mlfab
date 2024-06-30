@@ -1,6 +1,7 @@
 """Tests model parallelism primitives."""
 
 import logging
+import os
 
 import pytest
 import torch
@@ -111,6 +112,7 @@ def test_parallel_model(use_lora: bool) -> None:
     Args:
         use_lora: Whether to use LoRA or not.
     """
+    os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     mlfab.configure_logging()
 
     port = mlfab.get_unused_port()
@@ -120,9 +122,7 @@ def test_parallel_model(use_lora: bool) -> None:
         master_addr="127.0.0.1",
         master_port=port,
         init_method=f"tcp://127.0.0.1:{port}",
-        distributed_backend="gloo",
         model_parallelism=2,
-        pipeline_parallelism=1,
     )
 
     mlfab.launch_subprocesses(lora_func if use_lora else func, config, setup=setup)
