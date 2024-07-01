@@ -117,7 +117,7 @@ def fsdp(
             process_group = group_info.tp.group, group_info.dp.group
         else:
             process_group = group_info.tp.group
-        return FSDP(model, process_group=process_group, **kwargs)  # noqa: arg-type
+        return FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
 
     else:
         if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
@@ -125,7 +125,7 @@ def fsdp(
         else:
             mesh = device_mesh(device.type)["dp"]
 
-        return FSDP(model, device_mesh=mesh, **kwargs)  # noqa: arg-type
+        return FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
