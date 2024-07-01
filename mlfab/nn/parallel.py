@@ -617,6 +617,13 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
 
     model_parallelism = cfg.model_parallelism
 
+    # Tries to parse to int.
+    if isinstance(model_parallelism, str):
+        try:
+            model_parallelism = int(model_parallelism)
+        except ValueError:
+            pass
+
     # Converts special keys.
     special_values: dict[str, int] = {
         "local": cfg.local_world_size,
@@ -624,10 +631,17 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     }
     if isinstance(model_parallelism, str):
         model_parallelism = model_parallelism.lower()
-        if model_parallelism not in special_values:
-            special_str = "[" + ", ".join(sorted(special_values.keys())) + "]"
-            raise NotImplementedError(f"Invalid model parallelism: {model_parallelism}, should be one of {special_str}")
-        model_parallelism = special_values[model_parallelism]
+        if model_parallelism in special_values:
+            model_parallelism = special_values[model_parallelism]
+        else:
+            try:
+                model_parallelism = int(model_parallelism)
+            except ValueError:
+                special_str = "[" + ", ".join(sorted(special_values.keys())) + "]"
+                raise NotImplementedError(
+                    f"Invalid value for model parallelism: {model_parallelism}, "
+                    f"should either be an integer or one of {special_str}"
+                )
 
     if model_parallelism <= 0:
         raise ValueError(f"Model parallelism must be positive, got {model_parallelism}")

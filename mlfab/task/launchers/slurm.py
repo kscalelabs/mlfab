@@ -413,7 +413,7 @@ srun \\
         configure_logging(rank=rank, world_size=world_size)
 
         # Gets parallelism environment variables.
-        model_parallelism = int(os.environ.get("MODEL_PARALLELISM", "1"))
+        model_parallelism = os.environ.get("MODEL_PARALLELISM", "1")
 
         # Sets model parallelism.
         cfg = MultiProcessConfig(
