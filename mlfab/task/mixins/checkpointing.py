@@ -260,9 +260,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         logger.info("Saving checkpoint to %s", ckpt_path)
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
-        # Saves the complete state dict to the checkpoint.
+        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
         if dp_rank() == 0:
-            module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
             weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
             save_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
 

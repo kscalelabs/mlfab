@@ -95,5 +95,5 @@ def test_e2e_parallel_training_fsdp(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_parallel_task_e2e
-    test_e2e_parallel_training_ddp(Path(tempfile.mkdtemp()))
-    # test_e2e_parallel_training_fsdp(Path(tempfile.mkdtemp()))
+    # test_e2e_parallel_training_ddp(Path(tempfile.mkdtemp()))
+    test_e2e_parallel_training_fsdp(Path(tempfile.mkdtemp()))
