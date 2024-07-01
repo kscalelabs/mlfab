@@ -48,11 +48,13 @@ attention implementation.
 """
 
 import copy
-from typing import Literal, TypeVar, cast, overload
+from typing import Literal, Self, TypeVar, cast, overload
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.distributed._tensor import DeviceMesh
+from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel, SequenceParallel, parallelize_module
 from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
@@ -234,6 +236,18 @@ class MultiheadAttention(nn.Module):
         self.kproj = nn.Linear(self.kdim, self.kv_embed_dim, bias=bias)
         self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+
+    def parallelize(self, device_mesh: DeviceMesh) -> Self:
+        return parallelize_module(
+            module=self,
+            device_mesh=device_mesh,
+            parallelize_plan={
+                "qproj": ColwiseParallel(),
+                "kproj": RowwiseParallel(),
+                "vproj": RowwiseParallel(),
+                "out_proj": ColwiseParallel(),
+            },
+        )
 
     def forward_matmuls(
         self,
@@ -449,6 +463,19 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
+    def parallelize(self, device_mesh: DeviceMesh) -> Self:
+        return parallelize_module(
+            module=self,
+            device_mesh=device_mesh,
+            parallelize_plan={
+                "linear1": ColwiseParallel(),
+                "linear2": RowwiseParallel(),
+                "linear3": ColwiseParallel(),
+                "norm1": SequenceParallel(),
+                "norm2": SequenceParallel(),
+            },
+        )
+
     def forward(
         self,
         src_btc: Tensor,
@@ -632,6 +659,19 @@ class TransformerDecoderLayer(nn.Module):
         self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
+
+    def parallelize(self, device_mesh: DeviceMesh) -> Self:
+        return parallelize_module(
+            module=self,
+            device_mesh=device_mesh,
+            parallelize_plan={
+                "linear1": ColwiseParallel(),
+                "linear2": RowwiseParallel(),
+                "linear3": ColwiseParallel(),
+                "norm1": SequenceParallel(),
+                "norm2": SequenceParallel(),
+            },
+        )
 
     def forward(
         self,
