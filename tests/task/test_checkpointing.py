@@ -49,9 +49,8 @@ def test_model_serialization(tmpdir: Path) -> None:
     mod = task
     opt = task.build_optimizer(mod)
     ckpt_path = Path(tmpdir)
+    assert not any(k.startswith("pretrained") for k in mod.state_dict().keys())
     task.save_checkpoint(mlfab.State.init_state(), mod, opt, ckpt_path)
-    _, raw_checkpoint = task.load_raw_checkpoint(ckpt_path)
-    assert not any(k.startswith("pretrained") for k in raw_checkpoint["model"].keys())
     task.load_checkpoint_(mod, opt, ckpt_path)
 
 
