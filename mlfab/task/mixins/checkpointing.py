@@ -226,7 +226,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         # Loads the module and optimizer state dict.
         module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
         weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
-        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
+        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path)
         set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
 
         if raw_state is not None:
