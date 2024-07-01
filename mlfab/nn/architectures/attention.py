@@ -57,9 +57,7 @@ from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
-from mlfab.nn.init import InitializationType
 from mlfab.nn.norms import get_norm_linear
-from mlfab.nn.parallel import ColumnParallelLinear, RowParallelLinear
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -212,7 +210,6 @@ class MultiheadAttention(nn.Module):
         kdim: int | None = None,
         vdim: int | None = None,
         gqa_factor: int = 1,
-        init_type: InitializationType = "xavier_uniform",
     ) -> None:
         super().__init__()
 
@@ -233,37 +230,10 @@ class MultiheadAttention(nn.Module):
         self.kdim = kdim if kdim is not None else embed_dim
         self.vdim = vdim if vdim is not None else embed_dim
 
-        self.qproj = ColumnParallelLinear(
-            embed_dim,
-            embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.kproj = ColumnParallelLinear(
-            self.kdim,
-            self.kv_embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.vproj = ColumnParallelLinear(
-            self.vdim,
-            self.kv_embed_dim,
-            bias=bias,
-            gather_output=False,
-            init_type=init_type,
-        )
-
-        self.out_proj = RowParallelLinear(
-            embed_dim,
-            embed_dim,
-            bias=bias,
-            input_is_parallel=True,
-            init_type=init_type,
-        )
+        self.qproj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.kproj = nn.Linear(self.kdim, self.kv_embed_dim, bias=bias)
+        self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
 
     def forward_matmuls(
         self,
@@ -437,7 +407,8 @@ class TransformerEncoderLayer(nn.Module):
         state: The next state tensor.
     """
 
-    WRAP_FSDP = True
+    __constants__ = ["max_kv_cache_len", "use_checkpointing"]
+    __wrap_fsdp__ = True
 
     def __init__(
         self,
@@ -467,10 +438,10 @@ class TransformerEncoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False)
+        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
@@ -497,7 +468,7 @@ class TransformerEncoderLayer(nn.Module):
     def _get_qkv(
         self,
         x_btc: Tensor,
-        state: Tensor | None,
+        state_2btc: Tensor | None,
         is_causal: bool,
         rotary_q_2tc: Tensor | None = None,
         rotary_k_2tc: Tensor | None = None,
@@ -505,7 +476,7 @@ class TransformerEncoderLayer(nn.Module):
         xq_btc, xk_btc, xv_btc = self.self_attn.forward_matmuls(x_btc, x_btc, x_btc, rotary_q_2tc, rotary_k_2tc)
 
         # Concatenates previous states
-        if state is not None:
+        if state_2btc is not None:
             if is_causal:
                 raise ValueError(
                     "Causal attention with state will lead to incorrect results. Instead, when unrolling the "
@@ -518,7 +489,7 @@ class TransformerEncoderLayer(nn.Module):
                     "samples one-at-a-time."
                 )
 
-            prev_k, prev_v = state.unbind(0)
+            prev_k, prev_v = state_2btc.unbind(0)
             xk_btc = torch.cat((prev_k, xk_btc), dim=-2)
             xv_btc = torch.cat((prev_v, xv_btc), dim=-2)
             if self.max_kv_cache_len is not None:
@@ -530,20 +501,20 @@ class TransformerEncoderLayer(nn.Module):
     def _sa_block_inner(
         self,
         x_btc: Tensor,
-        state: Tensor | None,
+        state_2btc: Tensor | None,
         is_causal: bool,
         rotary_q_2tc: Tensor | None = None,
         rotary_k_2tc: Tensor | None = None,
         mask_btt: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        xq_btc, xk_btc, xv_btc = self._get_qkv(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc)
+        xq_btc, xk_btc, xv_btc = self._get_qkv(x_btc, state_2btc, is_causal, rotary_q_2tc, rotary_k_2tc)
         x_btc = self.self_attn.forward_attn(xq_btc, xk_btc, xv_btc, is_causal, mask_btt)
         return self.dropout1(x_btc), torch.stack((xk_btc, xv_btc), dim=0)
 
     def _sa_block(
         self,
         x_btc: Tensor,
-        state: Tensor | None,
+        state_2btc: Tensor | None,
         is_causal: bool,
         rotary_q_2tc: Tensor | None = None,
         rotary_k_2tc: Tensor | None = None,
@@ -553,7 +524,7 @@ class TransformerEncoderLayer(nn.Module):
             checkpoint(
                 self._sa_block_inner,
                 x_btc,
-                state,
+                state_2btc,
                 is_causal,
                 rotary_q_2tc,
                 rotary_k_2tc,
@@ -561,7 +532,7 @@ class TransformerEncoderLayer(nn.Module):
                 use_reentrant=False,
             )
             if self.use_checkpointing
-            else self._sa_block_inner(x_btc, state, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
+            else self._sa_block_inner(x_btc, state_2btc, is_causal, rotary_q_2tc, rotary_k_2tc, mask_btt)
         )
 
     def _ff_block_inner(self, x_btc: Tensor) -> Tensor:
@@ -619,7 +590,8 @@ class TransformerDecoderLayer(nn.Module):
         state: The next state tensor.
     """
 
-    WRAP_FSDP = True
+    __constants__ = ["use_checkpointing"]
+    __wrap_fsdp__ = True
 
     def __init__(
         self,
@@ -650,10 +622,10 @@ class TransformerDecoderLayer(nn.Module):
 
         # Feed-forward layers.
         hidden_dim = round(d_model * feedforward_factor)
-        self.linear1 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear1 = nn.Linear(d_model, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-        self.linear2 = RowParallelLinear(hidden_dim, d_model, bias=False, input_is_parallel=True)
-        self.linear3 = ColumnParallelLinear(d_model, hidden_dim, bias=False, gather_output=False)
+        self.linear2 = nn.Linear(hidden_dim, d_model, bias=False)
+        self.linear3 = nn.Linear(d_model, hidden_dim, bias=False)
 
         # Extras (norms and dropout).
         self.norm1 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
@@ -675,33 +647,33 @@ class TransformerDecoderLayer(nn.Module):
         x_bqc = x_bqc + self._ff_block(self.norm2(x_bqc))
         return x_bqc, state
 
-    def _get_qkv(self, x_bqc: Tensor, memory_bkc: Tensor, state: Tensor | None) -> tuple[Tensor, Tensor, Tensor]:
-        if state is None:
+    def _get_qkv(self, x_bqc: Tensor, memory_bkc: Tensor, state_2bkc: Tensor | None) -> tuple[Tensor, Tensor, Tensor]:
+        if state_2bkc is None:
             xq_bqc, xk_bkc, xv_bkc = self.cross_attn.forward_matmuls(x_bqc, memory_bkc, memory_bkc)
-            state = torch.stack((xk_bkc, xv_bkc))
+            state_2bkc = torch.stack((xk_bkc, xv_bkc))
         else:
             xq_bqc, _, _ = self.cross_attn.forward_matmuls(x_bqc, None, None)
-            xk_bkc, xv_bkc = state.unbind(0)
+            xk_bkc, xv_bkc = state_2bkc.unbind(0)
         return xq_bqc, xk_bkc, xv_bkc
 
     def _sa_block_inner(
         self,
         x_bqc: Tensor,
         memory_bkc: Tensor,
-        state: Tensor | None,
+        state_2bkc: Tensor | None,
         mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
-        xq_bqc, xk_bkc, xv_bkc = self._get_qkv(x_bqc, memory_bkc, state)
+        xq_bqc, xk_bkc, xv_bkc = self._get_qkv(x_bqc, memory_bkc, state_2bkc)
         x_bqc = self.cross_attn.forward_attn(xq_bqc, xk_bkc, xv_bkc, mask_bqk=mask_bqk)
-        if state is None:
-            state = torch.stack((xk_bkc, xv_bkc), dim=0)
-        return self.dropout1(x_bqc), state
+        if state_2bkc is None:
+            state_2bkc = torch.stack((xk_bkc, xv_bkc), dim=0)
+        return self.dropout1(x_bqc), state_2bkc
 
     def _sa_block(
         self,
         x_bqc: Tensor,
         memory_bkc: Tensor,
-        state: Tensor | None,
+        state_2bkc: Tensor | None,
         mask_bqk: Tensor | None = None,
     ) -> tuple[Tensor, Tensor]:
         return (
@@ -709,12 +681,12 @@ class TransformerDecoderLayer(nn.Module):
                 self._sa_block_inner,
                 x_bqc,
                 memory_bkc,
-                state,
+                state_2bkc,
                 mask_bqk,
                 use_reentrant=False,
             )
             if self.use_checkpointing
-            else self._sa_block_inner(x_bqc, memory_bkc, state, mask_bqk)
+            else self._sa_block_inner(x_bqc, memory_bkc, state_2bkc, mask_bqk)
         )
 
     def _ff_block_inner(self, x_bqc: Tensor) -> Tensor:
@@ -773,8 +745,7 @@ class TransformerEncoder(nn.Module):
     """
 
     __constants__ = ["num_heads", "head_dim", "kdim", "vdim", "embed_dim", "is_causal", "use_rotary", "rotary_base"]
-
-    WRAP_FSDP = True
+    __wrap_fsdp__ = True
 
     def __init__(
         self,
@@ -796,26 +767,27 @@ class TransformerEncoder(nn.Module):
 
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
-        self.rotary_q: Tensor | None = None
-        self.rotary_k: Tensor | None = None
+        self.rotary_q_2tc: Tensor | None = None
+        self.rotary_k_2kc: Tensor | None = None
 
     def _get_rotary_embeddings(
         self,
         q_tsz: int,
         k_tsz: int,
-        state: Tensor | None,
+        state_2btc: Tensor | None,
         device: torch.device,
         dtype: torch.dtype,
+        extra_offset: int = 0,
     ) -> tuple[Tensor, Tensor]:
-        if state is None:
-            if self.rotary_q is None or self.rotary_q.shape[-2] < q_tsz:
-                self.rotary_q = get_rotary_embeddings(q_tsz, self.head_dim, device, dtype, 0, self.rotary_base)
-            if self.rotary_k is None or self.rotary_k.shape[-2] < k_tsz:
-                self.rotary_k = get_rotary_embeddings(k_tsz, self.head_dim, device, dtype, 0, self.rotary_base)
-            return self.rotary_q[..., :q_tsz, :], self.rotary_k[..., :k_tsz, :]
+        if state_2btc is None:
+            if self.rotary_q_2tc is None or self.rotary_q_2tc.size(-2) < q_tsz:
+                self.rotary_q_2tc = get_rotary_embeddings(q_tsz, self.head_dim, device, dtype, 0, self.rotary_base)
+            if self.rotary_k_2kc is None or self.rotary_k_2kc.size(-2) < k_tsz:
+                self.rotary_k_2kc = get_rotary_embeddings(k_tsz, self.head_dim, device, dtype, 0, self.rotary_base)
+            return self.rotary_q_2tc[..., :q_tsz, :], self.rotary_k_2kc[..., :k_tsz, :]
 
         else:
-            offset = state.shape[-2]
+            offset = state_2btc.size(-2) + extra_offset
             rotary_q = get_rotary_embeddings(q_tsz, self.head_dim, device, dtype, offset, self.rotary_base)
             rotary_k = get_rotary_embeddings(k_tsz, self.head_dim, device, dtype, offset, self.rotary_base)
             return rotary_q, rotary_k
@@ -845,7 +817,7 @@ class TransformerEncoder(nn.Module):
             self._get_rotary_embeddings(
                 q_tsz=tsz,
                 k_tsz=tsz,
-                state=state,
+                state_2btc=state,
                 device=src_btc.device,
                 dtype=src_btc.dtype,
             )
@@ -894,8 +866,7 @@ class TransformerDecoder(nn.Module):
     """
 
     __constants__ = ["num_heads", "head_dim", "kdim", "vdim", "embed_dim", "is_causal", "use_rotary", "rotary_base"]
-
-    WRAP_FSDP = True
+    __wrap_fsdp__ = True
 
     def __init__(
         self,
@@ -924,8 +895,8 @@ class TransformerDecoder(nn.Module):
         self.encoder_layers = _get_clones(encoder_layer, num_layers)
         self.decoder_layers = _get_clones(decoder_layer, num_layers)
         self.num_layers = num_layers
-        self.rotary_q: Tensor | None = None
-        self.rotary_k: Tensor | None = None
+        self.rotary_q_2tc: Tensor | None = None
+        self.rotary_k_2kc: Tensor | None = None
 
     def _get_rotary_embeddings(
         self,
@@ -934,19 +905,20 @@ class TransformerDecoder(nn.Module):
         state: Tensor | None,
         device: torch.device,
         dtype: torch.dtype,
+        extra_offset: int = 0,
     ) -> tuple[Tensor, Tensor]:
         if state is None:
-            if self.rotary_q is None or self.rotary_q.shape[-2] < q_tsz:
-                self.rotary_q = get_rotary_embeddings(q_tsz, self.enc_head_dim, device, dtype, 0, self.rotary_base)
-            if self.rotary_k is None or self.rotary_k.shape[-2] < k_tsz:
-                self.rotary_k = get_rotary_embeddings(k_tsz, self.enc_head_dim, device, dtype, 0, self.rotary_base)
-            return self.rotary_q[..., :q_tsz, :], self.rotary_k[..., :k_tsz, :]
+            if self.rotary_q_2tc is None or self.rotary_q_2tc.size(-2) < q_tsz:
+                self.rotary_q_2tc = get_rotary_embeddings(q_tsz, self.enc_head_dim, device, dtype, 0, self.rotary_base)
+            if self.rotary_k_2kc is None or self.rotary_k_2kc.size(-2) < k_tsz:
+                self.rotary_k_2kc = get_rotary_embeddings(k_tsz, self.enc_head_dim, device, dtype, 0, self.rotary_base)
+            return self.rotary_q_2tc[..., :q_tsz, :], self.rotary_k_2kc[..., :k_tsz, :]
 
         else:
-            offset = state.shape[-2]
-            rotary_q = get_rotary_embeddings(q_tsz, self.enc_head_dim, device, dtype, offset, self.rotary_base)
-            rotary_k = get_rotary_embeddings(k_tsz, self.enc_head_dim, device, dtype, offset, self.rotary_base)
-            return rotary_q, rotary_k
+            offset = state.size(-2) + extra_offset
+            rotary_q_2tc = get_rotary_embeddings(q_tsz, self.enc_head_dim, device, dtype, offset, self.rotary_base)
+            rotary_k_2kc = get_rotary_embeddings(k_tsz, self.enc_head_dim, device, dtype, offset, self.rotary_base)
+            return rotary_q_2tc, rotary_k_2kc
 
     def _default(self, *values: bool | None) -> bool:
         for value in values:
@@ -971,7 +943,7 @@ class TransformerDecoder(nn.Module):
         output_bqc = src_bqc
         e_state_out = []
         d_state_out = []
-        _, tsz, _ = src_bqc.shape
+        tsz = src_bqc.size(1)
         rotary_q_2qc, rotary_k_2kc = (
             self._get_rotary_embeddings(
                 q_tsz=tsz,
@@ -1045,7 +1017,7 @@ class NextTokenTransformer(nn.Module):
             rotary_base=rotary_base,
         )
         self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
-        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False, gather_output=True)
+        self.proj = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens_bt: Tensor) -> Tensor:
         x_btc = self.embeddings(tokens_bt[:, :-1])
@@ -1123,7 +1095,7 @@ class NextTokenWithEmbeddingsTransformer(nn.Module):
             rotary_base=rotary_base,
         )
         self.norm = get_norm_linear(final_norm_type, dim=d_model, eps=norm_eps)
-        self.proj = ColumnParallelLinear(d_model, vocab_size, bias=False)
+        self.proj = nn.Linear(d_model, vocab_size, bias=False)
 
     def forward(self, tokens_bt: Tensor, emb_btc: Tensor) -> tuple[Tensor, Tensor]:
         x_btc = self.embeddings(tokens_bt[:, :-1])

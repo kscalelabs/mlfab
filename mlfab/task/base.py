@@ -106,11 +106,10 @@ class BaseTask(nn.Module, Generic[Config]):
         assign: bool = False,
         weights_only: bool = False,
     ) -> None:
-        weights = state_dict.pop("weights")
-        return self.load_state_dict(weights, strict=strict, assign=assign)
+        pass
 
     def task_state_dict(self) -> dict:
-        return {"weights": self.state_dict()}
+        return {}
 
     @functools.cached_property
     def task_class_name(self) -> str:

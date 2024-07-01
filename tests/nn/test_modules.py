@@ -7,7 +7,6 @@ from torch import Tensor
 import mlfab
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("tsz", [32, 37, 51])
 @pytest.mark.parametrize("ksize", [2, 3, 5, 7])
 @pytest.mark.parametrize("stride", [1, 2, 3])
@@ -49,7 +48,6 @@ def test_streaming_conv_vanilla(
     assert torch.allclose(batch_y[..., : infer_y.shape[-1]], infer_y)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("tsz", [5, 9])
 @pytest.mark.parametrize("ksize", [2, 3, 5, 7])
 @pytest.mark.parametrize("stride", [1, 2, 3])

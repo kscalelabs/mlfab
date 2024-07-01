@@ -8,14 +8,13 @@ from pathlib import Path
 import pytest
 import torch
 from dpshdl.dataset import Dataset
-from torch import Tensor
+from torch import Tensor, nn
 
 import mlfab
 
 
 @dataclass(kw_only=True)
 class Config(mlfab.Config):
-    use_ddp: bool = mlfab.field(True)
     learning_rate: float = mlfab.field(1e-3)
     betas: tuple[float, float] = mlfab.field((0.9, 0.999))
     weight_decay: float = mlfab.field(1e-4)
@@ -35,9 +34,9 @@ class DummyTask(mlfab.Task[Config]):
         super().__init__(config)
 
         # A simple embedding layer plus two-layer MLP.
-        self.emb = mlfab.ParallelEmbedding(10, 12)
-        self.l1 = mlfab.ColumnParallelLinear(12, 16, bias=False)
-        self.l2 = mlfab.RowParallelLinear(16, 8, bias=False)
+        self.emb = nn.Embedding(10, 12)
+        self.l1 = nn.Linear(12, 16, bias=False)
+        self.l2 = nn.Linear(16, 8, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
         return self.l2(self.l1(self.emb(x)))
@@ -50,8 +49,7 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
-@pytest.mark.slow
-def test_e2e_parallel_training_mp(tmpdir: Path) -> None:
+def _test_common(tmpdir: Path, use_ddp: bool, model_parallelism: int) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
@@ -60,35 +58,42 @@ def test_e2e_parallel_training_mp(tmpdir: Path) -> None:
     mlfab.configure_logging()
 
     config = Config(
-        pipeline_parallelism=1,
-        model_parallelism=2,
+        use_ddp=use_ddp,
+        model_parallelism=model_parallelism,
         batch_size=2,
         num_train_dl_workers=0,
         max_steps=10,
     )
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
+    # Launches the first task with multiple data parallel workers.
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=model_parallelism * 2), use_cli=False)
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
-
-    # Make sure a checkpoint was saved.
-    for i in range(2):
-        assert (ckpt_path := (exp_dir / "checkpoints" / f"ckpt_{i}.pt")).exists()
-        ckpt = torch.load(ckpt_path)
-
-        # Checks that the model was saved correctly.
-        assert ckpt["weights"]["emb.weight"].shape == (10, 6)
-        assert ckpt["weights"]["l1.weight"].shape == (8, 12)
-        assert ckpt["weights"]["l2.weight"].shape == (8, 8)
 
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
+    # Launches the second task with a single data parallel worker per model
+    # parallel worker.
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=model_parallelism), use_cli=False)
+
+    # Run from the same experiment directory.
+    config.max_steps = 30
+
+
+@pytest.mark.slow
+def test_e2e_parallel_training_ddp(tmpdir: Path) -> None:
+    _test_common(tmpdir, True, 1)
+
+
+@pytest.mark.slow
+def test_e2e_parallel_training_fsdp(tmpdir: Path) -> None:
+    _test_common(tmpdir, False, 2)
 
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_parallel_task_e2e
-    test_e2e_parallel_training_mp(Path(tempfile.mkdtemp()))
+    # test_e2e_parallel_training_ddp(Path(tempfile.mkdtemp()))
+    test_e2e_parallel_training_fsdp(Path(tempfile.mkdtemp()))

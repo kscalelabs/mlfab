@@ -7,10 +7,10 @@ import torch
 from torch import Tensor, nn
 
 import mlfab
-from mlfab.nn.lora import SupportedModuleNonParallel
+from mlfab.nn.lora import SupportedModule
 
 
-@pytest.mark.parametrize("mod_type", get_args(SupportedModuleNonParallel))
+@pytest.mark.parametrize("mod_type", get_args(SupportedModule))
 def test_lora_modules(mod_type: type[nn.Module]) -> None:
     """Tests loading weights from a non-LoRA model into a LoRA model.
 
@@ -45,7 +45,7 @@ def test_lora_modules(mod_type: type[nn.Module]) -> None:
     else:
         raise NotImplementedError(f"Unsupported model type: {mod_type}")
 
-    lora_model = mlfab.lora(cast(SupportedModuleNonParallel, model), r=2)
+    lora_model = mlfab.lora(cast(SupportedModule, model), r=2)
 
     # Loads the weights from the reference model into the LoRA model.
     lora_model.load_state_dict(model.state_dict())

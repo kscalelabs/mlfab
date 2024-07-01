@@ -40,12 +40,14 @@ class CliLauncher(BaseLauncher):
         match launcher_choice:
             case "single":
                 SingleProcessLauncher().launch(task, *cfgs, use_cli=use_cli_next)
+
             case "mp":
                 multi_process_args, cli_args_rest = MultiProcessLauncher.parse_args_from_cli(cli_args_rest)
                 use_cli_next = False if not use_cli else cli_args_rest
                 MultiProcessLauncher(
                     num_processes=multi_process_args.num_processes,
                 ).launch(task, *cfgs, use_cli=use_cli_next)
+
             case "slurm":
                 slurm_args, cli_args_rest = SlurmLauncher.parse_args_from_cli(cli_args_rest)
                 use_cli_next = False if not use_cli else cli_args_rest
@@ -57,16 +59,10 @@ class CliLauncher(BaseLauncher):
                     num_nodes=slurm_args.num_nodes,
                     num_jobs=slurm_args.num_jobs,
                     model_parallelism=cfg.model_parallelism,
-                    pipeline_parallelism=cfg.pipeline_parallelism,
-                    fsdp_parallelism=cfg.fsdp_parallelism,
-                    backend=cfg.distributed_backend,
-                    model_parallel_backend=cfg.model_parallel_backend,
-                    pipeline_parallel_backend=cfg.pipeline_parallel_backend,
-                    fsdp_parallel_backend=cfg.fsdp_parallel_backend,
-                    data_parallel_backend=cfg.data_parallel_backend,
                     account=slurm_args.account,
                     nodelist=slurm_args.nodelist,
                     debug_nccl=slurm_args.debug_nccl,
                 ).launch(task, *cfgs, use_cli=use_cli_next)
+
             case _:
                 raise ValueError(f"Invalid launcher choice: {launcher_choice}")

@@ -72,6 +72,25 @@ def recursive_apply(item: Any, func: Callable[[Tensor], Tensor]) -> Any:  # noqa
     return item
 
 
+def recursive_apply_all(item: Any, func: Callable[[Any], Any]) -> Any:  # noqa: ANN401
+    """Applies a function recursively to tensors in an item.
+
+    Args:
+        item: The item to apply the function to
+        func: The function to apply (for the tensor)
+
+    Returns:
+        The same item, with the function applied
+    """
+    if is_dataclass(item):
+        return item.__class__(**{k: recursive_apply(v, func) for k, v in item.__dict__.items()})
+    if isinstance(item, Mapping):
+        return {k: recursive_apply(v, func) for k, v in item.items()}
+    if isinstance(item, Sequence):
+        return [recursive_apply(i, func) for i in item]
+    return func(item)
+
+
 def recursive_chunk(item: Any, num_chunks: int, dim: int = 0) -> Iterable[Any]:  # noqa: ANN401
     """Recursively chunk tensors N times.
 
