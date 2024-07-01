@@ -1,57 +1,27 @@
 """Defines a mixin for handling model checkpointing."""
 
-import contextlib
 import json
 import logging
 import pickle
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Generic, Literal, Self, TypeVar, cast, overload
+from typing import Any, Callable, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
 from omegaconf import DictConfig, OmegaConf
-from torch import Tensor, nn
-from torch.distributed._tensor.api import DTensor
+from torch import nn
 from torch.distributed.checkpoint import load as load_ckpt, save as save_ckpt
-from torch.distributed.checkpoint.filesystem import FileSystemReader, FileSystemWriter
-from torch.distributed.fsdp import (
-    FullyShardedDataParallel as FSDP,
-    ShardedOptimStateDictConfig,
-    ShardedStateDictConfig,
-    StateDictType,
-)
-from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
+from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.functions import recursive_apply_all
-from mlfab.nn.parallel import device_mesh, dp_rank, get_rank, mp_group_nullable, mp_rank
+from mlfab.nn.parallel import dp_rank, get_rank, mp_group_nullable
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 
 logger = logging.getLogger(__name__)
-
-
-def dtensor_to_tensor(t: Any) -> Any:  # noqa: ANN401
-    if isinstance(t, DTensor):
-        return t.to_local()
-    return t
-
-
-def dtensors_to_tensors(t: Any) -> Any:  # noqa: ANN401
-    return recursive_apply_all(t, dtensor_to_tensor)
-
-
-def tensor_to_dtensor(t: Any) -> Any:  # noqa: ANN401
-    if isinstance(t, Tensor):
-        return DTensor.from_local(t, device_mesh=device_mesh(t.device.type)["tp"])
-    return t
-
-
-def tensors_to_dtensors(t: Any) -> Any:  # noqa: ANN401
-    return recursive_apply_all(t, tensor_to_dtensor)
 
 
 @dataclass(kw_only=True)
@@ -89,7 +59,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.__last_ckpt_time = 0.0
 
     def get_ckpt_path(self) -> Path:
-        return self.exp_dir / "checkpoints" / f"ckpt_{mp_rank()}.pt"
+        return self.exp_dir / "checkpoints"
 
     @classmethod
     def read_state_dict(cls, path: str | Path) -> dict:
@@ -97,22 +67,14 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         Args:
             path: The path to the checkpoint file
-            map_location: The device to map the state dict to
-            mmap: Whether to map the checkpoint to memory
 
         Returns:
-            The state dict loaded from the checkpoint
+            The state dict loaded from the checkpoint. This just contains the
+            task information, not the model weights.
         """
         ckpt_path = Path(path)
-        weight_dict: dict = {}
-        load_ckpt(
-            state_dict=weight_dict,
-            checkpoint_id=ckpt_path,
-            storage_reader=FileSystemReader(ckpt_path.parent),
-            process_group=mp_group_nullable(),
-        )
         state_dict = torch.load(ckpt_path / "state_dict.pth", map_location="cpu", pickle_module=CustomPickleModule)
-        return {**weight_dict, **state_dict}
+        return state_dict
 
     @overload
     @classmethod
@@ -239,17 +201,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    @classmethod
-    def state_dict_context(cls, mod: nn.Module, opt: Optimizer) -> ContextManager:
-        if isinstance(mod, FSDP):
-            return FSDP.state_dict_type(
-                module=mod,
-                state_dict_type=StateDictType.SHARDED_STATE_DICT,
-                state_dict_config=ShardedStateDictConfig(offload_to_cpu=True),
-                optim_state_dict_config=ShardedOptimStateDictConfig(offload_to_cpu=True),
-            )
-        return contextlib.nullcontext()
-
     def load_checkpoint_(
         self,
         module: nn.Module,
@@ -270,20 +221,14 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
-
-        with self.state_dict_context(module, optimizer):
-            module_state_dict = state_dict.pop("model")
-            consume_prefix_in_state_dict_if_present(module_state_dict, "module.")
-            module_state_dict = tensors_to_dtensors(module_state_dict)
-            module.load_state_dict(module_state_dict)
-
-            optimizer_state_dict = state_dict.pop("optimizer")
-            optimizer_state_dict = tensors_to_dtensors(optimizer_state_dict)
-            if isinstance(module, FSDP):
-                optimizer_state_dict = FSDP.optim_state_dict_to_load(module, optimizer, optimizer_state_dict)
-            optimizer.load_state_dict(optimizer_state_dict)
-
         self.load_task_state_dict_(state_dict, strict, assign)
+
+        # Loads the module and optimizer state dict.
+        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
+        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
+        set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
+
         if raw_state is not None:
             return State(**json.loads(raw_state))
 
@@ -316,26 +261,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
         # Saves the complete state dict to the checkpoint.
-        weight_dict: dict = {}
-        with self.state_dict_context(module, optimizer):
-            module_state_dict = module.state_dict()
-            # module_state_dict = dtensors_to_tensors(module.state_dict())
-            weight_dict["model"] = module_state_dict
-
-            if isinstance(module, FSDP):
-                optimizer_state_dict = FSDP.optim_state_dict(module, optimizer)
-            else:
-                optimizer_state_dict = optimizer.state_dict()
-            # optimizer_state_dict = dtensors_to_tensors(optimizer_state_dict)
-            weight_dict["optimizer"] = optimizer_state_dict
-
         if dp_rank() == 0:
-            save_ckpt(
-                state_dict=weight_dict,
-                checkpoint_id=ckpt_path,
-                storage_writer=FileSystemWriter(ckpt_path.parent),
-                process_group=mp_group_nullable(),
-            )
+            module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+            weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
+            save_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
 
         if get_rank() == 0:
             state_dict: dict = {}
