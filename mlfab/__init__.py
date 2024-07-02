@@ -155,6 +155,7 @@ __all__ = [
     "can_use_fused",
     "separate_decayable_params",
     "MultiProcessConfig",
+    "ParallelModule",
     "cleanup_dist",
     "dp_group",
     "dp_rank",
@@ -418,6 +419,7 @@ NAME_MAP: dict[str, str] = {
     "can_use_fused": "nn.optimizers",
     "separate_decayable_params": "nn.optimizers",
     "MultiProcessConfig": "nn.parallel",
+    "ParallelModule": "nn.parallel",
     "cleanup_dist": "nn.parallel",
     "dp_group": "nn.parallel",
     "dp_rank": "nn.parallel",
@@ -707,6 +709,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.nn.parallel import (
         MultiProcessConfig,
+        ParallelModule,
         cleanup_dist,
         dp_group,
         dp_rank,

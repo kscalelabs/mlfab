@@ -10,6 +10,7 @@ from typing import Any, ContextManager, Generic, Sequence, TypeVar
 import torch
 from torch import Tensor, nn
 from torch.distributed import ProcessGroup
+from torch.distributed._tensor import DeviceMesh
 from torch.distributed.fsdp import (
     BackwardPrefetch,
     CPUOffload,
@@ -25,7 +26,7 @@ from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
-from mlfab.nn.parallel import all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
+from mlfab.nn.parallel import ParallelModule, all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
@@ -67,9 +68,23 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
 Config = TypeVar("Config", bound=ParallelConfig)
 
 
-def ddp(model: nn.Module) -> DDP:
+def call_parallelize_fn(module: nn.Module, mesh: DeviceMesh) -> None:
+    if isinstance(module, ParallelModule):
+        module.parallelize(mesh)
+
+
+def ddp(
+    model: nn.Module,
+    device: torch.device,
+    parallelize: bool = True,
+) -> DDP:
     group_info = parallel_group_info()
-    return DDP(model, process_group=group_info.dp.group)
+    model = DDP(model, process_group=group_info.dp.group)
+
+    if parallelize:
+        model.apply(functools.partial(call_parallelize_fn, mesh=device_mesh(device.type)["tp"]))
+
+    return model
 
 
 def fsdp(
@@ -78,6 +93,7 @@ def fsdp(
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
     use_process_groups: bool = False,
+    parallelize: bool = True,
 ) -> FSDP:
     group_info = parallel_group_info()
 
@@ -111,21 +127,26 @@ def fsdp(
         "use_orig_params": cfg.fsdp_use_orig_params,
     }
 
+    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+        mesh = device_mesh(device.type)
+    else:
+        mesh = device_mesh(device.type)["dp"]
+
     if use_process_groups:
         process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
         if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
             process_group = group_info.tp.group, group_info.dp.group
         else:
             process_group = group_info.tp.group
-        return FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
+        model = FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
 
     else:
-        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-            mesh = device_mesh(device.type)
-        else:
-            mesh = device_mesh(device.type)["dp"]
+        model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
-        return FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
+    if parallelize:
+        model.apply(functools.partial(call_parallelize_fn, mesh=device_mesh(device.type)["tp"]))
+
+    return model
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
@@ -167,9 +188,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if (use_ddp := self.config.use_ddp) is None:
             use_ddp = parallel_group_info().tp.world_size == 1
         if use_ddp:
-            if parallel_group_info().tp.world_size > 1:
-                raise RuntimeError("FSDP process groups aren't supported with DDP")
-            return ddp(model)
+            return ddp(model, self.torch_device)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:

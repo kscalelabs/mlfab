@@ -60,6 +60,7 @@ from torch.utils.checkpoint import checkpoint
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
 from mlfab.nn.norms import get_norm_linear
+from mlfab.nn.parallel import ParallelModule
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -154,7 +155,7 @@ Tk = TypeVar("Tk", Tensor, None)
 Tv = TypeVar("Tv", Tensor, None)
 
 
-class MultiheadAttention(nn.Module):
+class MultiheadAttention(ParallelModule):
     """Defines a streamable multihead attention layer.
 
     This is a slightly modified implementation of ``nn.MultiheadAttention``
@@ -237,10 +238,10 @@ class MultiheadAttention(nn.Module):
         self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
 
-    def parallelize(self, device_mesh: DeviceMesh) -> Self:
+    def parallelize(self, mesh: DeviceMesh) -> Self:
         return parallelize_module(
             module=self,
-            device_mesh=device_mesh,
+            device_mesh=mesh,
             parallelize_plan={
                 "qproj": ColwiseParallel(),
                 "kproj": RowwiseParallel(),
@@ -380,7 +381,7 @@ class MultiheadAttention(nn.Module):
         return attn_bghqk
 
 
-class TransformerEncoderLayer(nn.Module):
+class TransformerEncoderLayer(ParallelModule):
     """Defines a transformer encoder layer.
 
     This layer is a drop-in replacement for ``nn.TransformerEncoderLayer``
@@ -463,10 +464,10 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-    def parallelize(self, device_mesh: DeviceMesh) -> Self:
+    def parallelize(self, mesh: DeviceMesh) -> Self:
         return parallelize_module(
             module=self,
-            device_mesh=device_mesh,
+            device_mesh=mesh,
             parallelize_plan={
                 "linear1": ColwiseParallel(),
                 "linear2": RowwiseParallel(),

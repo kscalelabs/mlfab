@@ -9,6 +9,18 @@ import pytest
 import torch
 from dpshdl.dataset import Dataset
 from torch import Tensor, nn
+from torch.distributed._tensor import (
+    DeviceMesh,
+    Replicate,
+    Shard,
+)
+from torch.distributed.tensor.parallel import (
+    ColwiseParallel,
+    PrepareModuleInput,
+    PrepareModuleOutput,
+    RowwiseParallel,
+    parallelize_module,
+)
 
 import mlfab
 
@@ -29,17 +41,50 @@ class DummyDataset(Dataset[Tensor, Tensor]):
         return mlfab.collate(items)
 
 
+class DummyParallelModule(mlfab.ParallelModule):
+    def __init__(self) -> None:
+        super().__init__()
+
+        # A simple embedding layer plus two-layer MLP.
+        self.iin = nn.Identity()
+        self.emb = nn.Embedding(10, 12)
+        self.l1 = nn.Linear(12, 16, bias=False)
+        self.l2 = nn.Linear(16, 8, bias=False)
+        self.iout = nn.Identity()
+
+    def parallelize(self, mesh: DeviceMesh) -> None:
+        return parallelize_module(
+            module=self,
+            device_mesh=mesh,
+            parallelize_plan={
+                "iin": PrepareModuleInput(
+                    input_layouts=Shard(0),
+                    desired_input_layouts=Replicate(),
+                    use_local_output=False,
+                ),
+                "emb": ColwiseParallel(),
+                "l1": RowwiseParallel(),
+                "l2": ColwiseParallel(),
+                "iout": PrepareModuleOutput(
+                    output_layouts=Replicate(),
+                    desired_output_layouts=Shard(0),
+                    use_local_output=True,
+                ),
+            },
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.iout(self.l2(self.l1(self.emb(self.iin(x)))))
+
+
 class DummyTask(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
-        # A simple embedding layer plus two-layer MLP.
-        self.emb = nn.Embedding(10, 12)
-        self.l1 = nn.Linear(12, 16, bias=False)
-        self.l2 = nn.Linear(16, 8, bias=False)
+        self.parallel_module = DummyParallelModule()
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.l2(self.l1(self.emb(x)))
+        return self.parallel_module(x)
 
     def get_loss(self, batch: Tensor, state: mlfab.State) -> Tensor:
         o = self(batch).sum()
@@ -67,6 +112,8 @@ def _test_common(tmpdir: Path, use_ddp: bool, model_parallelism: int) -> None:
 
     # Launches the first task with multiple data parallel workers.
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=model_parallelism * 2), use_cli=False)
+
+    raise NotImplementedError
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()

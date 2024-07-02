@@ -16,6 +16,7 @@ import socket
 import sys
 import tempfile
 import traceback
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, NotRequired, ParamSpec, TypedDict, TypeVar, Unpack, cast, overload
 
@@ -876,3 +877,8 @@ def all_to_all(input: Tensor, group: dist.ProcessGroup | None) -> Tensor:
     if group is None:
         group = dist.group.WORLD
     return _AllToAll.apply(group, input)
+
+
+class ParallelModule(nn.Module, ABC):
+    @abstractmethod
+    def parallelize(self, mesh: DeviceMesh) -> None: ...
