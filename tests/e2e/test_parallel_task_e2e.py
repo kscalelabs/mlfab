@@ -16,9 +16,8 @@ from torch.distributed._tensor import (
 )
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
-    PrepareModuleInput,
-    PrepareModuleOutput,
     RowwiseParallel,
+    SequenceParallel,
     parallelize_module,
 )
 
@@ -46,35 +45,28 @@ class DummyParallelModule(mlfab.ParallelModule):
         super().__init__()
 
         # A simple embedding layer plus two-layer MLP.
-        self.iin = nn.Identity()
         self.emb = nn.Embedding(10, 12)
         self.l1 = nn.Linear(12, 16, bias=False)
         self.l2 = nn.Linear(16, 8, bias=False)
-        self.iout = nn.Identity()
 
     def parallelize(self, mesh: DeviceMesh) -> None:
         return parallelize_module(
             module=self,
             device_mesh=mesh,
             parallelize_plan={
-                "iin": PrepareModuleInput(
-                    input_layouts=Shard(0),
-                    desired_input_layouts=Replicate(),
-                    use_local_output=False,
+                "emb": RowwiseParallel(
+                    input_layouts=Replicate(),
+                    output_layouts=Shard(1),
                 ),
-                "emb": ColwiseParallel(),
-                "l1": RowwiseParallel(),
-                "l2": ColwiseParallel(),
-                "iout": PrepareModuleOutput(
-                    output_layouts=Replicate(),
-                    desired_output_layouts=Shard(0),
-                    use_local_output=True,
+                "l1": SequenceParallel(),
+                "l2": ColwiseParallel(
+                    input_layouts=Shard(1),
                 ),
             },
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.iout(self.l2(self.l1(self.emb(self.iin(x)))))
+        return self.l2(self.l1(self.emb(x)))
 
 
 class DummyTask(mlfab.Task[Config]):
