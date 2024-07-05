@@ -785,6 +785,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import ColoredFormatter, configure_logging
+    from mlfab.utils.sugar import default
     from mlfab.utils.text import (
         TextBlock,
         colored,

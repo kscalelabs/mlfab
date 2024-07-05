@@ -223,6 +223,10 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
                     logger.warning("Loss NaNs detected; reducing scale to %.2g", new_scale)
                     self.grad_scaler.update(new_scale)
 
+    @functools.cached_property
+    def device_mesh(self) -> DeviceMesh:
+        return parallel_group_info().device_mesh(self.torch_device.type)
+
     @torch.no_grad()
     def step_optimizer(self, mod: nn.Module, optim: Optimizer, num_steps: int = 1) -> None:
         clip_norm = self.config.clip_grad_norm

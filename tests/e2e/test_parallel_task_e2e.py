@@ -13,6 +13,7 @@ from torch.distributed._tensor import (
     DeviceMesh,
     Replicate,
     Shard,
+    distribute_tensor,
 )
 from torch.distributed.tensor.parallel import (
     ColwiseParallel,
@@ -49,8 +50,10 @@ class DummyParallelModule(mlfab.ParallelModule):
         self.l1 = nn.Linear(12, 16, bias=False)
         self.l2 = nn.Linear(16, 8, bias=False)
 
+        self._parmod: nn.Module | None = None
+
     def parallelize(self, mesh: DeviceMesh) -> None:
-        return parallelize_module(
+        self._parmod = parallelize_module(
             module=self,
             device_mesh=mesh,
             parallelize_plan={
@@ -66,7 +69,7 @@ class DummyParallelModule(mlfab.ParallelModule):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.l2(self.l1(self.emb(x)))
+        return self.l2(self.l1(self.emb(x))) if self._parmod is None else self._parmod(x)
 
 
 class DummyTask(mlfab.Task[Config]):
@@ -79,7 +82,11 @@ class DummyTask(mlfab.Task[Config]):
         return self.parallel_module(x)
 
     def get_loss(self, batch: Tensor, state: mlfab.State) -> Tensor:
-        o = self(batch).sum()
+        x = distribute_tensor(batch, self.device_mesh["tp"], placements=[Shard(1)])
+        print("x:", x)
+        print("parallel:", self.parallel_module.emb)
+        # x = batch
+        o = self(x).sum()
         return o
 
     def get_dataset(self, phase: mlfab.Phase) -> DummyDataset:

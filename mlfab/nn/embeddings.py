@@ -43,6 +43,7 @@ import torch
 from torch import Tensor, nn
 
 from mlfab.nn.init import InitializationType, init_
+from mlfab.utils.sugar import default
 
 EmbeddingKind = Literal["identity", "learned", "sinusoidal", "rotary"]
 
@@ -326,14 +327,14 @@ def get_positional_embeddings(
                 max_tsz=max_tsz,
                 embed_dim=embed_dim,
                 weight_init=weight_init,
-                learnable=True if learnable is None else learnable,
+                learnable=default(learnable, True),
             )
 
         case "sinusoidal":
             return SinusoidalEmbeddings(
                 max_tsz=max_tsz,
                 embed_dim=embed_dim,
-                learnable=False if learnable is None else learnable,
+                learnable=default(learnable, False),
                 base=base,
             )
 

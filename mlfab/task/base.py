@@ -93,10 +93,10 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_training_end(self, state: State) -> None:
         pass
 
-    def on_before_save_checkpoint(self, ckpt_path: Path) -> None:
+    def on_before_save_ckpt(self, ckpt_path: Path) -> None:
         pass
 
-    def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
+    def on_after_save_ckpt(self, ckpt_path: Path) -> None:
         pass
 
     def load_task_state_dict_(

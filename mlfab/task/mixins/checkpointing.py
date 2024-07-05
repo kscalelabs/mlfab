@@ -12,7 +12,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.checkpoint import load as load_ckpt, save as save_ckpt
-from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -20,6 +20,7 @@ from mlfab.core.state import State
 from mlfab.nn.parallel import dp_rank, get_rank, mp_group_nullable
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
+from mlfab.utils.sugar import default
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
+    ckpt_cpu_offload: bool = field(True, help="Whether to offload model weights to CPU during checkpointing")
+    ckpt_ignore_frozen_params: bool = field(True, help="Whether to ignore frozen parameters during checkpointing")
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
@@ -59,7 +62,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.__last_ckpt_time = 0.0
 
     def get_ckpt_path(self) -> Path:
-        return self.exp_dir / "checkpoints"
+        return self.exp_dir / "ckpt"
 
     @classmethod
     def read_state_dict(cls, path: str | Path) -> dict:
@@ -78,7 +81,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
     @overload
     @classmethod
-    def load_raw_checkpoint(
+    def load_raw_ckpt(
         cls,
         path: str | Path,
         *,
@@ -90,7 +93,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
     @overload
     @classmethod
-    def load_raw_checkpoint(
+    def load_raw_ckpt(
         cls,
         path: str | Path,
         *,
@@ -102,7 +105,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
     @overload
     @classmethod
-    def load_raw_checkpoint(
+    def load_raw_ckpt(
         cls,
         path: str | Path,
         *,
@@ -114,7 +117,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
     @overload
     @classmethod
-    def load_raw_checkpoint(
+    def load_raw_ckpt(
         cls,
         path: str | Path,
         *,
@@ -125,7 +128,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     ) -> tuple[Config, dict]: ...
 
     @classmethod
-    def load_raw_checkpoint(
+    def load_raw_ckpt(
         cls,
         path: str | Path,
         *,
@@ -182,13 +185,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         Returns:
             The task loaded from the checkpoint
         """
-        cfg, state_dict = cls.load_raw_checkpoint(path, use_cli=use_cli, config_fn=config_fn)
+        cfg, state_dict = cls.load_raw_ckpt(path, use_cli=use_cli, config_fn=config_fn)
         task = cls(cfg)
-        task.load_task_state_dict_(
-            state_dict,
-            strict=strict,
-            assign=assign,
-        )
+        task.load_task_state_dict_(state_dict, strict=strict, assign=assign)
         return task
 
     def get_init_ckpt_path(self) -> Path | None:
@@ -201,13 +200,17 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def load_checkpoint_(
+    def load_ckpt_(
         self,
         module: nn.Module,
         optimizer: Optimizer,
+        *,
         ckpt_path: str | Path | None = None,
         strict: bool = True,
         assign: bool = False,
+        single_ckpt: bool = False,
+        cpu_offload: bool | None = None,
+        ignore_frozen_params: bool | None = None,
     ) -> State:
         if ckpt_path is None:
             ckpt_path = self.get_init_ckpt_path()
@@ -215,7 +218,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return State.init_state()
         else:
             ckpt_path = Path(ckpt_path)
-        raw_config, state_dict = self.load_raw_checkpoint(ckpt_path, missing_ok=False, raw=True)
+        raw_config, state_dict = self.load_raw_ckpt(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
             config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
@@ -224,7 +227,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.load_task_state_dict_(state_dict, strict, assign)
 
         # Loads the module and optimizer state dict.
-        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        module_state_dict, optimizer_state_dict = get_state_dict(
+            module,
+            optimizer,
+            options=StateDictOptions(
+                full_state_dict=single_ckpt,
+                cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
+                ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
+            ),
+        )
         weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
         load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path)
         set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
@@ -235,7 +246,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         warnings.warn("No state found in checkpoint! Using default initial state.")
         return State.init_state()
 
-    def should_checkpoint(self, state: State) -> bool:
+    def should_save_ckpt(self, state: State) -> bool:
         if self.config.save_every_n_steps is not None:
             if state.num_steps % self.config.save_every_n_steps == 0:
                 return True
@@ -246,21 +257,34 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return True
         return False
 
-    def save_checkpoint(
+    def save_ckpt(
         self,
         state: State,
         module: nn.Module,
         optimizer: Optimizer,
+        *,
         ckpt_path: str | Path | None = None,
+        single_ckpt: bool = False,
+        cpu_offload: bool | None = None,
+        ignore_frozen_params: bool | None = None,
     ) -> Path:
-        ckpt_path = self.get_ckpt_path() if ckpt_path is None else Path(ckpt_path)
-        self.on_before_save_checkpoint(ckpt_path)
+        ckpt_path = Path(default(ckpt_path, self.get_ckpt_path))
+        self.on_before_save_ckpt(ckpt_path)
 
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
-        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        module_state_dict, optimizer_state_dict = get_state_dict(
+            module,
+            optimizer,
+            options=StateDictOptions(
+                full_state_dict=single_ckpt,
+                cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
+                ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
+            ),
+        )
+
         if dp_rank() == 0:
             weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
             save_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
@@ -275,6 +299,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)
 
-        self.on_after_save_checkpoint(ckpt_path)
+        self.on_after_save_ckpt(ckpt_path)
 
         return ckpt_path
