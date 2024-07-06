@@ -268,7 +268,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cpu_offload: bool | None = None,
         ignore_frozen_params: bool | None = None,
     ) -> Path:
-        ckpt_path = Path(default(ckpt_path, self.get_ckpt_path))
+        ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
         self.on_before_save_ckpt(ckpt_path)
 
         # Gets the path to the last checkpoint.

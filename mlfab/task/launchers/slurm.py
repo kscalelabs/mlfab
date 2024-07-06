@@ -259,7 +259,7 @@ class SlurmLauncher(StagedLauncher):
         extra_sbatch_lines_str = "".join(f"\n#SBATCH {line}" for line in extra_sbatch_lines)
 
         # Adds some extra information to the job information line.
-        job_info = {
+        job_info: dict[str, str] = {
             "launch_time": datetime.datetime.now().isoformat(),
             "task_key": task.task_key,
             "exp_dir": str(task.exp_dir),
@@ -267,7 +267,7 @@ class SlurmLauncher(StagedLauncher):
         if self.comment is not None:
             job_info["comment"] = self.comment
         if self.nodelist is not None:
-            job_info["nodelist"] = self.nodelist
+            job_info["nodelist"] = ", ".join(self.nodelist)
         if self.account is not None:
             job_info["account"] = self.account
         if self.time_limit is not None:
