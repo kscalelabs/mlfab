@@ -146,7 +146,7 @@ class SinusoidalEmbeddings(ResetParameters, nn.Module):
         return x_btc + (embeddings_tc[None, offset : offset + tsz] if times_bt is None else embeddings_tc[times_bt])
 
     def reset_parameters(self) -> None:
-        if self.embeddings_tc is None:
+        if self.embeddings_tc is not None:
             assert self.max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert self.embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
             self.embeddings_tc.data.copy_(self.get_embeddings(self.max_tsz, self.embed_dim))
