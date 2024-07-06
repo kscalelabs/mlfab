@@ -1,7 +1,9 @@
 """Defines a launcher to launch a Slurm training job."""
 
 import argparse
+import datetime
 import functools
+import json
 import os
 import re
 import signal
@@ -256,6 +258,21 @@ class SlurmLauncher(StagedLauncher):
             comments += [f"Code location: {stage_dir}"]
         extra_sbatch_lines_str = "".join(f"\n#SBATCH {line}" for line in extra_sbatch_lines)
 
+        # Adds some extra information to the job information line.
+        job_info = {
+            "launch_time": datetime.datetime.now().isoformat(),
+            "task_key": task.task_key,
+            "exp_dir": str(task.exp_dir),
+        }
+        if self.comment is not None:
+            job_info["comment"] = self.comment
+        if self.nodelist is not None:
+            job_info["nodelist"] = self.nodelist
+        if self.account is not None:
+            job_info["account"] = self.account
+        if self.time_limit is not None:
+            job_info["time_limit"] = self.time_limit
+
         return f"""
 #!/bin/bash
 #SBATCH --job-name={task.task_name}
@@ -283,28 +300,38 @@ export TORCH_SHOW_CPP_STACKTRACES=1
 # Disable Tensorboard in Slurm.
 export TENSORBOARD_PORT=-1
 
-# Make a new line in the `slurm_info.txt` file.
-if [ -f slurm_info.txt ]; then
-    echo "" >> slurm_info.txt
-    echo "***" >> slurm_info.txt
-    echo "" >> slurm_info.txt
+# Create a dictionary in JSON format
+launch_timestamp=$(date)
+slurm_info_file={task.exp_dir}/slurm_info.json
+log_data=$(cat <<EOF
+{{
+    "job_id": "${{SLURM_JOB_ID}}",
+    "job_start_time": "${{launch_timestamp}}",
+    "node_list": "${{SLURM_NODELIST}}",
+    "job": {json.dumps(job_info, indent=8)}
+}}
+EOF
+)
+
+# Check if the file exists and if not, create it with an empty array
+if [ ! -f $slurm_info_file ]; then
+    echo "[]" > $slurm_info_file
 fi
-echo "Job ID: ${{SLURM_JOB_ID}} - $(date)" >> {task.exp_dir}/slurm_info.txt
-echo "Task key: {task.task_key}" >> {task.exp_dir}/slurm_info.txt
-echo "Node list: ${{SLURM_NODELIST}}" >> {task.exp_dir}/slurm_info.txt
-echo "Account: {self.account}" >> {task.exp_dir}/slurm_info.txt
+
+# Append the log data to the JSON file
+jq ". + [$log_data]" $slurm_info_file > tmp.$$.json && mv tmp.$$.json $slurm_info_file
 
 # Make a new line in the stdout file.
 echo ""
 echo "***"
-echo "Job ID: ${{SLURM_JOB_ID}} - $(date)"
+echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}"
 echo "***"
 echo ""
 
 # Also make a new line in the stderr file.
 echo "" >&2
 echo "***" >&2
-echo "Job ID: ${{SLURM_JOB_ID}} - $(date)" >&2
+echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}" >&2
 echo "***" >&2
 echo "" >&2
 

@@ -48,19 +48,18 @@ attention implementation.
 """
 
 import copy
-from typing import Literal, Self, TypeVar, cast, overload
+from typing import Literal, TypeVar, cast, overload
 
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from torch.distributed._tensor import DeviceMesh
-from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel, SequenceParallel, parallelize_module
+from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel, SequenceParallel
+from torch.distributed.tensor.parallel.style import ParallelStyle
 from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
 from mlfab.nn.norms import get_norm_linear
-from mlfab.nn.parallel import ParallelModule
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -155,7 +154,7 @@ Tk = TypeVar("Tk", Tensor, None)
 Tv = TypeVar("Tv", Tensor, None)
 
 
-class MultiheadAttention(ParallelModule):
+class MultiheadAttention(nn.Module):
     """Defines a streamable multihead attention layer.
 
     This is a slightly modified implementation of ``nn.MultiheadAttention``
@@ -237,18 +236,6 @@ class MultiheadAttention(ParallelModule):
         self.kproj = nn.Linear(self.kdim, self.kv_embed_dim, bias=bias)
         self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-
-    def parallelize(self, mesh: DeviceMesh) -> Self:
-        return parallelize_module(
-            module=self,
-            device_mesh=mesh,
-            parallelize_plan={
-                "qproj": ColwiseParallel(),
-                "kproj": RowwiseParallel(),
-                "vproj": RowwiseParallel(),
-                "out_proj": ColwiseParallel(),
-            },
-        )
 
     def forward_matmuls(
         self,
@@ -381,7 +368,7 @@ class MultiheadAttention(ParallelModule):
         return attn_bghqk
 
 
-class TransformerEncoderLayer(ParallelModule):
+class TransformerEncoderLayer(nn.Module):
     """Defines a transformer encoder layer.
 
     This layer is a drop-in replacement for ``nn.TransformerEncoderLayer``
@@ -463,19 +450,6 @@ class TransformerEncoderLayer(ParallelModule):
         self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
-
-    def parallelize(self, mesh: DeviceMesh) -> Self:
-        return parallelize_module(
-            module=self,
-            device_mesh=mesh,
-            parallelize_plan={
-                "linear1": ColwiseParallel(),
-                "linear2": RowwiseParallel(),
-                "linear3": ColwiseParallel(),
-                "norm1": SequenceParallel(),
-                "norm2": SequenceParallel(),
-            },
-        )
 
     def forward(
         self,
@@ -660,19 +634,6 @@ class TransformerDecoderLayer(nn.Module):
         self.norm2 = get_norm_linear(norm_type, dim=d_model, eps=norm_eps)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
-
-    def parallelize(self, device_mesh: DeviceMesh) -> Self:
-        return parallelize_module(
-            module=self,
-            device_mesh=device_mesh,
-            parallelize_plan={
-                "linear1": ColwiseParallel(),
-                "linear2": RowwiseParallel(),
-                "linear3": ColwiseParallel(),
-                "norm1": SequenceParallel(),
-                "norm2": SequenceParallel(),
-            },
-        )
 
     def forward(
         self,

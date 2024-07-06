@@ -72,7 +72,7 @@ class ArtifactsMixin(BaseTask[Config]):
             exp_dir = Path(self.config.exp_dir).expanduser().resolve()
             exp_dir.mkdir(parents=True, exist_ok=True)
             self.__exp_dir = exp_dir
-            logger.log(LOG_STATUS, self.__exp_dir)
+            logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
             return self.__exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
@@ -88,7 +88,7 @@ class ArtifactsMixin(BaseTask[Config]):
             run_id += 1
         exp_dir.mkdir(exist_ok=True, parents=True)
         self.__exp_dir = exp_dir.expanduser().resolve()
-        logger.log(LOG_STATUS, self.__exp_dir)
+        logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
         return self.__exp_dir
 
     @exp_dir.setter

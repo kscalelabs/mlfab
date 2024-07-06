@@ -30,6 +30,7 @@ from torch.distributed import ProcessGroup
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.distributed_c10d import ReduceOp, Work
+from torch.distributed.tensor.parallel.style import ParallelStyle
 from torch.utils.data.dataloader import get_worker_info as _get_worker_info_base
 
 from mlfab.core.conf import field, load_user_config
@@ -871,8 +872,3 @@ def all_to_all(input: Tensor, group: dist.ProcessGroup | None) -> Tensor:
     if group is None:
         group = dist.group.WORLD
     return _AllToAll.apply(group, input)
-
-
-class ParallelModule(nn.Module, ABC):
-    @abstractmethod
-    def parallelize(self, mesh: DeviceMesh) -> None: ...

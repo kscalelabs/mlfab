@@ -19,14 +19,12 @@ from torch.distributed.fsdp import (
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
-from torch.distributed.fsdp.wrap import (
-    CustomPolicy,
-)
+from torch.distributed.fsdp.wrap import CustomPolicy
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
-from mlfab.nn.parallel import ParallelModule, all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
+from mlfab.nn.parallel import all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
@@ -68,21 +66,9 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
 Config = TypeVar("Config", bound=ParallelConfig)
 
 
-def call_parallelize_fn(module: nn.Module, mesh: DeviceMesh) -> None:
-    if isinstance(module, ParallelModule):
-        module.parallelize(mesh)
-
-
-def ddp(
-    model: nn.Module,
-    device: torch.device,
-    parallelize: bool = True,
-) -> DDP:
+def ddp(model: nn.Module) -> DDP:
     group_info = parallel_group_info()
     model = DDP(model, process_group=group_info.dp.group)
-
-    if parallelize:
-        model.apply(functools.partial(call_parallelize_fn, mesh=device_mesh(device.type)["tp"]))
 
     return model
 
@@ -93,7 +79,6 @@ def fsdp(
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
     use_process_groups: bool = False,
-    parallelize: bool = True,
 ) -> FSDP:
     group_info = parallel_group_info()
 
@@ -143,9 +128,6 @@ def fsdp(
     else:
         model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
-    if parallelize:
-        model.apply(functools.partial(call_parallelize_fn, mesh=device_mesh(device.type)["tp"]))
-
     return model
 
 
@@ -188,7 +170,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if (use_ddp := self.config.use_ddp) is None:
             use_ddp = parallel_group_info().tp.world_size == 1
         if use_ddp:
-            return ddp(model, self.torch_device)
+            return ddp(model)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
