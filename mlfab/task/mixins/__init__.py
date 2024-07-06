@@ -8,6 +8,7 @@ from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.gpu_stats import GPUStatsConfig, GPUStatsMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
+from mlfab.task.mixins.meta import MetaConfig, MetaMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
 from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin

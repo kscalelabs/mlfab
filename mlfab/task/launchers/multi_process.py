@@ -5,6 +5,8 @@ import functools
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import torch
+
 from mlfab.nn.parallel import get_rank, get_world_size, launch_subprocesses
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
@@ -16,7 +18,8 @@ if TYPE_CHECKING:
 
 def run_training_worker(task: "type[RunnableMixin[Config]]", cfg: "Config") -> None:
     configure_logging(rank=get_rank(), world_size=get_world_size())
-    task_obj = task(cfg)
+    with torch.device("meta"):
+        task_obj = task(cfg)
     task_obj.run()
 
 

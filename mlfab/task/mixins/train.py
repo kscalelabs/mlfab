@@ -29,18 +29,14 @@ from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMi
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
 from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
+from mlfab.task.mixins.meta import MetaConfig, MetaMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
 from mlfab.task.mixins.parallel import ParallelConfig, ParallelMixin
 from mlfab.task.mixins.pretrained import PretrainedConfig, PretrainedMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
-from mlfab.utils.experiments import (
-    StateTimer,
-    TrainingFinishedError,
-    get_git_state,
-    get_training_code,
-)
+from mlfab.utils.experiments import StateTimer, TrainingFinishedError, get_git_state, get_training_code
 from mlfab.utils.logging import LOG_STATUS
 from mlfab.utils.text import highlight_exception_message, show_info
 
@@ -69,6 +65,7 @@ class TrainConfig(
     CheckpointingConfig,
     OptimizerConfig,
     CompileConfig,
+    MetaConfig,
     PretrainedConfig,
     ParallelConfig,
     DataloadersConfig,
@@ -125,6 +122,7 @@ class TrainMixin(
     CheckpointingMixin[Config],
     OptimizerMixin[Config],
     CompileMixin[Config],
+    MetaMixin[Config],
     PretrainedMixin[Config],
     ParallelMixin[Config],
     DataloadersMixin[Config],
@@ -484,7 +482,7 @@ class TrainMixin(
 
         with self.step_context("model_to_device"):
             mod = TrainableModule(self)
-            self.device_manager.module_to(mod)
+            self.configure_model_(mod)
             mod = self.get_wrapped_model(mod)
 
         with self.step_context("create_optimizers"):

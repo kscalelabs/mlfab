@@ -193,7 +193,7 @@ class GaussianDiffusion(ResetParameters, nn.Module):
         self.cosine_offset = cosine_offset
         self.num_timesteps = num_beta_steps - 1
 
-        self.register_buffer("bar_alpha", torch.empty(self.num_timesteps), persistent=False)
+        self.register_buffer("bar_alpha", torch.empty(self.num_beta_steps), persistent=False)
 
         # The ODE solver to use.
         self.solver = get_ode_solver(solver)

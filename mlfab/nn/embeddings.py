@@ -89,10 +89,9 @@ class LearnedPositionalEmbeddings(ResetParameters, nn.Module):
         init_(self.embeddings_tc.data, None, self.weight_init)
 
     def forward(self, x: Tensor, offset: int = 0, times_bt: Tensor | None = None) -> Tensor:
-        emb_btc = (
-            self.embeddings_tc[None, offset : offset + x.size(1)] if times_bt is None else self.embeddings_tc[times_bt]
-        )
-        return x + emb_btc
+        if times_bt is None:
+            return x + self.embeddings_tc[None, offset : offset + x.size(1)]
+        return x + self.embeddings_tc[times_bt]
 
 
 class SinusoidalEmbeddings(ResetParameters, nn.Module):
@@ -220,7 +219,7 @@ def rotary_embeddings(x_btc: Tensor, offset: int = 0, base: int = 10_000) -> Ten
     return apply_rotary_embeddings(x_btc, emb_2tc, offset)
 
 
-class RotaryEmbeddings(ResetParameters, nn.Module):
+class RotaryEmbeddings(nn.Module):
     def __init__(self, base: int = 10_000) -> None:
         """Defines a rotary embeddings module.
 
@@ -356,7 +355,7 @@ def fourier_embeddings(t: Tensor, dim: int, max_period: int = 10000) -> Tensor:
     return embedding
 
 
-class FourierEmbeddings(ResetParameters, nn.Module):
+class FourierEmbeddings(nn.Module):
     """Defines a module for applying Fourier embeddings to timesteps.
 
     This module differs from the other positional embedding modules because it
