@@ -60,7 +60,7 @@ class IdentityPositionalEmbeddings(nn.Module):
         return x
 
 
-class LearnedPositionalEmbeddings(nn.Module, ResetParameters):
+class LearnedPositionalEmbeddings(ResetParameters, nn.Module):
     """Defines a learned embeddings module.
 
     Parameters:
@@ -84,7 +84,6 @@ class LearnedPositionalEmbeddings(nn.Module, ResetParameters):
         self.weight_init = weight_init
 
         self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         init_(self.embeddings_tc.data, None, self.weight_init)
@@ -96,7 +95,7 @@ class LearnedPositionalEmbeddings(nn.Module, ResetParameters):
         return x + emb_btc
 
 
-class SinusoidalEmbeddings(nn.Module, ResetParameters):
+class SinusoidalEmbeddings(ResetParameters, nn.Module):
     """Defines a sinusoidal embeddings module.
 
     Parameters:
@@ -124,7 +123,6 @@ class SinusoidalEmbeddings(nn.Module, ResetParameters):
             assert max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
             self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
-            self.reset_parameters()
 
         self.embeddings_cached: Tensor | None = None
 
@@ -222,7 +220,7 @@ def rotary_embeddings(x_btc: Tensor, offset: int = 0, base: int = 10_000) -> Ten
     return apply_rotary_embeddings(x_btc, emb_2tc, offset)
 
 
-class RotaryEmbeddings(nn.Module, ResetParameters):
+class RotaryEmbeddings(ResetParameters, nn.Module):
     def __init__(self, base: int = 10_000) -> None:
         """Defines a rotary embeddings module.
 
@@ -358,7 +356,7 @@ def fourier_embeddings(t: Tensor, dim: int, max_period: int = 10000) -> Tensor:
     return embedding
 
 
-class FourierEmbeddings(nn.Module, ResetParameters):
+class FourierEmbeddings(ResetParameters, nn.Module):
     """Defines a module for applying Fourier embeddings to timesteps.
 
     This module differs from the other positional embedding modules because it

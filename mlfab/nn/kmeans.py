@@ -38,7 +38,7 @@ def kmeans_fn(cpu: bool) -> Callable[[Tensor, Tensor, Tensor], Tensor]:
     return triton_kmeans_fn
 
 
-class KMeans(nn.Module, ResetParameters):
+class KMeans(ResetParameters, nn.Module):
     __constants__ = ["n_clusters", "n_features"]
 
     centers: Tensor

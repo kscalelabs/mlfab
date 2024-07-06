@@ -15,11 +15,7 @@ from pathlib import Path
 
 import torch
 
-from mlfab.nn.parallel import (
-    MultiProcessConfig,
-    init_dist,
-    is_master,
-)
+from mlfab.nn.parallel import MultiProcessConfig, init_dist, is_master
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig

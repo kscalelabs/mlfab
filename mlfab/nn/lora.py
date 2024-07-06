@@ -70,7 +70,7 @@ def _lora_post_hook(module: "_Lora", incompatible_keys: _IncompatibleKeys) -> No
         incompatible_keys.missing_keys.remove(lora_key)
 
 
-class _Lora(nn.Module, ResetParameters):
+class _Lora(ResetParameters, nn.Module):
     def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*args, **kwargs)
 
@@ -125,8 +125,6 @@ class LoraEmbedding(nn.Embedding, _Lora):
         self.lora_b = nn.Parameter(self.weight.new_empty((embedding_dim, r)))
         self.weight.requires_grad_(False)
 
-        self.reset_parameters()
-
     def reset_parameters(self) -> None:
         super().reset_parameters()
 
@@ -172,7 +170,7 @@ class LoraEmbedding(nn.Embedding, _Lora):
 
 
 class LoraLinear(nn.Linear, _Lora):
-    __constants__ = nn.Linear.__constants__ + ["r", "lora_alpha", "scaling", "merge", "fan_in_fan_out", "merged"]
+    __constants__ = nn.Linear.__constants__ + ["r", "lora_alpha", "scaling", "merge", "merged"]
 
     def __init__(
         self,
@@ -181,7 +179,6 @@ class LoraLinear(nn.Linear, _Lora):
         r: int,
         lora_alpha: float = 1.0,
         lora_dropout: float = 0.0,
-        fan_in_fan_out: bool = False,
         merge: bool = False,
         bias: bool = True,
     ) -> None:
@@ -197,7 +194,6 @@ class LoraLinear(nn.Linear, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.fan_in_fan_out = fan_in_fan_out
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -205,11 +201,6 @@ class LoraLinear(nn.Linear, _Lora):
         self.lora_a = nn.Parameter(self.weight.new_empty((r, in_features)))
         self.lora_b = nn.Parameter(self.weight.new_empty((out_features, r)))
         self.weight.requires_grad_(False)
-
-        self.reset_parameters()
-
-        if fan_in_fan_out:
-            self.weight.data = self.weight.data.transpose(0, 1)
 
     def reset_parameters(self) -> None:
         super().reset_parameters()
@@ -221,9 +212,6 @@ class LoraLinear(nn.Linear, _Lora):
         nn.init.kaiming_normal_(self.lora_a, a=math.sqrt(5))
         nn.init.zeros_(self.lora_b)
 
-    def _t(self, w: Tensor) -> Tensor:
-        return w.transpose(0, 1) if self.fan_in_fan_out else w
-
     def train(self, mode: bool = True) -> "LoraLinear":
         super().train(mode)
 
@@ -231,24 +219,24 @@ class LoraLinear(nn.Linear, _Lora):
             if self.merge and self.merged:
                 # Make sure that the weights are not merged
                 if self.lora_a is not None and self.lora_b is not None:
-                    self.weight.data -= self._t(self.lora_b @ self.lora_a) * self.scaling
+                    self.weight.data -= (self.lora_b @ self.lora_a) * self.scaling
                 self.merged = False
 
         elif self.merge and not self.merged:
             # Merge the weights and mark it
             if self.lora_a is not None and self.lora_b is not None:
-                self.weight.data += self._t(self.lora_b @ self.lora_a) * self.scaling
+                self.weight.data += (self.lora_b @ self.lora_a) * self.scaling
             self.merged = True
 
         return self
 
     def forward(self, x: Tensor) -> Tensor:
         if self.lora_a is not None and self.lora_b is not None and not self.merged:
-            result = F.linear(x, self._t(self.weight), bias=self.bias)
+            result = F.linear(x, self.weight, bias=self.bias)
             mm = self.dropout(x) @ self.lora_a.transpose(0, 1) @ self.lora_b.transpose(0, 1)
             return result + mm * self.scaling
 
-        return F.linear(x, self._t(self.weight), bias=self.bias)
+        return F.linear(x, self.weight, bias=self.bias)
 
 
 class LoraConv1d(nn.Conv1d, _Lora):
@@ -293,8 +281,6 @@ class LoraConv1d(nn.Conv1d, _Lora):
         self.lora_a = nn.Parameter(self.weight.new_empty((r, in_channels, *self.kernel_size)))
         self.lora_b = nn.Parameter(self.weight.new_empty((out_channels, r, 1)))
         self.weight.requires_grad_(False)
-
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         super().reset_parameters()
@@ -378,8 +364,6 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         self.lora_a = nn.Parameter(self.weight.new_empty((in_channels, r, *self.kernel_size)))
         self.lora_b = nn.Parameter(self.weight.new_empty((r, out_channels, 1)))
         self.weight.requires_grad_(False)
-
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         super().reset_parameters()
@@ -482,8 +466,6 @@ class LoraConv2d(nn.Conv2d, _Lora):
         self.lora_b = nn.Parameter(self.weight.new_empty((out_channels, r, 1, 1)))
         self.weight.requires_grad_(False)
 
-        self.reset_parameters()
-
     def reset_parameters(self) -> None:
         super().reset_parameters()
 
@@ -566,8 +548,6 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         self.lora_a = nn.Parameter(self.weight.new_empty((in_channels, r, *self.kernel_size)))
         self.lora_b = nn.Parameter(self.weight.new_empty((r, out_channels, 1, 1)))
         self.weight.requires_grad_(False)
-
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         super().reset_parameters()
@@ -703,8 +683,6 @@ class _LoraRNN(nn.RNNBase, _Lora):
                     setattr(self, f"lora_b_hr_l{layer}{suffix}", lora_b_hr)
 
         self._init_flat_weights()
-
-        self.reset_parameters()
 
     def _lora_names(self, weight_name: str) -> tuple[str, str]:
         weight_name = weight_name[len("weight_") :]

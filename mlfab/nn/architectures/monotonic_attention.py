@@ -149,7 +149,7 @@ def monotonic_attention(logits: Tensor) -> Tensor:
     return get_monotonic_attention_fn(logits.device.type)(logits)
 
 
-class MonotonicAttention(nn.Module, ResetParameters):
+class MonotonicAttention(ResetParameters, nn.Module):
     """Defines a one-to-many multihead monotonic attention layer.
 
     Parameters:
@@ -253,8 +253,6 @@ class MonotonicAttention(nn.Module, ResetParameters):
         else:
             self.register_parameter("in_proj_bias", None)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         if self._qkv_same_embed_dim:

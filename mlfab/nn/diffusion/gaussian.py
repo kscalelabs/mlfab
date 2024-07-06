@@ -41,8 +41,9 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 
 from mlfab.nn.diffusion.ode import BaseODESolver, ODESolverType, get_ode_solver
-from mlfab.nn.functions import append_dims, device_fn
+from mlfab.nn.functions import append_dims
 from mlfab.nn.losses import pseudo_huber_loss
+from mlfab.utils.nn import ResetParameters
 
 DiffusionLossFn = Literal["mse", "l1", "pseudo-huber"]
 DiffusionPredMode = Literal["pred_x_0", "pred_eps", "pred_v"]
@@ -125,7 +126,7 @@ def get_diffusion_beta_schedule(
             raise NotImplementedError(f"Unknown schedule type: {schedule}")
 
 
-class GaussianDiffusion(nn.Module):
+class GaussianDiffusion(ResetParameters, nn.Module):
     """Defines a module which provides utility functions for Gaussian diffusion.
 
     Parameters:
@@ -165,7 +166,6 @@ class GaussianDiffusion(nn.Module):
 
     __constants__ = ["num_timesteps", "pred_mode", "sigma_type"]
 
-    @device_fn("cpu")
     def __init__(
         self,
         beta_schedule: DiffusionBetaSchedule = "linear",
@@ -182,32 +182,44 @@ class GaussianDiffusion(nn.Module):
     ) -> None:
         super().__init__()
 
-        # Gets the beta schedule from the given parameters.
-        betas = get_diffusion_beta_schedule(
-            schedule=beta_schedule,
-            num_timesteps=num_beta_steps,
-            beta_start=beta_start,
-            beta_end=beta_end,
-            warmup=warmup,
-            cosine_offset=cosine_offset,
-        )
-
-        assert betas.dim() == 1
-
-        self.num_timesteps = betas.shape[0] - 1
+        self.beta_schedule = beta_schedule
+        self.num_beta_steps = num_beta_steps
         self.pred_mode = pred_mode
+        self.loss_fn = loss
         self.sigma_type = sigma_type
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.warmup = warmup
+        self.cosine_offset = cosine_offset
+        self.num_timesteps = num_beta_steps - 1
 
-        assert not (betas < 0).any(), "Betas must be non-negative."
-        assert not (betas > 1).any(), "Betas must be less than or equal to 1."
-
-        bar_alpha = torch.cumprod(1.0 - betas, dim=0)
-        self.register_buffer("bar_alpha", bar_alpha, persistent=False)
+        self.register_buffer("bar_alpha", torch.empty(self.num_timesteps), persistent=False)
 
         # The ODE solver to use.
         self.solver = get_ode_solver(solver)
 
     bar_alpha: Tensor
+
+    def reset_parameters(self) -> None:
+        with torch.device("cpu"):
+            # Gets the beta schedule from the given parameters.
+            betas = get_diffusion_beta_schedule(
+                schedule=self.beta_schedule,
+                num_timesteps=self.num_beta_steps,
+                beta_start=self.beta_start,
+                beta_end=self.beta_end,
+                warmup=self.warmup,
+                cosine_offset=self.cosine_offset,
+            )
+
+            assert betas.dim() == 1
+
+            assert not (betas < 0).any(), "Betas must be non-negative."
+            assert not (betas > 1).any(), "Betas must be less than or equal to 1."
+
+            bar_alpha = torch.cumprod(1.0 - betas, dim=0)
+
+        self.bar_alpha.data.copy_(bar_alpha.to(self.bar_alpha))
 
     def loss_tensors(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor) -> tuple[Tensor, Tensor]:
         """Computes the loss for a given sample.

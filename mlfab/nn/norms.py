@@ -65,7 +65,7 @@ def cast_parametrize_norm_type(s: str) -> ParametrizationNormType:
     return cast(ParametrizationNormType, s)
 
 
-class RMSNorm(nn.Module, ResetParameters):
+class RMSNorm(ResetParameters, nn.Module):
     """Defines root-mean-square normalization."""
 
     def __init__(self, dim: int, eps: float = 1e-6) -> None:
@@ -85,7 +85,7 @@ class RMSNorm(nn.Module, ResetParameters):
         return output * self.weight
 
 
-class LastBatchNorm(nn.Module, ResetParameters):
+class LastBatchNorm(ResetParameters, nn.Module):
     """Applies batch norm along final dimension without transposing the tensor.
 
     The normalization is pretty simple, it basically just tracks the running
@@ -120,14 +120,8 @@ class LastBatchNorm(nn.Module, ResetParameters):
         self.affine = affine
         self.eps = eps
 
-        if dtype is None:
-            mean_tensor = torch.zeros(channels, device=device)
-            var_tensor = torch.ones(channels, device=device)
-        else:
-            mean_tensor = torch.zeros(channels, device=device, dtype=dtype)
-            var_tensor = torch.ones(channels, device=device, dtype=dtype)
-        self.register_buffer("mean", mean_tensor)
-        self.register_buffer("var", var_tensor)
+        self.register_buffer("mean", torch.empty(channels, device=device, dtype=dtype))
+        self.register_buffer("var", torch.empty(channels, device=device, dtype=dtype))
 
         if self.affine:
             self.affine_transform = nn.Linear(channels, channels, device=device, dtype=dtype)
@@ -152,7 +146,7 @@ class LastBatchNorm(nn.Module, ResetParameters):
         return x_out
 
 
-class ConvLayerNorm(nn.Module, ResetParameters):
+class ConvLayerNorm(ResetParameters, nn.Module):
     __constants__ = ["channels", "eps", "elementwise_affine", "static_shape"]
 
     def __init__(
@@ -183,8 +177,6 @@ class ConvLayerNorm(nn.Module, ResetParameters):
             self.register_parameter("bias", None)
 
         self.static_shape = None if dims is None else (1, -1) + (1,) * dims
-
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         if self.elementwise_affine:

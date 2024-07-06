@@ -444,7 +444,7 @@ def get_default_wkv_fn_key() -> WkvFnKey:
     return "eps"
 
 
-class RwkvAttention(nn.Module, ResetParameters):
+class RwkvAttention(ResetParameters, nn.Module):
     init_x: Tensor
     init_state: Tensor
 
@@ -471,7 +471,6 @@ class RwkvAttention(nn.Module, ResetParameters):
 
         self.register_buffer("init_x", torch.zeros(1, 1, dim), persistent=False)
         self.register_buffer("init_state", initial_state_with_eps(dim), persistent=False)
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         nn.init.orthogonal_(self.key.weight)
@@ -509,7 +508,7 @@ class RwkvAttention(nn.Module, ResetParameters):
         return self.output(rwkv), (x[..., -1:, :], next_state)
 
 
-class RwkvFeedForward(nn.Module, ResetParameters):
+class RwkvFeedForward(ResetParameters, nn.Module):
     init_state: Tensor
 
     def __init__(self, dim: int, ffn_dim: int) -> None:
@@ -523,7 +522,6 @@ class RwkvFeedForward(nn.Module, ResetParameters):
         self.value = nn.Linear(ffn_dim, dim, False)
 
         self.register_buffer("init_state", torch.zeros(1, 1, dim), persistent=False)
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         nn.init.orthogonal_(self.key.weight)
