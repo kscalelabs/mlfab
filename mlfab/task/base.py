@@ -15,7 +15,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import Generic, Self, TypeVar, cast
 
-from omegaconf import Container, DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf
+from omegaconf.base import SCMode
 from torch import Tensor, nn
 
 from mlfab.core.state import State, field
@@ -69,9 +70,6 @@ class BaseTask(nn.Module, Generic[Config]):
 
         self.config = config
 
-        if isinstance(self.config, Container):
-            OmegaConf.resolve(self.config)
-
     def on_before_forward_step(self, state: State) -> None:
         pass
 
@@ -93,10 +91,10 @@ class BaseTask(nn.Module, Generic[Config]):
     def on_training_end(self, state: State) -> None:
         pass
 
-    def on_before_save_checkpoint(self, ckpt_path: Path) -> None:
+    def on_before_save_ckpt(self, ckpt_path: Path) -> None:
         pass
 
-    def on_after_save_checkpoint(self, ckpt_path: Path) -> None:
+    def on_after_save_ckpt(self, ckpt_path: Path) -> None:
         pass
 
     def load_task_state_dict_(
@@ -217,7 +215,15 @@ class BaseTask(nn.Module, Generic[Config]):
                 cfg = OmegaConf.merge(cfg, *(get_config(path, task_path) for path in paths))
             cfg = OmegaConf.merge(cfg, OmegaConf.from_cli(non_paths))
 
-        return cast(Config, cfg)
+        return cast(
+            Config,
+            OmegaConf.to_container(
+                cfg,
+                resolve=True,
+                throw_on_missing=True,
+                structured_config_mode=SCMode.INSTANTIATE,
+            ),
+        )
 
     @classmethod
     def config_str(cls, *cfgs: RawConfigType, use_cli: bool | list[str] = True) -> str:

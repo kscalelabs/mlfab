@@ -10,6 +10,7 @@ from typing import Any, ContextManager, Generic, Sequence, TypeVar
 import torch
 from torch import Tensor, nn
 from torch.distributed import ProcessGroup
+from torch.distributed._tensor import DeviceMesh
 from torch.distributed.fsdp import (
     BackwardPrefetch,
     CPUOffload,
@@ -18,9 +19,7 @@ from torch.distributed.fsdp import (
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
-from torch.distributed.fsdp.wrap import (
-    CustomPolicy,
-)
+from torch.distributed.fsdp.wrap import CustomPolicy
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
@@ -69,7 +68,9 @@ Config = TypeVar("Config", bound=ParallelConfig)
 
 def ddp(model: nn.Module) -> DDP:
     group_info = parallel_group_info()
-    return DDP(model, process_group=group_info.dp.group)
+    model = DDP(model, process_group=group_info.dp.group)
+
+    return model
 
 
 def fsdp(
@@ -111,21 +112,23 @@ def fsdp(
         "use_orig_params": cfg.fsdp_use_orig_params,
     }
 
+    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+        mesh = device_mesh(device.type)
+    else:
+        mesh = device_mesh(device.type)["dp"]
+
     if use_process_groups:
         process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
         if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
             process_group = group_info.tp.group, group_info.dp.group
         else:
             process_group = group_info.tp.group
-        return FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
+        model = FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
 
     else:
-        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-            mesh = device_mesh(device.type)
-        else:
-            mesh = device_mesh(device.type)["dp"]
+        model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
-        return FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
+    return model
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
@@ -167,8 +170,6 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if (use_ddp := self.config.use_ddp) is None:
             use_ddp = parallel_group_info().tp.world_size == 1
         if use_ddp:
-            if parallel_group_info().tp.world_size > 1:
-                raise RuntimeError("FSDP process groups aren't supported with DDP")
             return ddp(model)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
@@ -203,6 +204,10 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
                         raise MinGradScaleError("Minimum gradient scale reached; your loss is probably exploding")
                     logger.warning("Loss NaNs detected; reducing scale to %.2g", new_scale)
                     self.grad_scaler.update(new_scale)
+
+    @functools.cached_property
+    def device_mesh(self) -> DeviceMesh:
+        return parallel_group_info().device_mesh(self.torch_device.type)
 
     @torch.no_grad()
     def step_optimizer(self, mod: nn.Module, optim: Optimizer, num_steps: int = 1) -> None:

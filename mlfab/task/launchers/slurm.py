@@ -258,6 +258,21 @@ class SlurmLauncher(StagedLauncher):
             comments += [f"Code location: {stage_dir}"]
         extra_sbatch_lines_str = "".join(f"\n#SBATCH {line}" for line in extra_sbatch_lines)
 
+        # Adds some extra information to the job information line.
+        job_info: dict[str, str] = {
+            "launch_time": datetime.datetime.now().isoformat(),
+            "task_key": task.task_key,
+            "exp_dir": str(task.exp_dir),
+        }
+        if self.comment is not None:
+            job_info["comment"] = self.comment
+        if self.nodelist is not None:
+            job_info["nodelist"] = ", ".join(self.nodelist)
+        if self.account is not None:
+            job_info["account"] = self.account
+        if self.time_limit is not None:
+            job_info["time_limit"] = self.time_limit
+
         return f"""
 #!/bin/bash
 #SBATCH --job-name={task.task_name}
@@ -285,17 +300,38 @@ export TORCH_SHOW_CPP_STACKTRACES=1
 # Disable Tensorboard in Slurm.
 export TENSORBOARD_PORT=-1
 
+# Create a dictionary in JSON format
+launch_timestamp=$(date)
+slurm_info_file={task.exp_dir}/slurm_info.json
+log_data=$(cat <<EOF
+{{
+    "job_id": "${{SLURM_JOB_ID}}",
+    "job_start_time": "${{launch_timestamp}}",
+    "node_list": "${{SLURM_NODELIST}}",
+    "job": {json.dumps(job_info, indent=8)}
+}}
+EOF
+)
+
+# Check if the file exists and if not, create it with an empty array
+if [ ! -f $slurm_info_file ]; then
+    echo "[]" > $slurm_info_file
+fi
+
+# Append the log data to the JSON file
+jq ". + [$log_data]" $slurm_info_file > tmp.$$.json && mv tmp.$$.json $slurm_info_file
+
 # Make a new line in the stdout file.
 echo ""
 echo "***"
-echo "Job ID: ${{SLURM_JOBID}} - $(date)"
+echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}"
 echo "***"
 echo ""
 
 # Also make a new line in the stderr file.
 echo "" >&2
 echo "***" >&2
-echo "Job ID: ${{SLURM_JOBID}} - $(date)" >&2
+echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}" >&2
 echo "***" >&2
 echo "" >&2
 
@@ -306,38 +342,6 @@ srun \\
     --gpus-per-node={self.gpus_per_node} \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
-
-    def update_job_info(self, task: ArtifactsMixin, all_run_ids: list[str]) -> None:
-        job_file = task.exp_dir / "slurm_info.json"
-
-        # Loads existing job information, or creates an empty list.
-        job_info: list
-        if job_file.exists():
-            with open(job_file, "r", encoding="utf-8") as f:
-                job_info = json.load(f)
-        else:
-            job_info = []
-
-        # Adds the new job information.
-        job_info_line = {
-            "launch_time": datetime.datetime.now().isoformat(),
-            "job_ids": all_run_ids,
-            "task_key": task.task_key,
-            "exp_dir": str(task.exp_dir),
-        }
-        if self.comment is not None:
-            job_info_line["comment"] = self.comment
-        if self.nodelist is not None:
-            job_info_line["nodelist"] = self.nodelist
-        if self.account is not None:
-            job_info_line["account"] = self.account
-        if self.time_limit is not None:
-            job_info_line["time_limit"] = self.time_limit
-        job_info += [job_info_line]
-
-        # Writes the updated job information to a file.
-        with open(job_file, "w", encoding="utf-8") as f:
-            json.dump(job_info, f, indent=2)
 
     def launch(
         self,
@@ -379,9 +383,6 @@ srun \\
         run_ids_str = "".join(f"\n - {run_id}" for run_id in all_run_ids)
         show_info(f"Launched {len(all_run_ids)} job(s) to {task_obj.exp_dir}:{run_ids_str}")
 
-        # Writes the job information to a file.
-        self.update_job_info(task_obj, all_run_ids)
-
         task_obj.add_lock_file("scheduled", exists_ok=False)
 
     @classmethod
@@ -406,7 +407,7 @@ srun \\
         local_rank = int(os.environ["SLURM_LOCALID"])
         node_world_size = int(os.environ["SLURM_NNODES"])
         local_world_size = int(os.environ["SLURM_NTASKS_PER_NODE"])
-        rank = node_rank * node_world_size + local_rank
+        rank = node_rank * local_world_size + local_rank
         world_size = node_world_size * local_world_size
 
         # Sets the initialization method and configures per-rank logging.

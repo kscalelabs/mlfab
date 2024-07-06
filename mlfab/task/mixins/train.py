@@ -494,11 +494,7 @@ class TrainMixin(
             Thread(target=self.log_state, daemon=True).start()
 
         with self.step_context("load_checkpoint"):
-            state = self.load_checkpoint_(
-                module=mod,
-                optimizer=opt,
-                strict=self.config.init_state_strict,
-            )
+            state = self.load_ckpt_(module=mod, optimizer=opt, strict=self.config.init_state_strict)
 
         # Gets the datasets.
         with self.step_context("get_dataset"):
@@ -518,7 +514,7 @@ class TrainMixin(
         self.on_training_start(state)
 
         def on_exit() -> None:
-            self.save_checkpoint(state, mod, opt)
+            self.save_ckpt(state, mod, opt)
 
         # Handle user-defined interrupts during the training loop.
         self.add_signal_handler(on_exit, signal.SIGUSR1)
@@ -564,9 +560,9 @@ class TrainMixin(
 
                     loss_dict = self.train_step(mod, opt, batch_iterator(), state)
 
-                    if self.should_checkpoint(state):
+                    if self.should_save_ckpt(state):
                         with self.step_context("save_checkpoint"):
-                            self.save_checkpoint(state, mod, opt)
+                            self.save_ckpt(state, mod, opt)
 
                     if profile is not None:
                         profile.step()
@@ -576,7 +572,7 @@ class TrainMixin(
 
         except TrainingFinishedError:
             with self.step_context("save_checkpoint"):
-                self.save_checkpoint(state, mod, opt)
+                self.save_ckpt(state, mod, opt)
             if is_master():
                 show_info(
                     f"Finished training after {state.num_steps} steps, {state.num_samples} samples",
