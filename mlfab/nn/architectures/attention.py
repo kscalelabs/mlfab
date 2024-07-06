@@ -53,8 +53,6 @@ from typing import Literal, TypeVar, cast, overload
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from torch.distributed.tensor.parallel import ColwiseParallel, RowwiseParallel, SequenceParallel
-from torch.distributed.tensor.parallel.style import ParallelStyle
 from torch.utils.checkpoint import checkpoint
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
