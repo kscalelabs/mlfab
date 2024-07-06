@@ -406,7 +406,7 @@ srun \\
         local_rank = int(os.environ["SLURM_LOCALID"])
         node_world_size = int(os.environ["SLURM_NNODES"])
         local_world_size = int(os.environ["SLURM_NTASKS_PER_NODE"])
-        rank = node_rank * node_world_size + local_rank
+        rank = node_rank * local_world_size + local_rank
         world_size = node_world_size * local_world_size
 
         # Sets the initialization method and configures per-rank logging.

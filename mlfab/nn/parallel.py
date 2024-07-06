@@ -582,6 +582,9 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     """
     global _parallel_group_info
 
+    if _parallel_group_info is not None:
+        raise ParallismError("Parallelism is already initialized; call `reset_parallelism` first.")
+
     if cfg is None:
         cfg = MultiProcessConfig.default_config()
 
@@ -591,12 +594,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     os.environ["MASTER_PORT"] = str(cfg.master_port)
 
     logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", cfg.rank, cfg.world_size, cfg.init_method, backend)
-    dist.init_process_group(
-        backend=backend,
-        init_method=cfg.init_method,
-        world_size=cfg.world_size,
-        rank=cfg.rank,
-    )
+    dist.init_process_group(backend=backend, init_method=cfg.init_method, world_size=cfg.world_size, rank=cfg.rank)
 
     if torch.cuda.is_available():
         dev_id = (local_rank := cfg.local_rank) % (dev_cnt := torch.cuda.device_count())
@@ -608,14 +606,10 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
         logger.debug("Dummy all-reduce succeeded")
 
-    if _parallel_group_info is not None:
-        raise ParallismError("Parallelism is already initialized; call `reset_parallelism` first.")
-
     if not dist.is_initialized():
         raise ParallismError("Distributed training is not initialized.")
 
     global_rank, global_world_size = dist.get_rank(), dist.get_world_size()
-
     model_parallelism = cfg.model_parallelism
 
     # Tries to parse to int.
