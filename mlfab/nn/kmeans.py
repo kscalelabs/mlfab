@@ -11,7 +11,9 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 
+from mlfab.nn.functions import as_numpy_array
 from mlfab.nn.triton import supports_triton
+from mlfab.utils.nn import ResetParameters
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,7 @@ def kmeans_fn(cpu: bool) -> Callable[[Tensor, Tensor, Tensor], Tensor]:
     return triton_kmeans_fn
 
 
-class KMeans(nn.Module):
+class KMeans(nn.Module, ResetParameters):
     __constants__ = ["n_clusters", "n_features"]
 
     centers: Tensor
@@ -45,14 +47,18 @@ class KMeans(nn.Module):
     def __init__(self, centers: Tensor | np.ndarray) -> None:
         super().__init__()
 
+        self._centers_np = as_numpy_array(centers)
+
         n_clusters, n_features = centers.shape
         self.n_clusters = n_clusters
         self.n_features = n_features
         self.register_buffer("centers", torch.empty(n_clusters, n_features), persistent=False)
         self.register_buffer("centers_norm", torch.empty(n_clusters), persistent=False)
-        self.load_centers(centers)
         self.kmeans_fn = kmeans_fn(True)
         self.kmeans_fn_cuda = kmeans_fn(False)
+
+    def reset_parameters(self) -> None:
+        self.load_centers(self._centers_np)
 
     def load_centers(self, centers: Tensor | np.ndarray) -> None:
         if isinstance(centers, np.ndarray):

@@ -9,22 +9,17 @@ from typing import Any, ContextManager, Generic, Sequence, TypeVar
 
 import torch
 from torch import Tensor, nn
-from torch.distributed import ProcessGroup
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.fsdp import (
     BackwardPrefetch,
-    CPUOffload,
-    FullyShardedDataParallel as FSDP,
     MixedPrecision,
 )
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
-from torch.distributed.fsdp.wrap import CustomPolicy
-from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
-from mlfab.nn.parallel import all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
+from mlfab.nn.parallel import get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
@@ -55,7 +50,6 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
-    use_ddp: bool | None = field(None, help="Whether to use DDP instead of FSDP")
     grad_scaler: GradScalerConfig = field(GradScalerConfig(), help="Gradient scaler configuration")
     grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
@@ -66,73 +60,8 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
 Config = TypeVar("Config", bound=ParallelConfig)
 
 
-def ddp(model: nn.Module) -> DDP:
-    group_info = parallel_group_info()
-    model = DDP(model, process_group=group_info.dp.group)
-
-    return model
-
-
-def fsdp(
-    model: nn.Module,
-    cfg: ParallelConfig,
-    device: torch.device,
-    mixed_precision: MixedPrecision | None = None,
-    use_process_groups: bool = False,
-) -> FSDP:
-    group_info = parallel_group_info()
-
-    if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
-        if group_info.tp.world_size == 1:
-            logger.info("Using NO_SHARD FSDP strategy")
-            sharding_strategy = ShardingStrategy.NO_SHARD
-        elif group_info.dp.world_size == 1:
-            logger.info("Using FULL_SHARD FSDP strategy")
-            sharding_strategy = ShardingStrategy.FULL_SHARD
-        else:
-            logger.info("Using HYBRID_SHARD FSDP strategy")
-            sharding_strategy = ShardingStrategy.HYBRID_SHARD
-
-    if cfg.fsdp_cpu_offload:
-        logger.warning("CPU offloading doesn't support gradient accumulation")
-
-    def should_wrap(mod: nn.Module) -> bool:
-        return bool(getattr(mod, "__wrap_fsdp__", False))
-
-    kwargs = {
-        "sharding_strategy": sharding_strategy,
-        "auto_wrap_policy": CustomPolicy(should_wrap) if cfg.fsdp_wrap else None,
-        "cpu_offload": CPUOffload(cfg.fsdp_cpu_offload),
-        "backward_prefetch": cfg.fsdp_backward_prefetch,
-        "mixed_precision": mixed_precision,
-        "device_id": device,
-        "sync_module_states": cfg.fsdp_sync_module_states and all_params_are_cuda(model),
-        "forward_prefetch": cfg.fsdp_forward_prefetch,
-        "limit_all_gathers": cfg.fsdp_limit_all_gathers,
-        "use_orig_params": cfg.fsdp_use_orig_params,
-    }
-
-    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-        mesh = device_mesh(device.type)
-    else:
-        mesh = device_mesh(device.type)["dp"]
-
-    if use_process_groups:
-        process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
-        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-            process_group = group_info.tp.group, group_info.dp.group
-        else:
-            process_group = group_info.tp.group
-        model = FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
-
-    else:
-        model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
-
-    return model
-
-
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
-    """Defines a trainer mixin for converting models to FSDP."""
+    """Defines a task mixin for converting models to FSDP."""
 
     @functools.cached_property
     def grad_scaler(self) -> ShardedGradScaler | None:
@@ -162,15 +91,9 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def get_wrapped_model(self, model: nn.Module) -> nn.Module | FSDP | DDP:
+    def get_wrapped_model(self, model: nn.Module) -> nn.Module:
         if get_world_size() <= 1:
             return model
-        if isinstance(model, (FSDP, DDP)):
-            return model
-        if (use_ddp := self.config.use_ddp) is None:
-            use_ddp = parallel_group_info().tp.world_size == 1
-        if use_ddp:
-            return ddp(model)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
@@ -222,16 +145,12 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
                     p.grad /= num_steps
 
         # Clips gradients.
-        if isinstance(mod, FSDP):
-            total_norm = mod.clip_grad_norm_(clip_norm, norm_type)
-            was_clipped = bool(torch.isfinite(total_norm))
-        else:
-            total_norm, was_clipped = clip_grad_norm_(
-                mod.parameters(),
-                max_norm=clip_norm,
-                norm_type=norm_type,
-                foreach=None,
-            )
+        total_norm, was_clipped = clip_grad_norm_(
+            mod.parameters(),
+            max_norm=clip_norm,
+            norm_type=norm_type,
+            foreach=None,
+        )
 
         # Logs weight and gradient norms.
         self.log_scalar("weight_norm", lambda: get_weight_norm(mod.parameters()), namespace="📉 optim")

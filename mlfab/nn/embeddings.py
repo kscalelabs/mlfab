@@ -43,6 +43,7 @@ import torch
 from torch import Tensor, nn
 
 from mlfab.nn.init import InitializationType, init_
+from mlfab.utils.nn import ResetParameters
 from mlfab.utils.sugar import default
 
 EmbeddingKind = Literal["identity", "learned", "sinusoidal", "rotary"]
@@ -59,7 +60,7 @@ class IdentityPositionalEmbeddings(nn.Module):
         return x
 
 
-class LearnedPositionalEmbeddings(nn.Module):
+class LearnedPositionalEmbeddings(nn.Module, ResetParameters):
     """Defines a learned embeddings module.
 
     Parameters:
@@ -95,7 +96,7 @@ class LearnedPositionalEmbeddings(nn.Module):
         return x + emb_btc
 
 
-class SinusoidalEmbeddings(nn.Module):
+class SinusoidalEmbeddings(nn.Module, ResetParameters):
     """Defines a sinusoidal embeddings module.
 
     Parameters:
@@ -221,7 +222,7 @@ def rotary_embeddings(x_btc: Tensor, offset: int = 0, base: int = 10_000) -> Ten
     return apply_rotary_embeddings(x_btc, emb_2tc, offset)
 
 
-class RotaryEmbeddings(nn.Module):
+class RotaryEmbeddings(nn.Module, ResetParameters):
     def __init__(self, base: int = 10_000) -> None:
         """Defines a rotary embeddings module.
 
@@ -357,7 +358,7 @@ def fourier_embeddings(t: Tensor, dim: int, max_period: int = 10000) -> Tensor:
     return embedding
 
 
-class FourierEmbeddings(nn.Module):
+class FourierEmbeddings(nn.Module, ResetParameters):
     """Defines a module for applying Fourier embeddings to timesteps.
 
     This module differs from the other positional embedding modules because it

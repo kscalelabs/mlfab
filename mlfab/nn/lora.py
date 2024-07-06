@@ -46,6 +46,8 @@ import torch.nn.functional as F
 from torch import _VF, Tensor, nn
 from torch.nn.modules.module import _IncompatibleKeys
 
+from mlfab.utils.nn import ResetParameters
+
 T = TypeVar("T")
 
 SupportedModule = Union[
@@ -68,7 +70,7 @@ def _lora_post_hook(module: "_Lora", incompatible_keys: _IncompatibleKeys) -> No
         incompatible_keys.missing_keys.remove(lora_key)
 
 
-class _Lora(nn.Module):
+class _Lora(nn.Module, ResetParameters):
     def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         super().__init__(*args, **kwargs)
 

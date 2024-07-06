@@ -29,6 +29,8 @@ from typing import Literal, TypeVar, cast, get_args
 import torch
 from torch import Tensor, nn
 
+from mlfab.utils.nn import ResetParameters
+
 T_module = TypeVar("T_module", bound=nn.Module)
 
 NormType = Literal[
@@ -63,14 +65,17 @@ def cast_parametrize_norm_type(s: str) -> ParametrizationNormType:
     return cast(ParametrizationNormType, s)
 
 
-class RMSNorm(torch.nn.Module):
+class RMSNorm(nn.Module, ResetParameters):
     """Defines root-mean-square normalization."""
 
     def __init__(self, dim: int, eps: float = 1e-6) -> None:
         super().__init__()
 
         self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
+        self.weight = nn.Parameter(torch.empty(dim))
+
+    def reset_parameters(self) -> None:
+        nn.init.ones_(self.weight)
 
     def _norm(self, x: Tensor) -> Tensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -80,7 +85,7 @@ class RMSNorm(torch.nn.Module):
         return output * self.weight
 
 
-class LastBatchNorm(nn.Module):
+class LastBatchNorm(nn.Module, ResetParameters):
     """Applies batch norm along final dimension without transposing the tensor.
 
     The normalization is pretty simple, it basically just tracks the running
@@ -127,6 +132,10 @@ class LastBatchNorm(nn.Module):
         if self.affine:
             self.affine_transform = nn.Linear(channels, channels, device=device, dtype=dtype)
 
+    def reset_parameters(self) -> None:
+        nn.init.zeros_(self.mean)
+        nn.init.ones_(self.var)
+
     def forward(self, x: Tensor) -> Tensor:
         if self.affine:
             x = self.affine_transform(x)
@@ -143,7 +152,7 @@ class LastBatchNorm(nn.Module):
         return x_out
 
 
-class ConvLayerNorm(nn.Module):
+class ConvLayerNorm(nn.Module, ResetParameters):
     __constants__ = ["channels", "eps", "elementwise_affine", "static_shape"]
 
     def __init__(
