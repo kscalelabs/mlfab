@@ -28,15 +28,6 @@ class MetaConfig(DeviceConfig):
 Config = TypeVar("Config", bound=MetaConfig)
 
 
-def has_meta(module: nn.Module, recurse: bool = True) -> bool:
-    return any(
-        itertools.chain(
-            (param.is_meta for param in module.parameters(recurse=recurse)),
-            (buffer.is_meta for buffer in module.buffers(recurse=recurse)),
-        )
-    )
-
-
 class MetaMixin(DeviceMixin[Config], Generic[Config]):
     """Defines a task mixin for initializing models to the meta device."""
 
@@ -54,6 +45,14 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
         """
         module_queue: Queue[nn.Module] = Queue()
         module_queue.put(model)
+
+        def has_meta(module: nn.Module, recurse: bool = True) -> bool:
+            return any(
+                itertools.chain(
+                    (param.is_meta for param in module.parameters(recurse=recurse)),
+                    (buffer.is_meta for buffer in module.buffers(recurse=recurse)),
+                )
+            )
 
         def to_empty(t: Tensor) -> Tensor:
             if t.is_meta:
