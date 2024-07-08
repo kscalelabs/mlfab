@@ -19,7 +19,6 @@ import mlfab
 
 @dataclass(kw_only=True)
 class Config(mlfab.Config):
-    use_ddp: bool = mlfab.field(True)
     num_layers: int = mlfab.field(2)
     learning_rate: float = mlfab.field(1e-3)
     betas: tuple[float, float] = mlfab.field((0.9, 0.999))
@@ -57,34 +56,8 @@ class DummyTask(mlfab.Task[Config]):
 
 
 @pytest.mark.slow
-def test_e2e_training(tmpdir: Path) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
-    os.environ["TENSORBOARD_PORT"] = "-1"
-    os.environ["USE_METAL"] = "0"
-
-    mlfab.configure_logging()
-
-    config = Config(
-        num_layers=2,
-        batch_size=2,
-        num_train_dl_workers=0,
-        max_steps=10,
-    )
-
-    DummyTask.launch(config, use_cli=False)
-
-    exp_dir = tmpdir / "dummy_task" / "run_0"
-    assert exp_dir.exists()
-
-    # Run from the same experiment directory.
-    config.exp_dir = str(exp_dir)
-    config.max_steps = 20
-
-    DummyTask.launch(config, use_cli=False)
-
-
-@pytest.mark.slow
-def test_e2e_training_mp(tmpdir: Path) -> None:
+@pytest.mark.parametrize("model_parallelism", (1, 2, 4))
+def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
@@ -97,9 +70,10 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
         batch_size=2,
         num_train_dl_workers=0,
         max_steps=10,
+        model_parallelism=model_parallelism,
     )
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
@@ -108,7 +82,7 @@ def test_e2e_training_mp(tmpdir: Path) -> None:
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
 
 
 @pytest.mark.slow
@@ -128,5 +102,4 @@ def test_staged_training(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
-    # test_e2e_training(Path(tempfile.mkdtemp()))
-    test_e2e_training_mp(Path(tempfile.mkdtemp()))
+    test_e2e_training_mp(Path(tempfile.mkdtemp()), 2)
