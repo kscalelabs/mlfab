@@ -43,16 +43,6 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
     def configure_model_(self, model: nn.Module) -> None:
         self.reset_parameters_(model)
 
-    def to_empty_if_meta(self, t: Tensor) -> Tensor:
-        if t.is_meta:
-            if t.is_floating_point():
-                return torch.empty_like(t, device=self.torch_device, dtype=self.torch_dtype)
-            return torch.empty_like(t, device=self.torch_device)
-
-        if t.is_floating_point():
-            return t.to(self.torch_device, self.torch_dtype)
-        return t.to(self.torch_device)
-
     def reset_parameters_(self, model: nn.Module) -> None:
         """Recursively resets model parameters.
 
@@ -64,9 +54,20 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
         """
         module_queue: Queue[nn.Module] = Queue()
         module_queue.put(model)
+
+        def to_empty(t: Tensor) -> Tensor:
+            if t.is_meta:
+                if t.is_floating_point():
+                    return torch.empty_like(t, device=self.torch_device, dtype=self.torch_dtype)
+                return torch.empty_like(t, device=self.torch_device)
+
+            if t.is_floating_point():
+                return t.to(self.torch_device, self.torch_dtype)
+            return t.to(self.torch_device)
+
         while not module_queue.empty():
             module = module_queue.get()
-            module._apply(self.to_empty_if_meta, recurse=False)
+            module._apply(to_empty, recurse=False)
             if isinstance(module, PretrainedModule):
                 module.load()
                 if has_meta(module):
