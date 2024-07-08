@@ -102,6 +102,8 @@ class LoraEmbedding(nn.Embedding, _Lora):
         sparse: bool = False,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             num_embeddings,
             embedding_dim,
@@ -118,7 +120,6 @@ class LoraEmbedding(nn.Embedding, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -186,6 +187,8 @@ class LoraLinear(nn.Linear, _Lora):
         bias: bool = True,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             in_features,
             out_features,
@@ -198,7 +201,6 @@ class LoraLinear(nn.Linear, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -264,6 +266,8 @@ class LoraConv1d(nn.Conv1d, _Lora):
         bias: bool = True,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             in_channels,
             out_channels,
@@ -281,7 +285,6 @@ class LoraConv1d(nn.Conv1d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -349,6 +352,8 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         bias: bool = True,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             in_channels,
             out_channels,
@@ -367,7 +372,6 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -454,6 +458,8 @@ class LoraConv2d(nn.Conv2d, _Lora):
         bias: bool = True,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             in_channels,
             out_channels,
@@ -471,7 +477,6 @@ class LoraConv2d(nn.Conv2d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -539,6 +544,8 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         bias: bool = True,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             in_channels,
             out_channels,
@@ -557,7 +564,6 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
-        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -653,6 +659,8 @@ class _LoraRNN(nn.RNNBase, _Lora):
         proj_size: int = 0,
         reset_base_parameters: bool = False,
     ) -> None:
+        self.reset_base_parameters = reset_base_parameters
+
         super().__init__(
             mode=mode,
             input_size=input_size,
@@ -670,7 +678,6 @@ class _LoraRNN(nn.RNNBase, _Lora):
         self.r = r
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
-        self.reset_base_parameters = reset_base_parameters
 
         num_directions = 2 if bidirectional else 1
         gate_size = gate_mul * hidden_size
@@ -818,12 +825,18 @@ class _LoraRNNCellBase(nn.RNNCellBase, _Lora):
         lora_alpha: float = 1.0,
         reset_base_parameters: bool = False,
     ) -> None:
-        super().__init__(input_size=input_size, hidden_size=hidden_size, bias=bias, num_chunks=num_chunks)
+        self.reset_base_parameters = reset_base_parameters
+
+        super().__init__(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            bias=bias,
+            num_chunks=num_chunks,
+        )
 
         self.r = r
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
-        self.reset_base_parameters = reset_base_parameters
 
         self.lora_a_ih = nn.Parameter(self.weight_ih.new_empty((r, input_size)))
         self.lora_b_ih = nn.Parameter(self.weight_ih.new_empty((hidden_size * num_chunks, r)))
