@@ -239,7 +239,7 @@ class ImageGradLoss(ResetParameters, nn.Module):
     kernel: Tensor
 
     def reset_parameters(self) -> None:
-        self.kernel.data.copy_(self.get_kernel(self.kernel_size, self.sigma))
+        self.kernel.data.copy_(self.get_kernel(self.kernel_size, self.sigma).to(self.kernel))
 
     def get_kernel(self, ksz: int, sigma: float) -> Tensor:
         x = torch.linspace(-(ksz // 2), ksz // 2, ksz)

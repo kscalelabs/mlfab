@@ -100,6 +100,7 @@ class LoraEmbedding(nn.Embedding, _Lora):
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
         sparse: bool = False,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             num_embeddings,
@@ -117,6 +118,7 @@ class LoraEmbedding(nn.Embedding, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -126,7 +128,8 @@ class LoraEmbedding(nn.Embedding, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -181,6 +184,7 @@ class LoraLinear(nn.Linear, _Lora):
         lora_dropout: float = 0.0,
         merge: bool = False,
         bias: bool = True,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             in_features,
@@ -194,6 +198,7 @@ class LoraLinear(nn.Linear, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -203,7 +208,8 @@ class LoraLinear(nn.Linear, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -256,6 +262,7 @@ class LoraConv1d(nn.Conv1d, _Lora):
         dilation: int | tuple[int] = 1,
         groups: int = 1,
         bias: bool = True,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -274,6 +281,7 @@ class LoraConv1d(nn.Conv1d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -283,7 +291,8 @@ class LoraConv1d(nn.Conv1d, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -338,6 +347,7 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         dilation: int | tuple[int] = 1,
         groups: int = 1,
         bias: bool = True,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -357,6 +367,7 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -366,7 +377,8 @@ class LoraConvTranspose1d(nn.ConvTranspose1d, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -440,6 +452,7 @@ class LoraConv2d(nn.Conv2d, _Lora):
         dilation: int | tuple[int, int] = (1, 1),
         groups: int = 1,
         bias: bool = True,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -458,6 +471,7 @@ class LoraConv2d(nn.Conv2d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -467,7 +481,8 @@ class LoraConv2d(nn.Conv2d, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -522,6 +537,7 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         dilation: int | tuple[int, int] = (1, 1),
         groups: int = 1,
         bias: bool = True,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -541,6 +557,7 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
         self.merge = merge
+        self.reset_base_parameters = reset_base_parameters
 
         self.dropout = nn.Identity() if lora_dropout == 0.0 else nn.Dropout(p=lora_dropout)
         self.merged = False
@@ -550,7 +567,8 @@ class LoraConvTranspose2d(nn.ConvTranspose2d, _Lora):
         self.weight.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         if hasattr(self, "lora_a") and hasattr(self, "lora_b"):
             self.reset_lora_parameters()
@@ -633,6 +651,7 @@ class _LoraRNN(nn.RNNBase, _Lora):
         dropout: float = 0.0,
         bidirectional: bool = False,
         proj_size: int = 0,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(
             mode=mode,
@@ -651,6 +670,7 @@ class _LoraRNN(nn.RNNBase, _Lora):
         self.r = r
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
+        self.reset_base_parameters = reset_base_parameters
 
         num_directions = 2 if bidirectional else 1
         gate_size = gate_mul * hidden_size
@@ -705,7 +725,8 @@ class _LoraRNN(nn.RNNBase, _Lora):
         self.flatten_parameters()
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         self.reset_lora_parameters()
 
@@ -731,6 +752,7 @@ class LoraLSTM(nn.LSTM, _LoraRNN):
         dropout: float = 0.0,
         bidirectional: bool = False,
         proj_size: int = 0,
+        reset_base_parameters: bool = False,
     ) -> None:
         _LoraRNN.__init__(
             self,
@@ -746,6 +768,7 @@ class LoraLSTM(nn.LSTM, _LoraRNN):
             dropout=dropout,
             bidirectional=bidirectional,
             proj_size=proj_size,
+            reset_base_parameters=reset_base_parameters,
         )
 
 
@@ -762,6 +785,7 @@ class LoraGRU(nn.GRU, _LoraRNN):
         dropout: float = 0.0,
         bidirectional: bool = False,
         proj_size: int = 0,
+        reset_base_parameters: bool = False,
     ) -> None:
         _LoraRNN.__init__(
             self,
@@ -777,6 +801,7 @@ class LoraGRU(nn.GRU, _LoraRNN):
             dropout=dropout,
             bidirectional=bidirectional,
             proj_size=proj_size,
+            reset_base_parameters=reset_base_parameters,
         )
 
 
@@ -791,12 +816,14 @@ class _LoraRNNCellBase(nn.RNNCellBase, _Lora):
         num_chunks: int,
         r: int,
         lora_alpha: float = 1.0,
+        reset_base_parameters: bool = False,
     ) -> None:
         super().__init__(input_size=input_size, hidden_size=hidden_size, bias=bias, num_chunks=num_chunks)
 
         self.r = r
         self.lora_alpha = lora_alpha
         self.scaling = self.lora_alpha / self.r
+        self.reset_base_parameters = reset_base_parameters
 
         self.lora_a_ih = nn.Parameter(self.weight_ih.new_empty((r, input_size)))
         self.lora_b_ih = nn.Parameter(self.weight_ih.new_empty((hidden_size * num_chunks, r)))
@@ -806,7 +833,8 @@ class _LoraRNNCellBase(nn.RNNCellBase, _Lora):
         self.weight_hh.requires_grad_(False)
 
     def reset_parameters(self) -> None:
-        super().reset_parameters()
+        if self.reset_base_parameters:
+            super().reset_parameters()
 
         self.reset_lora_parameters()
 
@@ -827,6 +855,7 @@ class LoraLSTMCell(nn.LSTMCell, _LoraRNNCellBase):
         r: int,
         bias: bool = True,
         lora_alpha: float = 1.0,
+        reset_base_parameters: bool = False,
     ) -> None:
         _LoraRNNCellBase.__init__(
             self,
@@ -836,6 +865,7 @@ class LoraLSTMCell(nn.LSTMCell, _LoraRNNCellBase):
             num_chunks=4,
             r=r,
             lora_alpha=lora_alpha,
+            reset_base_parameters=reset_base_parameters,
         )
 
     def forward(self, input: Tensor, hx: tuple[Tensor, Tensor] | None = None) -> tuple[Tensor, Tensor]:
@@ -864,6 +894,7 @@ class LoraGRUCell(nn.GRUCell, _LoraRNNCellBase):
         r: int,
         bias: bool = True,
         lora_alpha: float = 1.0,
+        reset_base_parameters: bool = False,
     ) -> None:
         _LoraRNNCellBase.__init__(
             self,
@@ -873,6 +904,7 @@ class LoraGRUCell(nn.GRUCell, _LoraRNNCellBase):
             num_chunks=3,
             r=r,
             lora_alpha=lora_alpha,
+            reset_base_parameters=reset_base_parameters,
         )
 
     def forward(self, input: Tensor, hx: Tensor | None = None) -> Tensor:
@@ -899,6 +931,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraEmbedding: ...
 
 
@@ -909,6 +942,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraLinear: ...
 
 
@@ -919,6 +953,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraConv1d: ...
 
 
@@ -929,6 +964,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraConv1d: ...
 
 
@@ -939,6 +975,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraConv2d: ...
 
 
@@ -949,6 +986,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraConv2d: ...
 
 
@@ -959,6 +997,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraLSTM: ...
 
 
@@ -969,6 +1008,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraGRU: ...
 
 
@@ -979,6 +1019,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraLSTMCell: ...
 
 
@@ -989,6 +1030,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> LoraGRUCell: ...
 
 
@@ -999,6 +1041,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> nn.Module: ...
 
 
@@ -1008,6 +1051,7 @@ def lora(
     alpha: float = 1.0,
     dropout: float = 0.0,
     merge: bool = False,
+    reset_base_parameters: bool = False,
 ) -> nn.Module:
     """Wraps a module with LoRA.
 
@@ -1029,6 +1073,9 @@ def lora(
             weights during training, and the original weights are used during
             evaluation. If False, then the LoRA components are used during
             both training and evaluation.
+        reset_base_parameters: Whether to reset the base parameters of the
+            module. If True, then the base parameters are reset when the
+            LoRA parameters are reset.
 
     Returns:
         The LoRA version of the module.
@@ -1048,6 +1095,7 @@ def lora(
             r=r,
             lora_alpha=alpha,
             merge=merge,
+            reset_base_parameters=reset_base_parameters,
         )
         embedding.weight.data.copy_(module.weight.data)
         return embedding
@@ -1060,6 +1108,7 @@ def lora(
             lora_alpha=alpha,
             merge=merge,
             bias=module.bias is not None,
+            reset_base_parameters=reset_base_parameters,
         )
         linear.weight.data.copy_(module.weight.data)
         if module.bias is not None and linear.bias is not None:
@@ -1080,6 +1129,7 @@ def lora(
             dilation=cast(tuple[int], module.dilation),
             groups=module.groups,
             bias=module.bias is not None,
+            reset_base_parameters=reset_base_parameters,
         )
         conv_1d.weight.data.copy_(module.weight.data)
         if module.bias is not None and conv_1d.bias is not None:
@@ -1101,6 +1151,7 @@ def lora(
             dilation=cast(tuple[int], module.dilation),
             groups=module.groups,
             bias=module.bias is not None,
+            reset_base_parameters=reset_base_parameters,
         )
         conv_transpose_1d.weight.data.copy_(module.weight.data)
         if module.bias is not None and conv_transpose_1d.bias is not None:
@@ -1121,6 +1172,7 @@ def lora(
             dilation=cast(tuple[int, int], module.dilation),
             groups=module.groups,
             bias=module.bias is not None,
+            reset_base_parameters=reset_base_parameters,
         )
         conv_2d.weight.data.copy_(module.weight.data)
         if module.bias is not None and conv_2d.bias is not None:
@@ -1142,6 +1194,7 @@ def lora(
             dilation=cast(tuple[int, int], module.dilation),
             groups=module.groups,
             bias=module.bias is not None,
+            reset_base_parameters=reset_base_parameters,
         )
         conv_transpose_2d.weight.data.copy_(module.weight.data)
         if module.bias is not None and conv_transpose_2d.bias is not None:
@@ -1163,6 +1216,7 @@ def lora(
             bidirectional=module.bidirectional,
             proj_size=module.proj_size,
             bias=module.bias,
+            reset_base_parameters=reset_base_parameters,
         )
         for param_name, param_value in module.named_parameters():
             getattr(lstm, param_name).data.copy_(param_value.data)
@@ -1183,6 +1237,7 @@ def lora(
             dropout=module.dropout,
             bidirectional=module.bidirectional,
             proj_size=module.proj_size,
+            reset_base_parameters=reset_base_parameters,
         )
         for param_name, param_value in module.named_parameters():
             getattr(gru, param_name).data.copy_(param_value.data)
@@ -1198,6 +1253,7 @@ def lora(
             r=r,
             lora_alpha=alpha,
             bias=module.bias,
+            reset_base_parameters=reset_base_parameters,
         )
         lstm_cell.weight_hh.data.copy_(module.weight_hh.data)
         lstm_cell.weight_ih.data.copy_(module.weight_ih.data)
@@ -1216,6 +1272,7 @@ def lora(
             r=r,
             lora_alpha=alpha,
             bias=module.bias,
+            reset_base_parameters=reset_base_parameters,
         )
         gru_cell.weight_hh.data.copy_(module.weight_hh.data)
         gru_cell.weight_ih.data.copy_(module.weight_ih.data)
@@ -1237,6 +1294,7 @@ def maybe_lora(
     dropout: float = 0.0,
     merge: bool = False,
     freeze: bool = True,
+    reset_base_parameters: bool = False,
 ) -> T_module:
     """Apply LoRA to a supported module, if a LoRA rank is provided.
 
@@ -1253,13 +1311,16 @@ def maybe_lora(
             users will want to freeze most of the module parameters and apply
             LoRA only to a subset of the module's layers, so this is the
             default behavior.
+        reset_base_parameters: Whether to reset the base parameters of the
+            module. If True, then the base parameters are reset when the
+            LoRA parameters are reset.
 
     Returns:
         The module with LoRA applied, if a LoRA rank is provided.
     """
     if freeze and r is None:
         module = cast(T_module, module.requires_grad_(False))
-    return module if r is None else lora(module, r, alpha, dropout, merge)
+    return module if r is None else lora(module, r, alpha, dropout, merge, reset_base_parameters)
 
 
 def maybe_lora_weight_norm(
@@ -1269,8 +1330,17 @@ def maybe_lora_weight_norm(
     dropout: float = 0.0,
     merge: bool = False,
     freeze: bool = True,
+    reset_base_parameters: bool = False,
 ) -> T_module:
-    module = maybe_lora(module, r=r, alpha=alpha, dropout=dropout, merge=merge, freeze=freeze)
+    module = maybe_lora(
+        module,
+        r=r,
+        alpha=alpha,
+        dropout=dropout,
+        merge=merge,
+        freeze=freeze,
+        reset_base_parameters=reset_base_parameters,
+    )
     return nn.utils.weight_norm(module)
 
 

@@ -1,7 +1,9 @@
 """Defines a mixin to support initializing models with the meta device."""
 
+import itertools
 import logging
 from dataclasses import dataclass
+from queue import Queue
 from typing import Generic, TypeVar
 
 import torch
@@ -12,6 +14,7 @@ from torch.nn.modules.rnn import RNNBase, RNNCellBase
 
 from mlfab.core.conf import field
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
+from mlfab.task.mixins.pretrained import PretrainedModule
 from mlfab.utils.nn import ResetParameters
 
 logger = logging.getLogger(__name__)
@@ -25,23 +28,53 @@ class MetaConfig(DeviceConfig):
 Config = TypeVar("Config", bound=MetaConfig)
 
 
+def has_meta(module: nn.Module, recurse: bool = True) -> bool:
+    return any(
+        itertools.chain(
+            (param.is_meta for param in module.parameters(recurse=recurse)),
+            (buffer.is_meta for buffer in module.buffers(recurse=recurse)),
+        )
+    )
+
+
 class MetaMixin(DeviceMixin[Config], Generic[Config]):
     """Defines a task mixin for initializing models to the meta device."""
 
     def configure_model_(self, model: nn.Module) -> None:
-        self.meta_to_empty_(model)
         self.reset_parameters_(model)
 
-    def meta_to_empty_(self, module: nn.Module) -> None:
-        def to_empty(t: Tensor) -> Tensor:
+    def to_empty(self, t: Tensor) -> Tensor:
+        if t.is_meta:
             if t.is_floating_point():
                 return torch.empty_like(t, device=self.torch_device, dtype=self.torch_dtype)
             return torch.empty_like(t, device=self.torch_device)
 
-        module._apply(to_empty, recurse=True)
+        if t.is_floating_point():
+            return t.to(self.torch_device, self.torch_dtype)
+        return t.to(self.torch_device)
 
     def reset_parameters_(self, model: nn.Module) -> None:
-        model.apply(self.init_weights_)
+        """Recursively resets model parameters.
+
+        Since modules are initialized to the empty device by default, we need
+        to move them to the torch device. For pre-trained modules, we call the
+        load function to load the pre-trained weights, and check that there
+        aren't any meta tensors left after loading. For other modules, we call
+        the `init_weights_` method to reset the parameters.
+        """
+        module_queue: Queue[nn.Module] = Queue()
+        module_queue.put(model)
+        while not module_queue.empty():
+            module = module_queue.get()
+            module._apply(self.to_empty, recurse=False)
+            if isinstance(module, PretrainedModule):
+                module.load()
+                if has_meta(module):
+                    raise RuntimeError("Pretrained module has meta tensors after loading!")
+            else:
+                self.init_weights_(module)
+                for child in module.children():
+                    module_queue.put(child)
 
     def init_weights_(self, module: nn.Module) -> None:
         if isinstance(
