@@ -10,7 +10,7 @@ T = TypeVar("T")
 
 class ResetParametersMeta(ABCMeta):
     def __call__(cls: Type[T], *args: Any, **kwargs: Any) -> T:  # noqa: ANN401
-        instance = super(ResetParametersMeta, cls).__call__(*args, **kwargs)
+        instance = super().__call__(*args, **kwargs)  # type: ignore[misc]
         if isinstance(instance, ResetParameters):
             instance.reset_parameters()
         return instance
