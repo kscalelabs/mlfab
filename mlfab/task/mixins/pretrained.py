@@ -33,7 +33,7 @@ class PretrainedModule:
         self.load_fn = load_fn
 
     def load(self) -> None:
-        self.load_fn(self)
+        self.load_fn(self.module)
 
     def __getattribute__(self, name: str) -> Any:  # noqa: ANN401
         if name.startswith("__") or name in ("module", "forward", "load_fn", "load"):
