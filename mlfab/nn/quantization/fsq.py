@@ -85,7 +85,7 @@ class FiniteScalarQuantization(ResetParameters, nn.Module):
         self._levels.data.copy_(levels.to(self._levels))
         self._basis.data.copy_(basis.to(self._basis))
 
-        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes))
+        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes).to(self._basis.device))
         self.implicit_codebook.data.copy_(implicit_codebook)
 
     def forward(self, z: Tensor) -> Tensor:
