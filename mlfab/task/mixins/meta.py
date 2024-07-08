@@ -32,10 +32,7 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
     """Defines a task mixin for initializing models to the meta device."""
 
     def configure_model_(self, model: nn.Module) -> None:
-        self.reset_parameters_(model)
-
-    def reset_parameters_(self, model: nn.Module) -> None:
-        """Recursively resets model parameters.
+        """Configures the model parameters.
 
         Since modules are initialized to the empty device by default, we need
         to move them to the torch device. For pre-trained modules, we call the
@@ -43,16 +40,12 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
         aren't any meta tensors left after loading. For other modules, we call
         the `init_weights_` method to reset the parameters.
         """
-        module_queue: Queue[nn.Module] = Queue()
-        module_queue.put(model)
 
-        def has_meta(module: nn.Module, recurse: bool = True) -> bool:
-            return any(
-                itertools.chain(
-                    (param.is_meta for param in module.parameters(recurse=recurse)),
-                    (buffer.is_meta for buffer in module.buffers(recurse=recurse)),
-                )
-            )
+        def iter_tensors(module: nn.Module, recurse: bool) -> itertools.chain[Tensor]:
+            return itertools.chain(module.parameters(recurse=recurse), module.buffers(recurse=recurse))
+
+        def has_meta(module: nn.Module, recurse: bool) -> bool:
+            return any(p.is_meta for p in iter_tensors(module, recurse))
 
         def to_empty(t: Tensor) -> Tensor:
             if t.is_meta:
@@ -64,49 +57,52 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
                 return t.to(self.torch_device, self.torch_dtype)
             return t.to(self.torch_device)
 
+        def init_weights_(module: nn.Module) -> None:
+            if isinstance(
+                module,
+                (
+                    _BatchNorm,
+                    _ConvNd,
+                    nn.AdaptiveLogSoftmaxWithLoss,
+                    nn.Bilinear,
+                    nn.Embedding,
+                    nn.EmbeddingBag,
+                    nn.GroupNorm,
+                    nn.LayerNorm,
+                    nn.LazyLinear,
+                    nn.Linear,
+                    nn.LSTM,
+                    nn.PReLU,
+                    RNNBase,
+                    RNNCellBase,
+                ),
+            ):
+                module.reset_parameters()
+            elif isinstance(module, (nn.MultiheadAttention, nn.Transformer)):
+                module._reset_parameters()
+            elif isinstance(module, ResetParameters):
+                module.reset_parameters()
+            elif hasattr(module, "reset_parameters"):
+                logger.warning(
+                    "Module %s has a `reset_parameters` method but is not a known module type; assuming duck-typed "
+                    "`reset_parameters` method. You should subclass `mlfab.ResetParameters` instead.",
+                    type(module),
+                )
+                module.reset_parameters()
+            elif any(True for _ in iter_tensors(module, recurse=False)):
+                raise RuntimeError(f"Encountered a module without a weight initialization: {module}")
+
+        module_queue: Queue[nn.Module] = Queue()
+        module_queue.put(model)
+
         while not module_queue.empty():
             module = module_queue.get()
             module._apply(to_empty, recurse=False)
             if isinstance(module, PretrainedModule):
                 module.load()
-                if has_meta(module):
+                if has_meta(module, recurse=True):
                     raise RuntimeError("Pretrained module has meta tensors after loading!")
             else:
-                self.init_weights_(module)
+                init_weights_(module)
                 for child in module.children():
                     module_queue.put(child)
-
-    def init_weights_(self, module: nn.Module) -> None:
-        if isinstance(
-            module,
-            (
-                _BatchNorm,
-                _ConvNd,
-                nn.AdaptiveLogSoftmaxWithLoss,
-                nn.Bilinear,
-                nn.Embedding,
-                nn.EmbeddingBag,
-                nn.GroupNorm,
-                nn.LayerNorm,
-                nn.LazyLinear,
-                nn.Linear,
-                nn.LSTM,
-                nn.PReLU,
-                RNNBase,
-                RNNCellBase,
-            ),
-        ):
-            module.reset_parameters()
-        elif isinstance(module, (nn.MultiheadAttention, nn.Transformer)):
-            module._reset_parameters()
-        elif isinstance(module, ResetParameters):
-            module.reset_parameters()
-        elif hasattr(module, "reset_parameters"):
-            logger.warning(
-                "Module %s has a `reset_parameters` method but is not a known module type; "
-                "assuming duck-typed `reset_parameters` method. You should subclass `mlfab.ResetParameters` instead.",
-                type(module),
-            )
-            module.reset_parameters()
-        elif any(True for _ in module.parameters(recurse=False)) or any(True for _ in module.buffers(recurse=False)):
-            raise RuntimeError(f"Encountered a module without a weight initialization: {module}")
