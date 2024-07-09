@@ -11,7 +11,7 @@ from mlfab.core.conf import field
 
 Module = TypeVar("Module", bound=nn.Module)
 
-Phase = Literal["train", "valid", "test"]
+Phase = Literal["train", "valid"]
 
 
 def cast_phase(raw_phase: str) -> Phase:
@@ -25,7 +25,6 @@ class State:
     num_steps: int = field(MISSING, help="Number of steps so far")
     num_samples: int = field(MISSING, help="Number of sample so far")
     num_valid_steps: int = field(MISSING, help="Number of validation steps so far")
-    num_test_steps: int = field(MISSING, help="Number of test steps so far")
     start_time_s: float = field(MISSING, help="Start time of training")
     elapsed_time_s: float = field(MISSING, help="Total elapsed time so far")
     raw_phase: str = field(MISSING, help="Current training phase")
@@ -44,7 +43,6 @@ class State:
             num_steps=0,
             num_samples=0,
             num_valid_steps=0,
-            num_test_steps=0,
             start_time_s=time.time(),
             elapsed_time_s=0.0,
             raw_phase="train",
@@ -60,8 +58,8 @@ class State:
                 return self.num_steps
             case "valid":
                 return self.num_valid_steps
-            case "test":
-                return self.num_test_steps
+            case _:
+                raise ValueError(f"Invalid phase: {phase}")
 
     def set_phase(self, model: Module, new_phase: Phase) -> Module:
         self.phase = new_phase

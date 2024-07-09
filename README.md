@@ -214,7 +214,7 @@ def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
 
 ### Logging
 
-When we call `log_step` in the `get_loss` function, it delegates to either `log_train_step`, `log_valid_step` or `log_test_step`, depending on what `state.phase` is. In this case, on each validation step we log images of the MNIST digits with the labels that our model predicts.
+When we call `log_step` in the `get_loss` function, it delegates to either `log_train_step` or `log_valid_step`, depending on what `state.phase` is. In this case, on each validation step we log images of the MNIST digits with the labels that our model predicts.
 
 ```python
 def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:

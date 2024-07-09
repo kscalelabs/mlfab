@@ -24,6 +24,7 @@ class Config(mlfab.Config):
     betas: tuple[float, float] = mlfab.field((0.9, 0.999))
     weight_decay: float = mlfab.field(1e-4)
     warmup_steps: int = mlfab.field(100)
+    min_warn_time: float = mlfab.field(0.0)
 
 
 class DummyDataset(Dataset[tuple[Tensor, Tensor], tuple[Tensor, Tensor]]):
