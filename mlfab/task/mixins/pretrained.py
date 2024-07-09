@@ -5,7 +5,6 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Self, TypeVar, cast
 
-import torch
 from torch import Tensor, nn
 from torch.nn.modules.module import Module
 
@@ -40,11 +39,9 @@ class PretrainedModule:
             return super().__getattribute__(name)
         return getattr(self.module, name)
 
-    @torch.no_grad()
     def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.forward(*args, **kwargs)
 
-    @torch.no_grad()
     def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.__call__(*args, **kwargs)
 

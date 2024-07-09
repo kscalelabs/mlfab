@@ -188,7 +188,7 @@ def set_loggers(self) -> None:
 
 ### Datasets
 
-The task should return the dataset used for training, based on the phase. `ml.Phase` is a string literal with values in `["train", "valid", "test"]`. `mlfab.get_data_dir()` returns the data directory, which can be set in a configuration file which lives in `~/.mlfab.yml`. The default configuration file will be written on first run if it doesn't exist yet.
+The task should return the dataset used for training, based on the phase. `ml.Phase` is a string literal with values in `["train", "valid"]`. `mlfab.get_data_dir()` returns the data directory, which can be set in a configuration file which lives in `~/.mlfab.yml`. The default configuration file will be written on first run if it doesn't exist yet.
 
 ```python
 def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:

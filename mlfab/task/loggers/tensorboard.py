@@ -156,10 +156,6 @@ class TensorboardLogger(LoggerImpl):
     def valid_writer(self) -> SummaryWriter:
         return SummaryWriter(self.log_directory / "valid", flush_secs=self.flush_seconds)
 
-    @functools.cached_property
-    def test_writer(self) -> SummaryWriter:
-        return SummaryWriter(self.log_directory / "test", flush_secs=self.flush_seconds)
-
     @functools.lru_cache(None)  # Avoid clearing logs multiple times.
     def clear_logs(self) -> None:
         if not self.log_directory.exists():
@@ -171,13 +167,13 @@ class TensorboardLogger(LoggerImpl):
 
     def get_writer(self, phase: Phase) -> SummaryWriter:
         self._start()
-        if phase == "train":
-            return self.train_writer
-        if phase == "valid":
-            return self.valid_writer
-        if phase == "test":
-            return self.test_writer
-        raise NotImplementedError(f"Unexpected phase: {phase}")
+        match phase:
+            case "train":
+                return self.train_writer
+            case "valid":
+                return self.valid_writer
+            case _:
+                raise NotImplementedError(f"Unexpected phase: {phase}")
 
     def log_git_state(self, git_state: str) -> None:
         if not is_master():

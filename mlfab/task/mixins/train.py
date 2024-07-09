@@ -493,8 +493,8 @@ class TrainMixin(
                 train_pf = self.device_manager.get_prefetcher(train_dl)
 
                 # ctx.enter_context(self)
-                ctx.enter_context(train_pf)
                 ctx.enter_context(valid_pf)
+                ctx.enter_context(train_pf)
 
                 def pf_iter(pf: Prefetcher[Batch, Batch]) -> Iterator[Batch]:
                     for batch in pf:
