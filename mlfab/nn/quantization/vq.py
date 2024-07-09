@@ -8,6 +8,7 @@ import torch.distributed
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from mlfab.utils.nn import ResetParameters
 from mlfab.nn.functions import swap_grads
 
 
@@ -55,7 +56,7 @@ def _identity(x: Tensor) -> Tensor:
     return x
 
 
-class _EuclideanCodebook(nn.Module):
+class _EuclideanCodebook(ResetParameters, nn.Module):
     """Codebook with Euclidean distance.
 
     Parameters:
@@ -108,6 +109,12 @@ class _EuclideanCodebook(nn.Module):
         self.register_buffer("cluster_size", torch.zeros(codebook_size))
         self.register_buffer("embed", embed)
         self.register_buffer("embed_avg", embed.clone())
+
+    def reset_parameters(self) -> None:
+        self.inited.fill_(False)
+        self.cluster_size.zero_()
+        nn.init.kaiming_uniform_(self.embed)
+        self.embed_avg.data.copy_(self.embed)
 
     inited: Tensor
     cluster_size: Tensor
