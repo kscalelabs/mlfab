@@ -62,6 +62,7 @@ class CliLauncher(BaseLauncher):
                     account=slurm_args.account,
                     nodelist=slurm_args.nodelist,
                     debug_nccl=slurm_args.debug_nccl,
+                    debug_nccl_subsys=slurm_args.debug_nccl_subsys,
                 ).launch(task, *cfgs, use_cli=use_cli_next)
 
             case _:
