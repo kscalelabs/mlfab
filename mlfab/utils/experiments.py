@@ -2,7 +2,6 @@
 
 import datetime
 import enum
-import functools
 import hashlib
 import inspect
 import itertools
