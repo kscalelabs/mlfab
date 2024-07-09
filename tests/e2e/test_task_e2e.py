@@ -56,7 +56,7 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
-@pytest.mark.timeout(300)
+@pytest.mark.timeout(120)
 @pytest.mark.slow
 @pytest.mark.parametrize("model_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
