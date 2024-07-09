@@ -112,7 +112,7 @@ class SlurmArgs:
     account: str | None
     nodelist: list[str] | None
     master_port: int | None
-    debug_nccl: bool
+    debug_nccl: str
     debug_nccl_subsys: str
 
 
@@ -139,7 +139,7 @@ class SlurmLauncher(StagedLauncher):
         nodelist: list[str] | None = None,
         master_port: int | None = None,
         model_parallelism: int | str = 1,
-        debug_nccl: bool = True,
+        debug_nccl: str = "WARN",
         debug_nccl_subsys: str = "ALL",
     ) -> None:
         super().__init__()
@@ -191,7 +191,7 @@ class SlurmLauncher(StagedLauncher):
         parser.add_argument("--account", type=str, default=None, help="The account to use")
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
         parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
-        parser.add_argument("--no-debug-nccl", action="store_true", help="If set, turn off NCCL debug logs")
+        parser.add_argument("--debug-nccl", type=str, default="WARN", help="If set, turn off NCCL debug logs")
         parser.add_argument("--debug-nccl-subsys", type=str, default="ALL", help="Subsystem debugging options")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
@@ -209,7 +209,7 @@ class SlurmLauncher(StagedLauncher):
                 account=args.account,
                 nodelist=args.nodelist,
                 master_port=args.master_port,
-                debug_nccl=not args.no_debug_nccl,
+                debug_nccl=args.debug_nccl,
                 debug_nccl_subsys=args.debug_nccl_subsys,
             ),
             remaining_args,
@@ -235,11 +235,6 @@ class SlurmLauncher(StagedLauncher):
         export_lines: dict[str, str] = {}
         if self.model_parallelism != 1:
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
-        if self.debug_nccl:
-            export_lines["NCCL_DEBUG"] = "INFO"
-            export_lines["NCCL_DEBUG_SUBSYS"] = self.debug_nccl_subsys
-        else:
-            export_lines["NCCL_DEBUG"] = "WARN"
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
 
     def pythonpath(self, stage_dir: str | Path | None) -> str:
@@ -303,6 +298,8 @@ export TORCH_SHOW_CPP_STACKTRACES=1
 # NCCL debugging flags.
 export NCCL_DEBUG_FILE={nccl_path}
 export NCCL_P2P_LEVEL=NVL
+export NCCL_DEBUG={self.debug_nccl}
+export NCCL_DEBUG_SUBSYS={self.debug_nccl_subsys}
 
 # Disable Tensorboard in Slurm.
 export TENSORBOARD_PORT=-1
