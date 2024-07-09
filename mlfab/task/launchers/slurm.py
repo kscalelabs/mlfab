@@ -140,7 +140,7 @@ class SlurmLauncher(StagedLauncher):
         master_port: int | None = None,
         model_parallelism: int | str = 1,
         debug_nccl: bool = True,
-        debug_nccl_subsys: str = "INIT",
+        debug_nccl_subsys: str = "ALL",
     ) -> None:
         super().__init__()
 
@@ -192,7 +192,7 @@ class SlurmLauncher(StagedLauncher):
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
         parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
         parser.add_argument("--no-debug-nccl", action="store_true", help="If set, turn off NCCL debug logs")
-        parser.add_argument("--debug-nccl-subsys", type=str, default="INIT", help="Subsystem debugging options")
+        parser.add_argument("--debug-nccl-subsys", type=str, default="ALL", help="Subsystem debugging options")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
@@ -248,6 +248,7 @@ class SlurmLauncher(StagedLauncher):
 
     def sbatch_file_contents(self, task: "ArtifactsMixin[ArtifactsConfig]") -> str:
         output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
+        nccl_path = task.exp_dir / "nccl.txt"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
         config_path = self.get_config_path(task, use_cli=False)
@@ -294,9 +295,14 @@ export SLURM_EXPORT_ENV=ALL
 export PYTHONPATH={self.pythonpath(stage_dir)}
 export MASTER_PORT={self.master_port}{self.extra_export_lines}
 
-# Set some debugging flags.
+# Torch debugging flags.
+export TORCH_DISABLE_ADDR2LINE=1
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
+
+# NCCL debugging flags.
+export NCCL_DEBUG_FILE={nccl_path}
+export NCCL_P2P_LEVEL=NVL
 
 # Disable Tensorboard in Slurm.
 export TENSORBOARD_PORT=-1
