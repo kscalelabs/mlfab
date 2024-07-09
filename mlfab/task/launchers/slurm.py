@@ -390,17 +390,6 @@ srun \\
     def run(cls) -> None:
         if len(sys.argv) != 3:
             raise RuntimeError(f"Usage: python -m {cls.__module__} <task_key> <config_path>")
-        task_key, config_path = sys.argv[1:]
-        task = cls.from_components(task_key, Path(config_path), use_cli=False)
-
-        if not isinstance(task, RunnableMixin):
-            raise RuntimeError(f"Task {task} must be a `RunnableMixin`")
-
-        # Adding the "running" lock file before rmoving the "scheduled" lock
-        # file in order to prevent accidentally launching another job while the
-        # current job is being set up.
-        task.add_lock_file("running", exists_ok=True)
-        task.remove_lock_file("scheduled", missing_ok=True)
 
         # Gets Slurm information.
         host, port = get_slurm_master_addr_and_port()
@@ -430,6 +419,17 @@ srun \\
         )
         init_dist(cfg)
 
+        task_key, config_path = sys.argv[1:]
+        task = cls.from_components(task_key, Path(config_path), use_cli=False)
+
+        if not isinstance(task, RunnableMixin):
+            raise RuntimeError(f"Task {task} must be a `RunnableMixin`")
+
+        # Adding the "running" lock file before rmoving the "scheduled" lock
+        # file in order to prevent accidentally launching another job while the
+        # current job is being set up.
+        task.add_lock_file("running", exists_ok=True)
+        task.remove_lock_file("scheduled", missing_ok=True)
         task.add_signal_handler(requeue_job, signal.SIGUSR1)
 
         # Runs the base training loop.
