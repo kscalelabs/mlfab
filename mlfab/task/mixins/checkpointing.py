@@ -3,6 +3,7 @@
 import json
 import logging
 import pickle
+import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -241,7 +242,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
 
         if raw_state is not None:
-            return State(**json.loads(raw_state))
+            state = State(**json.loads(raw_state))
+            state.start_time_s = time.time()
+            state.elapsed_time_s = 0.0
+            return state
 
         warnings.warn("No state found in checkpoint! Using default initial state.")
         return State.init_state()

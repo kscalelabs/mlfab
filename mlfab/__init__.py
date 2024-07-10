@@ -198,7 +198,6 @@ __all__ = [
     "CPUStatsOptions",
     "GPUStatsOptions",
     "ParallelConfig",
-    "ddp",
     "fsdp",
     "pretrained",
     "ProfilerOptions",
@@ -238,6 +237,7 @@ __all__ = [
     "write_gif",
     "ColoredFormatter",
     "configure_logging",
+    "ResetParameters",
     "default",
     "TextBlock",
     "colored",
@@ -462,7 +462,6 @@ NAME_MAP: dict[str, str] = {
     "CPUStatsOptions": "task.mixins.cpu_stats",
     "GPUStatsOptions": "task.mixins.gpu_stats",
     "ParallelConfig": "task.mixins.parallel",
-    "ddp": "task.mixins.parallel",
     "fsdp": "task.mixins.parallel",
     "pretrained": "task.mixins.pretrained",
     "ProfilerOptions": "task.mixins.profiler",
@@ -502,6 +501,7 @@ NAME_MAP: dict[str, str] = {
     "write_gif": "utils.io",
     "ColoredFormatter": "utils.logging",
     "configure_logging": "utils.logging",
+    "ResetParameters": "utils.nn",
     "default": "utils.sugar",
     "TextBlock": "utils.text",
     "colored": "utils.text",
@@ -746,7 +746,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.cpu_stats import CPUStatsOptions
     from mlfab.task.mixins.gpu_stats import GPUStatsOptions
     from mlfab.task.mixins.optimizer import OptType
-    from mlfab.task.mixins.parallel import ParallelConfig, ddp, fsdp
+    from mlfab.task.mixins.parallel import ParallelConfig, fsdp
     from mlfab.task.mixins.pretrained import pretrained
     from mlfab.task.mixins.profiler import ProfilerOptions
     from mlfab.task.script import Script, ScriptConfig
@@ -784,6 +784,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     )
     from mlfab.utils.io import read_gif, write_gif
     from mlfab.utils.logging import ColoredFormatter, configure_logging
+    from mlfab.utils.nn import ResetParameters
     from mlfab.utils.sugar import default
     from mlfab.utils.text import (
         TextBlock,

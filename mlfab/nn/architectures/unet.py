@@ -8,15 +8,24 @@ from torch import Tensor, nn
 
 from mlfab.nn.activations import ActivationType, get_activation
 from mlfab.nn.norms import NormType, get_norm_2d
+from mlfab.utils.nn import ResetParameters
 
 
-class PositionalEmbedding(nn.Module):
+class PositionalEmbedding(ResetParameters, nn.Module):
+    __constants__ = ["dim", "max_length"]
+
     def __init__(self, dim: int, max_length: int = 10000) -> None:
         super().__init__()
 
-        self.register_buffer("embedding", self.make_embedding(dim, max_length), persistent=False)
+        self.dim = dim
+        self.max_length = max_length
+
+        self.register_buffer("embedding", torch.empty(max_length, dim), persistent=False)
 
     embedding: Tensor
+
+    def reset_parameters(self) -> None:
+        self.embedding.data.copy_(self.make_embedding(self.dim, self.max_length).to(self.embedding))
 
     def forward(self, x: Tensor) -> Tensor:
         return self.embedding[x]

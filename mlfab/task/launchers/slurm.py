@@ -15,11 +15,7 @@ from pathlib import Path
 
 import torch
 
-from mlfab.nn.parallel import (
-    MultiProcessConfig,
-    init_dist,
-    is_master,
-)
+from mlfab.nn.parallel import MultiProcessConfig, init_dist, is_master
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
@@ -116,7 +112,8 @@ class SlurmArgs:
     account: str | None
     nodelist: list[str] | None
     master_port: int | None
-    debug_nccl: bool
+    nccl_debug: str
+    nccl_debug_subsys: str
 
 
 class SlurmLauncher(StagedLauncher):
@@ -142,7 +139,8 @@ class SlurmLauncher(StagedLauncher):
         nodelist: list[str] | None = None,
         master_port: int | None = None,
         model_parallelism: int | str = 1,
-        debug_nccl: bool = False,
+        nccl_debug: str = "WARN",
+        nccl_debug_subsys: str = "ALL",
     ) -> None:
         super().__init__()
 
@@ -175,7 +173,8 @@ class SlurmLauncher(StagedLauncher):
         self.model_parallelism = model_parallelism
         self.account = account
         self.nodelist = nodelist
-        self.debug_nccl = debug_nccl
+        self.nccl_debug = nccl_debug
+        self.nccl_debug_subsys = nccl_debug_subsys
 
     @classmethod
     def parse_args_from_cli(cls, args: list[str] | None = None) -> tuple[SlurmArgs, list[str]]:
@@ -192,7 +191,8 @@ class SlurmLauncher(StagedLauncher):
         parser.add_argument("--account", type=str, default=None, help="The account to use")
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
         parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
-        parser.add_argument("--debug-nccl", action="store_true", help="If set, turn on NCCL debug logs")
+        parser.add_argument("--nccl-debug", type=str, default="WARN", help="If set, turn off NCCL debug logs")
+        parser.add_argument("--nccl-debug-subsys", type=str, default="ALL", help="Subsystem debugging options")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
@@ -209,7 +209,8 @@ class SlurmLauncher(StagedLauncher):
                 account=args.account,
                 nodelist=args.nodelist,
                 master_port=args.master_port,
-                debug_nccl=args.debug_nccl,
+                nccl_debug=args.nccl_debug,
+                nccl_debug_subsys=args.nccl_debug_subsys,
             ),
             remaining_args,
         )
@@ -234,11 +235,6 @@ class SlurmLauncher(StagedLauncher):
         export_lines: dict[str, str] = {}
         if self.model_parallelism != 1:
             export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
-        if self.debug_nccl:
-            export_lines["NCCL_DEBUG"] = "INFO"
-            export_lines["NCCL_DEBUG_SUBSYS"] = "ALL"
-        else:
-            export_lines["NCCL_DEBUG"] = "WARN"
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
 
     def pythonpath(self, stage_dir: str | Path | None) -> str:
@@ -247,6 +243,7 @@ class SlurmLauncher(StagedLauncher):
 
     def sbatch_file_contents(self, task: "ArtifactsMixin[ArtifactsConfig]") -> str:
         output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
+        nccl_path = task.exp_dir / "nccl.txt"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
         config_path = self.get_config_path(task, use_cli=False)
@@ -293,9 +290,16 @@ export SLURM_EXPORT_ENV=ALL
 export PYTHONPATH={self.pythonpath(stage_dir)}
 export MASTER_PORT={self.master_port}{self.extra_export_lines}
 
-# Set some debugging flags.
+# Torch debugging flags.
+export TORCH_DISABLE_ADDR2LINE=1
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 export TORCH_SHOW_CPP_STACKTRACES=1
+
+# NCCL debugging flags.
+export NCCL_DEBUG_FILE={nccl_path}
+export NCCL_P2P_LEVEL=NVL
+export NCCL_DEBUG={self.nccl_debug}
+export NCCL_DEBUG_SUBSYS={self.nccl_debug_subsys}
 
 # Disable Tensorboard in Slurm.
 export TENSORBOARD_PORT=-1
@@ -389,17 +393,6 @@ srun \\
     def run(cls) -> None:
         if len(sys.argv) != 3:
             raise RuntimeError(f"Usage: python -m {cls.__module__} <task_key> <config_path>")
-        task_key, config_path = sys.argv[1:]
-        task = cls.from_components(task_key, Path(config_path), use_cli=False)
-
-        if not isinstance(task, RunnableMixin):
-            raise RuntimeError(f"Task {task} must be a `RunnableMixin`")
-
-        # Adding the "running" lock file before rmoving the "scheduled" lock
-        # file in order to prevent accidentally launching another job while the
-        # current job is being set up.
-        task.add_lock_file("running", exists_ok=True)
-        task.remove_lock_file("scheduled", missing_ok=True)
 
         # Gets Slurm information.
         host, port = get_slurm_master_addr_and_port()
@@ -429,6 +422,17 @@ srun \\
         )
         init_dist(cfg)
 
+        task_key, config_path = sys.argv[1:]
+        task = cls.from_components(task_key, Path(config_path), use_cli=False)
+
+        if not isinstance(task, RunnableMixin):
+            raise RuntimeError(f"Task {task} must be a `RunnableMixin`")
+
+        # Adding the "running" lock file before rmoving the "scheduled" lock
+        # file in order to prevent accidentally launching another job while the
+        # current job is being set up.
+        task.add_lock_file("running", exists_ok=True)
+        task.remove_lock_file("scheduled", missing_ok=True)
         task.add_signal_handler(requeue_job, signal.SIGUSR1)
 
         # Runs the base training loop.

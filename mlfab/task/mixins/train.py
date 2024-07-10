@@ -2,6 +2,7 @@
 
 import bisect
 import contextlib
+import datetime
 import functools
 import itertools
 import logging
@@ -16,6 +17,7 @@ from typing import Any, Generic, Iterator, Literal, Mapping, Sequence, TypeVar, 
 
 import numpy as np
 import torch
+from dpshdl.prefetcher import Prefetcher
 from omegaconf import DictConfig
 from torch import Tensor, nn
 from torch.optim.optimizer import Optimizer
@@ -29,20 +31,16 @@ from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMi
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
 from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
+from mlfab.task.mixins.meta import MetaConfig, MetaMixin
 from mlfab.task.mixins.optimizer import OptimizerConfig, OptimizerMixin
 from mlfab.task.mixins.parallel import ParallelConfig, ParallelMixin
 from mlfab.task.mixins.pretrained import PretrainedConfig, PretrainedMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
-from mlfab.utils.experiments import (
-    StateTimer,
-    TrainingFinishedError,
-    get_git_state,
-    get_training_code,
-)
+from mlfab.utils.experiments import StateTimer, TrainingFinishedError, get_git_state, get_training_code
 from mlfab.utils.logging import LOG_STATUS
-from mlfab.utils.text import highlight_exception_message, show_info
+from mlfab.utils.text import format_timedelta, highlight_exception_message, show_info
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +67,7 @@ class TrainConfig(
     CheckpointingConfig,
     OptimizerConfig,
     CompileConfig,
+    MetaConfig,
     PretrainedConfig,
     ParallelConfig,
     DataloadersConfig,
@@ -125,6 +124,7 @@ class TrainMixin(
     CheckpointingMixin[Config],
     OptimizerMixin[Config],
     CompileMixin[Config],
+    MetaMixin[Config],
     PretrainedMixin[Config],
     ParallelMixin[Config],
     DataloadersMixin[Config],
@@ -181,19 +181,6 @@ class TrainMixin(
             state: The current training state.
         """
 
-    def log_test_step(self, batch: Batch, output: Output, state: State) -> None:
-        """Override this function to do logging during the test phase.
-
-        This function is called after the model forward pass. It is called in
-        the validation phase.
-
-        Args:
-            batch: The batch from the dataloader.
-            output: The model output.
-            state: The current training state.
-        """
-        return self.log_valid_step(batch, output, state)
-
     def log_step(self, batch: Batch, output: Output, state: State) -> None:
         with torch.no_grad():
             match state.phase:
@@ -201,8 +188,6 @@ class TrainMixin(
                     self.log_train_step(batch, output, state)
                 case "valid":
                     self.log_valid_step(batch, output, state)
-                case "test":
-                    self.log_test_step(batch, output, state)
                 case _:
                     raise KeyError(f"Unknown phase: {state.phase}")
 
@@ -361,39 +346,34 @@ class TrainMixin(
                 state.num_samples += total_bsz
         return loss_dict
 
-    def val_step(self, mod: nn.Module, batch: Batch, state: State) -> None:
-        with torch.no_grad():
-            with self.step_context("change_mode"):
-                state.set_phase(self, "valid")
-            with self.step_context("forward"), self.autocast_context:
-                loss = mod(batch, state)
-            with self.step_context("get_single_loss"):
-                single_loss, loss_names = self.get_single_loss(loss)
-            with self.step_context("log_losses"):
-                single_loss_detached = single_loss.detach()
-                loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
-                self.log_loss_dict(loss_dict, state)
-            with self.step_context("write_logs"), self.autocast_context:
-                self.write_logs(state)
-            with self.step_context("update_state"):
-                state.num_valid_steps += 1
-
-    def test_step(self, batch: Batch, state: State) -> None:
-        with torch.no_grad():
-            with self.step_context("change_mode"):
-                state.set_phase(self, "test")
-            with self.step_context("forward"), self.autocast_context:
-                loss = self.get_loss(batch, state)
-            with self.step_context("get_single_loss"):
-                single_loss, loss_names = self.get_single_loss(loss)
-            with self.step_context("log_losses"):
-                single_loss_detached = single_loss.detach()
-                loss_dict = {name: single_loss_detached[i] for i, name in enumerate(loss_names)}
-                self.log_loss_dict(loss_dict, state)
-            with self.step_context("write_logs"), self.autocast_context:
-                self.write_logs(state)
-            with self.step_context("update_state"):
-                state.num_test_steps += 1
+    @torch.no_grad()
+    def val_step(self, mod: nn.Module, batches: Iterator[tuple[Batch, bool]], state: State) -> None:
+        with self.step_context("change_mode"):
+            state.set_phase(self, "valid")
+        losses: dict[str, tuple[Tensor, int]] = {}
+        with self.autocast_context:
+            for batch, _ in batches:
+                with self.step_context("forward"):
+                    loss = mod(batch, state)
+                with self.step_context("get_single_loss"):
+                    single_loss, loss_names = self.get_single_loss(loss)
+                with self.step_context("log_losses"):
+                    single_loss_detached = single_loss.detach()
+                    for i, name in enumerate(loss_names):
+                        new_loss = single_loss_detached[i]
+                        if name in losses:
+                            old_loss, count = losses[name]
+                            losses[name] = (old_loss + new_loss, count + 1)
+                        else:
+                            losses[name] = (new_loss, 1)
+        with self.step_context("log_losses"):
+            self.log_mp_scale()
+            loss_dict = {k: value / count for k, (value, count) in losses.items()}
+            self.log_loss_dict(loss_dict, state)
+        with self.step_context("write_logs"), self.autocast_context:
+            self.write_logs(state)
+        with self.step_context("update_state"):
+            state.num_valid_steps += 1
 
     @functools.lru_cache(maxsize=None)
     def batches_per_step_schedule(self) -> list[int] | None:
@@ -480,85 +460,85 @@ class TrainMixin(
         Raises:
             ValueError: If the task is not a supervised learning task
         """
-        self.set_loggers()
+        with contextlib.ExitStack() as ctx:
+            self.set_loggers()
 
-        with self.step_context("model_to_device"):
-            mod = TrainableModule(self)
-            self.device_manager.module_to(mod)
-            mod = self.get_wrapped_model(mod)
+            with self.step_context("model_to_device"):
+                mod = TrainableModule(self)
+                self.configure_model_(mod)
+                mod = self.get_wrapped_model(mod)
 
-        with self.step_context("create_optimizers"):
-            opt = self.build_optimizer(mod)
+            with self.step_context("create_optimizers"):
+                opt = self.build_optimizer(mod)
 
-        if is_master():
-            Thread(target=self.log_state, daemon=True).start()
+            if is_master():
+                Thread(target=self.log_state, daemon=True).start()
 
-        with self.step_context("load_checkpoint"):
-            state = self.load_ckpt_(module=mod, optimizer=opt, strict=self.config.init_state_strict)
+            with self.step_context("load_checkpoint"):
+                state = self.load_ckpt_(module=mod, optimizer=opt, strict=self.config.init_state_strict)
 
-        # Gets the datasets.
-        with self.step_context("get_dataset"):
-            train_ds = self.get_dataset("train")
-            valid_ds = self.get_dataset("valid")
+            # Gets the datasets.
+            with self.step_context("get_dataset"):
+                valid_ds = self.get_dataset("valid")
+                train_ds = self.get_dataset("train")
 
-        # Gets the dataloaders.
-        with self.step_context("get_dataloader"):
-            train_dl = self.get_dataloader(train_ds, "train")
-            valid_dl = self.get_dataloader(valid_ds, "valid")
+            # Gets the dataloaders.
+            with self.step_context("get_dataloader"):
+                valid_dl = self.get_dataloader(valid_ds, "valid")
+                train_dl = self.get_dataloader(train_ds, "train")
 
-        # Gets the prefetchers.
-        with self.step_context("get_prefetcher"):
-            train_pf = self.device_manager.get_prefetcher(train_dl)
-            valid_pf = self.device_manager.get_prefetcher(valid_dl)
+            # Gets the prefetchers.
+            with self.step_context("get_prefetcher"):
+                valid_pf = self.device_manager.get_prefetcher(valid_dl)
+                train_pf = self.device_manager.get_prefetcher(train_dl)
 
-        self.on_training_start(state)
-
-        def on_exit() -> None:
-            self.save_ckpt(state, mod, opt)
-
-        # Handle user-defined interrupts during the training loop.
-        self.add_signal_handler(on_exit, signal.SIGUSR1)
-
-        try:
-            with contextlib.ExitStack() as ctx:
                 # ctx.enter_context(self)
-                ctx.enter_context(train_pf)
                 ctx.enter_context(valid_pf)
+                ctx.enter_context(train_pf)
 
-                if (profile := self.get_profile()) is not None:
-                    ctx.enter_context(profile)
-
-                def train_batches() -> Iterator[Batch]:
-                    for batch in train_pf:
+                def pf_iter(pf: Prefetcher[Batch, Batch]) -> Iterator[Batch]:
+                    for batch in pf:
                         num_chunks = self.get_batch_chunks(state)
                         yield from recursive_chunk(batch, num_chunks, dim=self.config.batch_dim)
 
-                def valid_batches() -> Iterator[Batch]:
-                    yield from valid_pf
+                valid_pf_iter = pf_iter(valid_pf)
+                train_pf_iter = pf_iter(train_pf)
 
-                train_pf_iter = train_batches()
-                valid_pf_iter = valid_batches()
+            with self.step_context("training_start"):
+                self.on_training_start(state)
 
-                def batch_iterator() -> Iterator[tuple[Batch, bool]]:
-                    batches_per_step = self.get_batches_per_step(state)
-                    yield next(train_pf_iter), batches_per_step == 1
-                    for i in range(1, batches_per_step):
-                        try:
-                            yield next(train_pf_iter), i == batches_per_step - 1
-                        except StopIteration:
-                            pass
+            def on_exit() -> None:
+                self.save_ckpt(state, mod, opt)
+
+            # Handle user-defined interrupts during the training loop.
+            self.add_signal_handler(on_exit, signal.SIGUSR1)
+
+            def batch_iterator(pf_iter: Iterator[Batch]) -> Iterator[tuple[Batch, bool]]:
+                batches_per_step = self.get_batches_per_step(state)
+                yield next(pf_iter), batches_per_step == 1
+                for i in range(1, batches_per_step):
+                    try:
+                        yield next(pf_iter), i == batches_per_step - 1
+                    except StopIteration:
+                        pass
+
+            try:
+                if (profile := self.get_profile()) is not None:
+                    ctx.enter_context(profile)
 
                 while True:
                     if self.is_training_over(state):
                         raise TrainingFinishedError
 
                     if self.is_valid_step(state):
-                        self.val_step(mod, next(valid_pf_iter), state)
+                        with self.step_context("valid_step"):
+                            self.val_step(mod, batch_iterator(valid_pf_iter), state)
 
                     with self.step_context("on_step_start"):
                         self.on_step_start(state)
 
-                    loss_dict = self.train_step(mod, opt, batch_iterator(), state)
+                    with self.step_context("train_step"):
+                        loss_dict = self.train_step(mod, opt, batch_iterator(train_pf_iter), state)
 
                     if self.should_save_ckpt(state):
                         with self.step_context("save_checkpoint"):
@@ -570,19 +550,20 @@ class TrainMixin(
                     with self.step_context("on_step_end"):
                         self.on_step_end(state, loss_dict)
 
-        except TrainingFinishedError:
-            with self.step_context("save_checkpoint"):
-                self.save_ckpt(state, mod, opt)
-            if is_master():
-                show_info(
-                    f"Finished training after {state.num_steps} steps, {state.num_samples} samples",
-                    important=True,
-                )
+            except TrainingFinishedError:
+                with self.step_context("save_checkpoint"):
+                    self.save_ckpt(state, mod, opt)
+                if is_master():
+                    elapsed_time = format_timedelta(datetime.timedelta(seconds=time.time() - state.start_time_s))
+                    show_info(
+                        f"Finished training after {state.num_steps} steps, {state.num_samples} samples, {elapsed_time}",
+                        important=True,
+                    )
 
-        except BaseException:
-            exception_tb = textwrap.indent(highlight_exception_message(traceback.format_exc()), "  ")
-            sys.stdout.write(f"Caught exception during training loop:\n\n{exception_tb}\n")
-            sys.stdout.flush()
+            except BaseException:
+                exception_tb = textwrap.indent(highlight_exception_message(traceback.format_exc()), "  ")
+                sys.stdout.write(f"Caught exception during training loop:\n\n{exception_tb}\n")
+                sys.stdout.flush()
 
-        finally:
-            self.on_training_end(state)
+            finally:
+                self.on_training_end(state)

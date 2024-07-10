@@ -23,6 +23,7 @@ from torch.autograd.function import Function, FunctionCtx, once_differentiable
 
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.triton import supports_triton
+from mlfab.utils.nn import ResetParameters
 
 WkvFnKey = Literal["eps", "log"]
 
@@ -443,7 +444,7 @@ def get_default_wkv_fn_key() -> WkvFnKey:
     return "eps"
 
 
-class RwkvAttention(nn.Module):
+class RwkvAttention(ResetParameters, nn.Module):
     init_x: Tensor
     init_state: Tensor
 
@@ -507,7 +508,7 @@ class RwkvAttention(nn.Module):
         return self.output(rwkv), (x[..., -1:, :], next_state)
 
 
-class RwkvFeedForward(nn.Module):
+class RwkvFeedForward(ResetParameters, nn.Module):
     init_state: Tensor
 
     def __init__(self, dim: int, ffn_dim: int) -> None:
@@ -521,7 +522,6 @@ class RwkvFeedForward(nn.Module):
         self.value = nn.Linear(ffn_dim, dim, False)
 
         self.register_buffer("init_state", torch.zeros(1, 1, dim), persistent=False)
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         nn.init.orthogonal_(self.key.weight)

@@ -11,10 +11,12 @@ very closely with the `original implementation
 <https://github.com/google-research/google-research/tree/master/fsq>`_.
 """
 
+import math
+
 import torch
 from torch import Tensor, nn
 
-from mlfab.nn.functions import device_fn
+from mlfab.utils.nn import ResetParameters
 
 
 def round_ste(z: Tensor) -> Tensor:
@@ -22,7 +24,7 @@ def round_ste(z: Tensor) -> Tensor:
     return z + (zhat - z).detach()
 
 
-class FiniteScalarQuantization(nn.Module):
+class FiniteScalarQuantization(ResetParameters, nn.Module):
     """Defines a finite scalar quantization module.
 
     The original paper proposes the following number of levels, depending on
@@ -60,24 +62,31 @@ class FiniteScalarQuantization(nn.Module):
             quantized values will be in the range ``[-1, 1]``.
     """
 
-    @device_fn("cpu")
+    __constants__ = ["levels_list", "dim", "n_codes"]
+
     def __init__(self, levels: list[int]) -> None:
         super().__init__()
 
-        _levels = torch.tensor(levels, dtype=torch.int32)
-        self.register_buffer("_levels", _levels, persistent=False)
-
-        _basis = torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=torch.int32)
-        self.register_buffer("_basis", _basis, persistent=False)
-
+        self.levels_list = levels
         self.dim = len(levels)
-        self.n_codes = self._levels.prod().item()
-        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes))
-        self.register_buffer("implicit_codebook", implicit_codebook, persistent=False)
+        self.n_codes = math.prod(levels)
+
+        self.register_buffer("_levels", torch.empty(self.dim, dtype=torch.int32), persistent=False)
+        self.register_buffer("_basis", torch.empty(self.dim, dtype=torch.int32), persistent=False)
+        self.register_buffer("implicit_codebook", torch.empty(self.n_codes, self.dim), persistent=False)
 
     _levels: Tensor
     _basis: Tensor
     implicit_codebook: Tensor
+
+    def reset_parameters(self) -> None:
+        levels = torch.tensor(self.levels_list)
+        basis = torch.cumprod(torch.tensor([1] + self.levels_list[:-1], dtype=torch.int32), dim=0, dtype=torch.int32)
+        self._levels.data.copy_(levels.to(self._levels))
+        self._basis.data.copy_(basis.to(self._basis))
+
+        implicit_codebook = self.indices_to_codes(torch.arange(self.n_codes).to(self._basis.device))
+        self.implicit_codebook.data.copy_(implicit_codebook)
 
     def forward(self, z: Tensor) -> Tensor:
         return self.quantize(z)

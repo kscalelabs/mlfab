@@ -188,7 +188,7 @@ def set_loggers(self) -> None:
 
 ### Datasets
 
-The task should return the dataset used for training, based on the phase. `ml.Phase` is a string literal with values in `["train", "valid", "test"]`. `mlfab.get_data_dir()` returns the data directory, which can be set in a configuration file which lives in `~/.mlfab.yml`. The default configuration file will be written on first run if it doesn't exist yet.
+The task should return the dataset used for training, based on the phase. `ml.Phase` is a string literal with values in `["train", "valid"]`. `mlfab.get_data_dir()` returns the data directory, which can be set in a configuration file which lives in `~/.mlfab.yml`. The default configuration file will be written on first run if it doesn't exist yet.
 
 ```python
 def get_dataset(self, phase: mlfab.Phase) -> Dataset[tuple[Tensor, Tensor]]:
@@ -214,7 +214,7 @@ def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
 
 ### Logging
 
-When we call `log_step` in the `get_loss` function, it delegates to either `log_train_step`, `log_valid_step` or `log_test_step`, depending on what `state.phase` is. In this case, on each validation step we log images of the MNIST digits with the labels that our model predicts.
+When we call `log_step` in the `get_loss` function, it delegates to either `log_train_step` or `log_valid_step`, depending on what `state.phase` is. In this case, on each validation step we log images of the MNIST digits with the labels that our model predicts.
 
 ```python
 def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:

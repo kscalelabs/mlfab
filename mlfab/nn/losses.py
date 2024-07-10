@@ -10,6 +10,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from mlfab.utils.nn import ResetParameters
+
 
 def log_cosh_loss(pred: Tensor, target: Tensor) -> Tensor:
     loss = pred - target
@@ -202,7 +204,7 @@ class SSIMLoss(nn.Module):
         return -score
 
 
-class ImageGradLoss(nn.Module):
+class ImageGradLoss(ResetParameters, nn.Module):
     """Computes image gradients, for smoothing.
 
     This function convolves the image with a special Gaussian kernel that
@@ -221,8 +223,6 @@ class ImageGradLoss(nn.Module):
         float tensor with shape ``(B, C, H - ksz + 1, W - ksz + 1)``
     """
 
-    kernel: Tensor
-
     def __init__(self, kernel_size: int = 3, sigma: float = 1.0) -> None:
         super().__init__()
 
@@ -230,7 +230,16 @@ class ImageGradLoss(nn.Module):
         assert kernel_size > 1, "Kernel size must be greater than 1"
 
         self.kernel_size = kernel_size
-        self.register_buffer("kernel", self.get_kernel(kernel_size, sigma), persistent=False)
+        self.sigma = sigma
+
+        with torch.device("cpu"):
+            kernel = self.get_kernel(self.kernel_size, self.sigma)
+        self.register_buffer("kernel", torch.empty_like(kernel), persistent=False)
+
+    kernel: Tensor
+
+    def reset_parameters(self) -> None:
+        self.kernel.data.copy_(self.get_kernel(self.kernel_size, self.sigma).to(self.kernel))
 
     def get_kernel(self, ksz: int, sigma: float) -> Tensor:
         x = torch.linspace(-(ksz // 2), ksz // 2, ksz)
@@ -248,7 +257,9 @@ class ImageGradLoss(nn.Module):
         return F.conv2d(x, self.kernel.repeat_interleave(channels, 0), stride=1, padding=0, groups=channels)
 
 
-class _Scale(nn.Module):
+class _Scale(ResetParameters, nn.Module):
+    __constants__ = ["shift_values", "scale_values"]
+
     def __init__(
         self,
         shift: tuple[float, float, float] = (-0.030, -0.088, -0.188),
@@ -256,11 +267,18 @@ class _Scale(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.register_buffer("shift", torch.tensor(shift, dtype=torch.float32).view(1, -1, 1, 1), persistent=False)
-        self.register_buffer("scale", torch.tensor(scale, dtype=torch.float32).view(1, -1, 1, 1), persistent=False)
+        self.shift_values = shift
+        self.scale_values = scale
+
+        self.register_buffer("shift", torch.empty(1, 3, 1, 1), persistent=False)
+        self.register_buffer("scale", torch.empty(1, 3, 1, 1), persistent=False)
 
     shift: Tensor
     scale: Tensor
+
+    def reset_parameters(self) -> None:
+        self.shift.data.copy_(torch.tensor(self.shift_values, dtype=torch.float32).view(1, 3, 1, 1).to(self.shift))
+        self.scale.data.copy_(torch.tensor(self.scale_values, dtype=torch.float32).view(1, 3, 1, 1).to(self.scale))
 
     def forward(self, x: Tensor) -> Tensor:
         return x * self.scale + self.shift
@@ -488,7 +506,7 @@ def stft_magnitude_loss(x_mag: Tensor, y_mag: Tensor) -> Tensor:
     return F.l1_loss(y_mag, x_mag, reduction="none").mean(-1)
 
 
-class STFTLoss(nn.Module):
+class STFTLoss(ResetParameters, nn.Module):
     r"""Defines a STFT loss function.
 
     This function returns two losses which are roughly equivalent, one for
@@ -521,6 +539,8 @@ class STFTLoss(nn.Module):
         Spectral convergence loss value and log STFT magnitude loss value.
     """
 
+    __constants__ = ["fft_size", "shift_size", "win_length", "window_fn"]
+
     window: Tensor
 
     def __init__(
@@ -535,7 +555,14 @@ class STFTLoss(nn.Module):
         self.fft_size = fft_size
         self.shift_size = shift_size
         self.win_length = win_length
-        self.register_buffer("window", get_stft_window(window, win_length), persistent=False)
+        self.window_fn = window
+
+        with torch.device("cpu"):
+            window_tensor = get_stft_window(window, win_length)
+        self.register_buffer("window", torch.empty_like(window_tensor), persistent=False)
+
+    def reset_parameters(self) -> None:
+        self.window.data.copy_(get_stft_window(self.window_fn, self.win_length).to(self.window))
 
     def forward(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
         x_mag = stft(x, self.fft_size, self.shift_size, self.win_length, self.window)

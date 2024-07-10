@@ -43,6 +43,7 @@ import torch
 from torch import Tensor, nn
 
 from mlfab.nn.init import InitializationType, init_
+from mlfab.utils.nn import ResetParameters
 from mlfab.utils.sugar import default
 
 EmbeddingKind = Literal["identity", "learned", "sinusoidal", "rotary"]
@@ -59,7 +60,7 @@ class IdentityPositionalEmbeddings(nn.Module):
         return x
 
 
-class LearnedPositionalEmbeddings(nn.Module):
+class LearnedPositionalEmbeddings(ResetParameters, nn.Module):
     """Defines a learned embeddings module.
 
     Parameters:
@@ -83,19 +84,17 @@ class LearnedPositionalEmbeddings(nn.Module):
         self.weight_init = weight_init
 
         self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
-        self.reset_parameters()
 
     def reset_parameters(self) -> None:
         init_(self.embeddings_tc.data, None, self.weight_init)
 
     def forward(self, x: Tensor, offset: int = 0, times_bt: Tensor | None = None) -> Tensor:
-        emb_btc = (
-            self.embeddings_tc[None, offset : offset + x.size(1)] if times_bt is None else self.embeddings_tc[times_bt]
-        )
-        return x + emb_btc
+        if times_bt is None:
+            return x + self.embeddings_tc[None, offset : offset + x.size(1)]
+        return x + self.embeddings_tc[times_bt]
 
 
-class SinusoidalEmbeddings(nn.Module):
+class SinusoidalEmbeddings(ResetParameters, nn.Module):
     """Defines a sinusoidal embeddings module.
 
     Parameters:
@@ -123,7 +122,6 @@ class SinusoidalEmbeddings(nn.Module):
             assert max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
             self.embeddings_tc = nn.Parameter(torch.empty(max_tsz, embed_dim), requires_grad=learnable)
-            self.reset_parameters()
 
         self.embeddings_cached: Tensor | None = None
 
@@ -148,7 +146,7 @@ class SinusoidalEmbeddings(nn.Module):
         return x_btc + (embeddings_tc[None, offset : offset + tsz] if times_bt is None else embeddings_tc[times_bt])
 
     def reset_parameters(self) -> None:
-        if self.embeddings_tc is None:
+        if self.embeddings_tc is not None:
             assert self.max_tsz is not None, "Learnable parameters require `max_tsz` to be set"
             assert self.embed_dim is not None, "Learnable parameters require `embed_dim` to be set"
             self.embeddings_tc.data.copy_(self.get_embeddings(self.max_tsz, self.embed_dim))

@@ -20,7 +20,6 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import CustomPolicy
-from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -55,7 +54,6 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
-    use_ddp: bool | None = field(None, help="Whether to use DDP instead of FSDP")
     grad_scaler: GradScalerConfig = field(GradScalerConfig(), help="Gradient scaler configuration")
     grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
@@ -64,13 +62,6 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
 
 
 Config = TypeVar("Config", bound=ParallelConfig)
-
-
-def ddp(model: nn.Module) -> DDP:
-    group_info = parallel_group_info()
-    model = DDP(model, process_group=group_info.dp.group)
-
-    return model
 
 
 def fsdp(
@@ -83,10 +74,7 @@ def fsdp(
     group_info = parallel_group_info()
 
     if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
-        if group_info.tp.world_size == 1:
-            logger.info("Using NO_SHARD FSDP strategy")
-            sharding_strategy = ShardingStrategy.NO_SHARD
-        elif group_info.dp.world_size == 1:
+        if group_info.dp.world_size == 1:
             logger.info("Using FULL_SHARD FSDP strategy")
             sharding_strategy = ShardingStrategy.FULL_SHARD
         else:
@@ -132,7 +120,7 @@ def fsdp(
 
 
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
-    """Defines a trainer mixin for converting models to FSDP."""
+    """Defines a task mixin for converting models to FSDP."""
 
     @functools.cached_property
     def grad_scaler(self) -> ShardedGradScaler | None:
@@ -162,19 +150,13 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def get_wrapped_model(self, model: nn.Module) -> nn.Module | FSDP | DDP:
+    def get_wrapped_model(self, model: nn.Module) -> FSDP | nn.Module:
         if get_world_size() <= 1:
             return model
-        if isinstance(model, (FSDP, DDP)):
-            return model
-        if (use_ddp := self.config.use_ddp) is None:
-            use_ddp = parallel_group_info().tp.world_size == 1
-        if use_ddp:
-            return ddp(model)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
-        if isinstance(mod, (FSDP, DDP)) and not is_last:
+        if isinstance(mod, FSDP) and not is_last:
             return mod.no_sync()
         return contextlib.nullcontext()
 

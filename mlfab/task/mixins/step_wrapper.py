@@ -23,7 +23,10 @@ StepType = Literal[
     "on_step_start",
     "save_checkpoint",
     "step",
+    "train_step",
+    "training_start",
     "update_state",
+    "valid_step",
     "write_logs",
     "zero_grads",
 ]

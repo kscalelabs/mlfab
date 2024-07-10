@@ -13,6 +13,8 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
+from mlfab.utils.nn import ResetParameters
+
 
 @dataclass(kw_only=True)
 class Losses:
@@ -35,7 +37,7 @@ def entropy(prob: Tensor, eps: float = 1e-20) -> Tensor:
     return -prob * prob.clamp_min(eps).log()
 
 
-class LookupFreeQuantization(nn.Module):
+class LookupFreeQuantization(ResetParameters, nn.Module):
     """Lookup-free quantization module.
 
     As opposed to nearest-neighbor (or lookup-based) quantization, this method
@@ -59,6 +61,8 @@ class LookupFreeQuantization(nn.Module):
         num_codebooks: The number of codebooks to use.
         codebook_scale: The codebook scale to use.
     """
+
+    __constants__ = ["dim", "codebook_dim", "codebook_size", "num_codebooks", "codebook_scale"]
 
     def __init__(
         self,
@@ -97,6 +101,7 @@ class LookupFreeQuantization(nn.Module):
 
         self.dim = dim
         self.codebook_dim = codebook_dim
+        self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
         self.codebook_scale = codebook_scale
 
@@ -114,6 +119,15 @@ class LookupFreeQuantization(nn.Module):
         bits = ((all_codes[..., None].int() & self.mask) != 0).float()
         codebook = self.bits_to_codes(bits)
         self.register_buffer("codebook", codebook, persistent=False)
+
+    def reset_parameters(self) -> None:
+        self.mask.data.copy_(2 ** torch.arange(self.codebook_dim - 1, -1, -1).to(self.mask))
+        self.zero.zero_()
+
+        all_codes = torch.arange(self.codebook_size)
+        bits = ((all_codes[..., None].to(self.mask) & self.mask) != 0).float()
+        codebook = self.bits_to_codes(bits)
+        self.codebook.data.copy_(codebook.to(self.codebook))
 
     mask: Tensor
     zero: Tensor

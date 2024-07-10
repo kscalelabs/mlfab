@@ -17,6 +17,8 @@ from mlfab.task.mixins import (
     GPUStatsMixin,
     LoggerConfig,
     LoggerMixin,
+    MetaConfig,
+    MetaMixin,
     ProcessConfig,
     ProcessMixin,
     ProfilerConfig,
@@ -31,6 +33,7 @@ from mlfab.task.mixins import (
 @dataclass(kw_only=True)
 class ScriptConfig(
     CompileConfig,
+    MetaConfig,
     CPUStatsConfig,
     DeviceConfig,
     GPUStatsConfig,
@@ -50,6 +53,7 @@ ConfigT = TypeVar("ConfigT", bound=ScriptConfig)
 
 class Script(
     CompileMixin[ConfigT],
+    MetaMixin[ConfigT],
     CPUStatsMixin[ConfigT],
     DeviceMixin[ConfigT],
     GPUStatsMixin[ConfigT],

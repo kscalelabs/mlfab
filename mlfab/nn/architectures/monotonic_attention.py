@@ -12,6 +12,7 @@ from torch import Tensor, nn
 from torch.autograd.function import Function, FunctionCtx, once_differentiable
 
 from mlfab.nn.triton import supports_triton
+from mlfab.utils.nn import ResetParameters
 
 MIN_LOG_PROB = -1e4
 
@@ -148,7 +149,7 @@ def monotonic_attention(logits: Tensor) -> Tensor:
     return get_monotonic_attention_fn(logits.device.type)(logits)
 
 
-class MonotonicAttention(nn.Module):
+class MonotonicAttention(ResetParameters, nn.Module):
     """Defines a one-to-many multihead monotonic attention layer.
 
     Parameters:
@@ -253,9 +254,7 @@ class MonotonicAttention(nn.Module):
             self.register_parameter("in_proj_bias", None)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
 
-        self._reset_parameters()
-
-    def _reset_parameters(self) -> None:
+    def reset_parameters(self) -> None:
         if self._qkv_same_embed_dim:
             nn.init.xavier_uniform_(self.in_proj_weight)
         else:

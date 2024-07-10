@@ -5,7 +5,6 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Self, TypeVar, cast
 
-import torch
 from torch import Tensor, nn
 from torch.nn.modules.module import Module
 
@@ -23,28 +22,31 @@ Tmod = TypeVar("Tmod", bound=nn.Module)
 
 
 class PretrainedModule:
-    def __init__(self, module: nn.Module) -> None:
+    def __init__(self, module: nn.Module, load_fn: Callable[[nn.Module], None]) -> None:
         super().__init__()
 
         self.module = module
         self.module.eval()
         self.module.requires_grad_(False)
 
+        self.load_fn = load_fn
+
+    def load(self) -> None:
+        self.load_fn(self.module)
+
     def __getattribute__(self, name: str) -> Any:  # noqa: ANN401
-        if name.startswith("__") or name in ("module", "forward"):
+        if name.startswith("__") or name in ("module", "forward", "load_fn", "load"):
             return super().__getattribute__(name)
         return getattr(self.module, name)
 
-    @torch.no_grad()
     def forward(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.forward(*args, **kwargs)
 
-    @torch.no_grad()
     def __call__(self, *args, **kwargs) -> Any:  # noqa: ANN401, ANN002, ANN003
         return self.module.__call__(*args, **kwargs)
 
 
-def pretrained(module: Tmod) -> Tmod:
+def pretrained(module: Tmod, load_fn: Callable[[nn.Module], None] = lambda _: None) -> Tmod:
     """Marks a module as pre-trained (i.e., don't store it's weights).
 
     Usually, when adding pre-trained models to a task, you just create a
@@ -57,8 +59,15 @@ def pretrained(module: Tmod) -> Tmod:
     module-like object that will be moved to the device, without storing the
     model parameters in the task state checkpoint or doing train-eval mode
     changes.
+
+    Args:
+        module: The pre-trained module.
+        load_fn: A function that loads the pre-trained model weights.
+
+    Returns:
+        The pre-trained module.
     """
-    return cast(Tmod, PretrainedModule(module))
+    return cast(Tmod, PretrainedModule(module, load_fn))
 
 
 class PretrainedMixin(BaseTask[Config], Generic[Config], ABC):

@@ -15,6 +15,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Generic, Self, TypeVar, cast
 
+import torch
 from omegaconf import DictConfig, OmegaConf
 from omegaconf.base import SCMode
 from torch import Tensor, nn
@@ -242,4 +243,5 @@ class BaseTask(nn.Module, Generic[Config]):
             The task.
         """
         cfg = cls.get_config(*cfgs, use_cli=use_cli)
-        return cls(cfg)
+        with torch.device("meta"):
+            return cls(cfg)

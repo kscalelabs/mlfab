@@ -56,12 +56,16 @@ STEPS_TO_WARN_IF_LONG: set[StepType] = {
     "load_checkpoint",
     "model_to_device",
     "save_checkpoint",
+    "train_step",
+    "training_start",
+    "valid_step",
 }
 
 
 @dataclass(kw_only=True)
 class ProfilerConfig(LoggerConfig, StepContextConfig, ArtifactsConfig):
     profiler: ProfilerOptions = field(ProfilerOptions(), help="Profiler configuration")
+    min_warn_time: float = field(5.0, help="Minimum time to warn for long operations")
 
 
 Config = TypeVar("Config", bound=ProfilerConfig)
@@ -76,7 +80,7 @@ class ProfilerMixin(
     """Defines a task mixin for enabling the PyTorch profiler."""
 
     def warn_if_step_too_long(self, step: StepType, seconds: float) -> bool:
-        return seconds > 5.0
+        return seconds >= self.config.min_warn_time
 
     def step_context(self, step: StepType) -> ContextManager:
         ctx = super().step_context(step)

@@ -2,7 +2,6 @@
 
 import datetime
 import enum
-import functools
 import hashlib
 import inspect
 import itertools
@@ -46,16 +45,19 @@ class CumulativeTimer:
     """Defines a simple timer to track an average value."""
 
     def __init__(self) -> None:
+        self.start_steps = 0
+        self.start_time = 0.0
         self.steps = 0
         self.elapsed_time = 0.0
-
-    @functools.cached_property
-    def start_time(self) -> float:
-        return time.time()
+        self.is_first = True
 
     def step(self, steps: int, cur_time: float) -> None:
-        if steps != self.steps:
-            self.steps = steps
+        if self.is_first:
+            self.start_steps = steps
+            self.start_time = cur_time
+            self.is_first = False
+        else:
+            self.steps = steps - self.start_steps
             self.elapsed_time = cur_time - self.start_time
 
     @property
