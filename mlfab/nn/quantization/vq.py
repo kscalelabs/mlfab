@@ -8,8 +8,8 @@ import torch.distributed
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-from mlfab.utils.nn import ResetParameters
 from mlfab.nn.functions import swap_grads
+from mlfab.utils.nn import ResetParameters
 
 
 def _ema_inplace(moving_avg: Tensor, new: Tensor, decay: float) -> None:
