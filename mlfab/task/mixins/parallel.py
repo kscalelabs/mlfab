@@ -69,7 +69,7 @@ def fsdp(
     cfg: ParallelConfig,
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
-    use_process_groups: bool = True,
+    use_process_groups: bool = False,
 ) -> FSDP:
     group_info = parallel_group_info()
 

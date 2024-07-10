@@ -66,7 +66,7 @@ class MultiProcessConfig:
     master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
     init_method: str = field("env://", help="The initialization method")
     model_parallelism: int | str = field(1, help="The number of model parallel processes")
-    multiprocess_launch_method: str = field("spawn", help="The launch method for multiprocessing")
+    multiprocess_launch_method: str = field("forkserver", help="The launch method for multiprocessing")
 
     @classmethod
     def default_config(cls, **kwargs: Unpack[MultiProcessKwargs]) -> "MultiProcessConfig":
@@ -87,7 +87,7 @@ def get_world_size() -> int:
 
 
 def is_master() -> bool:
-    return not dist.is_initialized() or dist.get_rank() == 0
+    return get_rank() == 0
 
 
 @dataclass(kw_only=True)

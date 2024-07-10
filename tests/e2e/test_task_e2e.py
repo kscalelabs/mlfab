@@ -4,6 +4,7 @@ This test is also useful for reasoning about and debugging the entire
 training loop.
 """
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from dpshdl.dataset import Dataset
 from torch import Tensor, nn
 
 import mlfab
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -73,7 +76,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
         num_layers=2,
         batch_size=2,
         num_train_dl_workers=0,
-        max_steps=10,
+        max_steps=5,
         model_parallelism=model_parallelism,
     )
 
@@ -84,9 +87,15 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
 
     # Run from the same experiment directory.
     config.exp_dir = str(exp_dir)
-    config.max_steps = 20
+    config.max_steps = 10
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
+
+    # Run from the same experiment directory, single-process.
+    config.max_steps = 15
+    config.model_parallelism = 1
+
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=1), use_cli=False)
 
 
 @pytest.mark.slow

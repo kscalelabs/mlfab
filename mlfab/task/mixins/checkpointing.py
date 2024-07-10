@@ -11,20 +11,22 @@ from typing import Any, Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
+import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint import load as load_ckpt, save as save_ckpt
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import dp_rank, get_rank, mp_group_nullable
+from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
 logger = logging.getLogger(__name__)
+
+STATE_FILE_NAME = "state.pt"
 
 
 @dataclass(kw_only=True)
@@ -32,8 +34,6 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
-    ckpt_cpu_offload: bool = field(True, help="Whether to offload model weights to CPU during checkpointing")
-    ckpt_ignore_frozen_params: bool = field(True, help="Whether to ignore frozen parameters during checkpointing")
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
@@ -85,7 +85,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             task information, not the model weights.
         """
         ckpt_path = Path(path)
-        state_dict = torch.load(ckpt_path / "state_dict.pth", map_location="cpu", pickle_module=CustomPickleModule)
+        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu", pickle_module=CustomPickleModule)
         return state_dict
 
     @overload
@@ -209,20 +209,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def _state_dict_options(
-        self,
-        cpu_offload: bool | None = None,
-        ignore_frozen_params: bool | None = None,
-    ) -> StateDictOptions:
-        cpu_offload = default(cpu_offload, self.config.ckpt_cpu_offload)
-        ignore_frozen_params = default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params)
-
-        return StateDictOptions(
-            full_state_dict=False,
-            cpu_offload=cpu_offload,
-            ignore_frozen_params=ignore_frozen_params,
-        )
-
     def load_ckpt_(
         self,
         module: nn.Module,
@@ -231,8 +217,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path: str | Path | None = None,
         strict: bool = True,
         assign: bool = False,
-        cpu_offload: bool | None = None,
-        ignore_frozen_params: bool | None = None,
     ) -> State:
         if ckpt_path is None:
             ckpt_path = self.get_init_ckpt_path()
@@ -249,20 +233,11 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 logger.warning("Loaded config differs from current config:\n%s", diff)
         self.load_task_state_dict_(state_dict, strict, assign)
 
-        options = self._state_dict_options(cpu_offload=cpu_offload, ignore_frozen_params=ignore_frozen_params)
-
-        # Loads the module and optimizer state dict.
         _maybe_barrier()
-        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
-        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
-        set_state_dict(
-            module,
-            optimizer,
-            model_state_dict=module_state_dict,
-            optim_state_dict=optimizer_state_dict,
-            options=options,
-        )
+        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        dcp.load(state_dict=state_dict, checkpoint_id=ckpt_path)
+        set_state_dict(module, optimizer, model_state_dict=model_state_dict, optim_state_dict=optimizer_state_dict)
         _maybe_barrier()
 
         if raw_state is not None:
@@ -292,8 +267,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
-        cpu_offload: bool | None = None,
-        ignore_frozen_params: bool | None = None,
     ) -> Path:
         ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
 
@@ -303,26 +276,22 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         logger.info("Saving checkpoint to %s", ckpt_path)
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
-        options = self._state_dict_options(cpu_offload=cpu_offload, ignore_frozen_params=ignore_frozen_params)
-
         _maybe_barrier()
-        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        _maybe_barrier()
+        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        dcp.save(state_dict, checkpoint_id=ckpt_path)
 
-        if dp_rank() == 0:
-            weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
-            save_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
-        _maybe_barrier()
-
-        if get_rank() == 0:
+        if is_master():
             state_dict: dict = {}
             state_dict["task"] = self.task_state_dict()
             state_dict["state"] = json.dumps(asdict(state))
             state_dict["config"] = OmegaConf.to_yaml(self.config)
-            torch.save(state_dict, ckpt_path / "state_dict.pth", pickle_module=CustomPickleModule)
+            torch.save(state_dict, ckpt_path / STATE_FILE_NAME, pickle_module=CustomPickleModule)
 
             # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)
+
+        _maybe_barrier()
 
         self.on_after_save_ckpt(ckpt_path)
 
