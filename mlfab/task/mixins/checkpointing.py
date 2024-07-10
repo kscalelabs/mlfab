@@ -32,6 +32,7 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
+    ckpt_single: bool = field(True, help="If set, use a single checkpoint, otherwise use shards")
     ckpt_cpu_offload: bool = field(True, help="Whether to offload model weights to CPU during checkpointing")
     ckpt_ignore_frozen_params: bool = field(True, help="Whether to ignore frozen parameters during checkpointing")
 
@@ -215,7 +216,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path: str | Path | None = None,
         strict: bool = True,
         assign: bool = False,
-        single_ckpt: bool = False,
+        single_ckpt: bool | None = None,
         cpu_offload: bool | None = None,
         ignore_frozen_params: bool | None = None,
     ) -> State:
@@ -228,7 +229,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         raw_config, state_dict = self.load_raw_ckpt(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
-            diff = get_diff_string(diff_configs(OmegaConf.to_container(self.config), OmegaConf.create(raw_config)))
+            diff = get_diff_string(diff_configs(OmegaConf.create(self.config), OmegaConf.create(raw_config)))
             if diff:
                 logger.warning("Loaded config differs from current config:\n%s", diff)
         self.load_task_state_dict_(state_dict, strict, assign)
@@ -239,7 +240,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             module,
             optimizer,
             options=StateDictOptions(
-                full_state_dict=single_ckpt,
+                full_state_dict=default(single_ckpt, self.config.ckpt_single),
                 cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
                 ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
             ),
@@ -276,7 +277,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
-        single_ckpt: bool = False,
+        single_ckpt: bool | None = None,
         cpu_offload: bool | None = None,
         ignore_frozen_params: bool | None = None,
     ) -> Path:
@@ -292,7 +293,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             module,
             optimizer,
             options=StateDictOptions(
-                full_state_dict=single_ckpt,
+                full_state_dict=default(single_ckpt, self.config.ckpt_single),
                 cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
                 ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
             ),
