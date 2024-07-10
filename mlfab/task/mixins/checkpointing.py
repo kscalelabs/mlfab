@@ -2,12 +2,11 @@
 
 import json
 import logging
-import pickle
 import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Generic, Literal, Self, TypeVar, overload
+from typing import Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
@@ -21,6 +20,7 @@ from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
+from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
@@ -44,24 +44,6 @@ def _maybe_barrier() -> None:
         dist.barrier()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-
-
-class CustomPickler(pickle.Pickler):
-    def persistent_id(self, obj: Any) -> Any:  # noqa: ANN401
-        return None
-
-
-class CustomUnpickler(pickle.Unpickler):
-    def find_class(self, module: str, name: str) -> type:
-        try:
-            return super().find_class(module, name)
-        except AttributeError:
-            return lambda *args, **kwargs: None  # type: ignore[return-value]
-
-
-class CustomPickleModule:
-    Pickler = CustomPickler
-    Unpickler = CustomUnpickler
 
 
 class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
