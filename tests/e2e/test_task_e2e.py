@@ -39,12 +39,12 @@ class DummyTask(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
+        self.proj = nn.Linear(8, 8)
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
-        self.lstm = nn.LSTM(8, 8, 2)
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
-        x, _ = self.lstm(x.float().contiguous())
+        x, _ = self.proj(x)
         z = x + self.emb(y)
         return self.convs(z)
 
