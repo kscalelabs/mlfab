@@ -228,7 +228,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         raw_config, state_dict = self.load_raw_ckpt(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
-            config_diff = get_diff_string(diff_configs(cast(DictConfig, self.config), OmegaConf.create(raw_config)))
+            config_diff = get_diff_string(diff_configs(OmegaConf.to_container(self.config), OmegaConf.create(raw_config)))
             if config_diff:
                 logger.warning("Loaded config differs from current config:\n%s", config_diff)
         self.load_task_state_dict_(state_dict, strict, assign)
