@@ -65,9 +65,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
-    # num_processes = 4
-    # num_processes = 1
-    num_processes = 2
+    num_processes = 4
 
     mlfab.configure_logging()
 
@@ -109,4 +107,3 @@ def test_staged_training(tmpdir: Path) -> None:
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
     test_e2e_training_mp(Path(tempfile.mkdtemp()), 2)
-    # test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)
