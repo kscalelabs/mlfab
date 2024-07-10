@@ -65,6 +65,10 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
+    # num_processes = 4
+    # num_processes = 1
+    num_processes = 2
+
     mlfab.configure_logging()
 
     config = Config(
@@ -75,7 +79,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
         model_parallelism=model_parallelism,
     )
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
     exp_dir = tmpdir / "dummy_task" / "run_0"
     assert exp_dir.exists()
@@ -84,7 +88,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     config.exp_dir = str(exp_dir)
     config.max_steps = 20
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
 
 @pytest.mark.slow
@@ -105,3 +109,4 @@ def test_staged_training(tmpdir: Path) -> None:
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
     test_e2e_training_mp(Path(tempfile.mkdtemp()), 2)
+    # test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)

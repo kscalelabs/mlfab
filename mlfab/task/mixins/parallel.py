@@ -69,7 +69,7 @@ def fsdp(
     cfg: ParallelConfig,
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
-    use_process_groups: bool = False,
+    use_process_groups: bool = True,
 ) -> FSDP:
     group_info = parallel_group_info()
 
@@ -100,11 +100,6 @@ def fsdp(
         "use_orig_params": cfg.fsdp_use_orig_params,
     }
 
-    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-        mesh = device_mesh(device.type)
-    else:
-        mesh = device_mesh(device.type)["dp"]
-
     if use_process_groups:
         process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
         if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
@@ -114,6 +109,11 @@ def fsdp(
         model = FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
 
     else:
+        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+            mesh = device_mesh(device.type)
+        else:
+            mesh = device_mesh(device.type)["dp"]
+
         model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
     return model

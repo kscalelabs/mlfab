@@ -7,7 +7,7 @@ import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Generic, Literal, Self, TypeVar, cast, overload
+from typing import Any, Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
@@ -32,7 +32,6 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
-    ckpt_single: bool = field(True, help="If set, use a single checkpoint, otherwise use shards")
     ckpt_cpu_offload: bool = field(True, help="Whether to offload model weights to CPU during checkpointing")
     ckpt_ignore_frozen_params: bool = field(True, help="Whether to ignore frozen parameters during checkpointing")
 
@@ -43,6 +42,8 @@ Config = TypeVar("Config", bound=CheckpointingConfig)
 def _maybe_barrier() -> None:
     if dist.is_initialized():
         dist.barrier()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
 
 
 class CustomPickler(pickle.Pickler):
@@ -208,6 +209,20 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
+    def _state_dict_options(
+        self,
+        cpu_offload: bool | None = None,
+        ignore_frozen_params: bool | None = None,
+    ) -> StateDictOptions:
+        cpu_offload = default(cpu_offload, self.config.ckpt_cpu_offload)
+        ignore_frozen_params = default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params)
+
+        return StateDictOptions(
+            full_state_dict=False,
+            cpu_offload=cpu_offload,
+            ignore_frozen_params=ignore_frozen_params,
+        )
+
     def load_ckpt_(
         self,
         module: nn.Module,
@@ -216,7 +231,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path: str | Path | None = None,
         strict: bool = True,
         assign: bool = False,
-        single_ckpt: bool | None = None,
         cpu_offload: bool | None = None,
         ignore_frozen_params: bool | None = None,
     ) -> State:
@@ -226,6 +240,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 return State.init_state()
         else:
             ckpt_path = Path(ckpt_path)
+
         raw_config, state_dict = self.load_raw_ckpt(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
@@ -234,20 +249,20 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 logger.warning("Loaded config differs from current config:\n%s", diff)
         self.load_task_state_dict_(state_dict, strict, assign)
 
+        options = self._state_dict_options(cpu_offload=cpu_offload, ignore_frozen_params=ignore_frozen_params)
+
         # Loads the module and optimizer state dict.
         _maybe_barrier()
-        module_state_dict, optimizer_state_dict = get_state_dict(
+        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
+        weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
+        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
+        set_state_dict(
             module,
             optimizer,
-            options=StateDictOptions(
-                full_state_dict=default(single_ckpt, self.config.ckpt_single),
-                cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
-                ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
-            ),
+            model_state_dict=module_state_dict,
+            optim_state_dict=optimizer_state_dict,
+            options=options,
         )
-        weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
-        load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path)
-        set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
         _maybe_barrier()
 
         if raw_state is not None:
@@ -277,27 +292,21 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
-        single_ckpt: bool | None = None,
         cpu_offload: bool | None = None,
         ignore_frozen_params: bool | None = None,
     ) -> Path:
         ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
+
         self.on_before_save_ckpt(ckpt_path)
 
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
+        options = self._state_dict_options(cpu_offload=cpu_offload, ignore_frozen_params=ignore_frozen_params)
+
         _maybe_barrier()
-        module_state_dict, optimizer_state_dict = get_state_dict(
-            module,
-            optimizer,
-            options=StateDictOptions(
-                full_state_dict=default(single_ckpt, self.config.ckpt_single),
-                cpu_offload=default(cpu_offload, self.config.ckpt_cpu_offload),
-                ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
-            ),
-        )
+        module_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         _maybe_barrier()
 
         if dp_rank() == 0:
