@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Generic, Literal, Self, TypeVar, cast, overload
 
 import torch
+import torch.distributed as dist
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.checkpoint import load as load_ckpt, save as save_ckpt
@@ -36,6 +37,11 @@ class CheckpointingConfig(ArtifactsConfig):
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
+
+
+def _maybe_barrier() -> None:
+    if dist.is_initialized():
+        dist.barrier()
 
 
 class CustomPickler(pickle.Pickler):
@@ -228,6 +234,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.load_task_state_dict_(state_dict, strict, assign)
 
         # Loads the module and optimizer state dict.
+        _maybe_barrier()
         module_state_dict, optimizer_state_dict = get_state_dict(
             module,
             optimizer,
@@ -240,6 +247,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
         load_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path)
         set_state_dict(module, optimizer, model_state_dict=module_state_dict, optim_state_dict=optimizer_state_dict)
+        _maybe_barrier()
 
         if raw_state is not None:
             state = State(**json.loads(raw_state))
@@ -279,6 +287,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         logger.info("Saving checkpoint to %s", ckpt_path)
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
+        _maybe_barrier()
         module_state_dict, optimizer_state_dict = get_state_dict(
             module,
             optimizer,
@@ -288,10 +297,12 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 ignore_frozen_params=default(ignore_frozen_params, self.config.ckpt_ignore_frozen_params),
             ),
         )
+        _maybe_barrier()
 
         if dp_rank() == 0:
             weight_dict = {"model": module_state_dict, "optimizer": optimizer_state_dict}
             save_ckpt(state_dict=weight_dict, checkpoint_id=ckpt_path, process_group=mp_group_nullable())
+        _maybe_barrier()
 
         if get_rank() == 0:
             state_dict: dict = {}
