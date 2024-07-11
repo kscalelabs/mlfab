@@ -55,7 +55,8 @@ class TensorboardLogger(LoggerImpl):
         """
         super().__init__(log_interval_seconds)
 
-        self.log_directory = Path(run_directory).expanduser().resolve() / subdirectory
+        self.run_directory = Path(run_directory).expanduser().resolve()
+        self.log_directory = self.run_directory / subdirectory
         self.flush_seconds = flush_seconds
         self.wait_seconds = wait_seconds
         self.start_in_subprocess = start_in_subprocess
@@ -66,6 +67,7 @@ class TensorboardLogger(LoggerImpl):
         self.git_state: str | None = None
         self.training_code: str | None = None
         self.config: DictConfig | None = None
+        self.task_info: tuple[str, Path] | None = None
 
         self._started = False
 
@@ -77,6 +79,9 @@ class TensorboardLogger(LoggerImpl):
             threading.Thread(target=self.worker_thread, daemon=True).start()
 
         self._started = True
+
+    def log_task_info(self, task_name: str, task_path: Path) -> None:
+        self.task_info = task_name, task_path
 
     def worker_thread(self) -> None:
         time.sleep(self.wait_seconds)
@@ -265,6 +270,18 @@ class TensorboardLogger(LoggerImpl):
         if self.config is not None:
             writer.add_text("config", f"```\n{OmegaConf.to_yaml(self.config)}\n```")
             self.config = None
+
+        if self.task_info is not None:
+            task_name, task_path = self.task_info
+            task_info_string = "\n".join(
+                [
+                    f"Task: {task_name}",
+                    f"Path: {task_path}",
+                    f"Experiment directory: {self.run_directory}",
+                ]
+            )
+            writer.add_text("task", task_info_string)
+            self.task_info = None
 
         if self.git_state is not None:
             writer.add_text("git", self.git_state)

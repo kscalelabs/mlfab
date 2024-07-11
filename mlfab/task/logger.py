@@ -17,6 +17,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from types import TracebackType
 from typing import Callable, Iterator, Literal, Self, Sequence, TypeVar, get_args
 
@@ -742,6 +743,14 @@ class LoggerImpl(ABC):
 
         Args:
             config: The configuration, as a DictConfig.
+        """
+
+    def log_task_info(self, task_name: str, task_path: Path) -> None:
+        """Logs the task name and path for the current run.
+
+        Args:
+            task_name: The name of the task class.
+            task_path: The path to the task file definition.
         """
 
     def should_log(self, state: State) -> bool:
@@ -1494,6 +1503,10 @@ class Logger:
     def log_config(self, config: DictConfig) -> None:
         for logger in self.loggers:
             logger.log_config(config)
+
+    def log_task_info(self, task_name: str, task_path: Path) -> None:
+        for logger in self.loggers:
+            logger.log_task_info(task_name, task_path)
 
     def __enter__(self) -> Self:
         for logger in self.loggers:

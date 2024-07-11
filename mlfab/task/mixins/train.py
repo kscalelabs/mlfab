@@ -39,7 +39,6 @@ from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
 from mlfab.utils.experiments import StateTimer, TrainingFinishedError, get_git_state, get_training_code
-from mlfab.utils.logging import LOG_STATUS
 from mlfab.utils.text import format_timedelta, highlight_exception_message, show_info
 
 logger = logging.getLogger(__name__)
@@ -439,8 +438,7 @@ class TrainMixin(
         return False
 
     def log_state(self) -> None:
-        logger.log(LOG_STATUS, self.task_path)
-        logger.log(LOG_STATUS, self.task_name)
+        self.logger.log_task_info(self.task_name, self.task_path)
         self.logger.log_git_state(get_git_state(self))
         self.logger.log_training_code(get_training_code(self))
         self.logger.log_config(cast(DictConfig, self.config))
