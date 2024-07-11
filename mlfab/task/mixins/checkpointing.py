@@ -14,7 +14,7 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -209,6 +209,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
+    def _get_fsdp_state_dict_options(self) -> StateDictOptions:
+        return StateDictOptions(
+            full_state_dict=False,
+            cpu_offload=True,
+            ignore_frozen_params=False,
+            keep_submodule_prefixes=True,
+            strict=True,
+        )
+
     def load_ckpt_(
         self,
         module: nn.Module,
@@ -234,10 +243,17 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.load_task_state_dict_(state_dict, strict, assign)
 
         _maybe_barrier()
-        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        options = self._get_fsdp_state_dict_options()
+        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
         dcp.load(state_dict=state_dict, checkpoint_id=ckpt_path)
-        set_state_dict(module, optimizer, model_state_dict=model_state_dict, optim_state_dict=optimizer_state_dict)
+        set_state_dict(
+            module,
+            optimizer,
+            model_state_dict=model_state_dict,
+            optim_state_dict=optimizer_state_dict,
+            options=options,
+        )
         _maybe_barrier()
 
         if raw_state is not None:
@@ -277,7 +293,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         ckpt_path.mkdir(exist_ok=True, parents=True)
 
         _maybe_barrier()
-        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer)
+        options = self._get_fsdp_state_dict_options()
+        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
         dcp.save(state_dict, checkpoint_id=ckpt_path)
 

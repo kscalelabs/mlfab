@@ -36,7 +36,8 @@ def test_e2e_script(tmpdir: Path) -> None:
 @pytest.mark.slow
 def test_e2e_script_mp(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
-    os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
+    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
     mlfab.configure_logging()

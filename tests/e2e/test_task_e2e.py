@@ -65,7 +65,8 @@ class DummyTask(mlfab.Task[Config]):
 def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
-    os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
+    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
     num_processes = 4
