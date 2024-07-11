@@ -4,6 +4,7 @@ This test is also useful for reasoning about and debugging the entire
 training loop.
 """
 
+import logging
 import os
 import tempfile
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ from dpshdl.dataset import Dataset
 from torch import Tensor, nn
 
 import mlfab
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
@@ -39,12 +42,12 @@ class DummyTask(mlfab.Task[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
+        self.proj = nn.Linear(8, 8)
         self.emb = nn.Embedding(10, 8)
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
-        self.lstm = nn.LSTM(8, 8, 2)
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
-        x, _ = self.lstm(x.float())
+        x, _ = self.proj(x)
         z = x + self.emb(y)
         return self.convs(z)
 
@@ -60,10 +63,12 @@ class DummyTask(mlfab.Task[Config]):
 @pytest.mark.slow
 @pytest.mark.parametrize("model_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
-    os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
+    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
+
+    num_processes = 4
 
     mlfab.configure_logging()
 
@@ -71,31 +76,37 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
         num_layers=2,
         batch_size=2,
         num_train_dl_workers=0,
-        max_steps=10,
+        max_steps=5,
         model_parallelism=model_parallelism,
+        run_dir=str(tmpdir),
     )
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
-
-    exp_dir = tmpdir / "dummy_task" / "run_0"
-    assert exp_dir.exists()
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
     # Run from the same experiment directory.
+    exp_dir = Path(tmpdir) / "dummy_task" / "run_0"
+    assert exp_dir.exists(), f"Directory does not exist: {exp_dir}"
     config.exp_dir = str(exp_dir)
-    config.max_steps = 20
+    config.max_steps = 10
 
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=4), use_cli=False)
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
+
+    # Run from the same experiment directory, single-process.
+    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
+    config.max_steps = 15
+    config.model_parallelism = 1
+
+    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=1), use_cli=False)
 
 
 @pytest.mark.slow
 def test_staged_training(tmpdir: Path) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
     mlfab.configure_logging()
 
-    config = Config(batch_size=1)
+    config = Config(batch_size=1, run_dir=str(tmpdir))
     orig_task = DummyTask(config)
     task_key = orig_task.task_key
     task: mlfab.Task = mlfab.Task.from_task_key(task_key).get_task(config, use_cli=False)

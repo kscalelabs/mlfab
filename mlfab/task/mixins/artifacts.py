@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(kw_only=True)
 class ArtifactsConfig(BaseConfig):
+    run_dir: str | None = field(None, help="The fixed run directory")
     exp_dir: str | None = field(None, help="The fixed experiment directory")
 
 
@@ -35,6 +36,8 @@ class ArtifactsMixin(BaseTask[Config]):
 
     @functools.cached_property
     def run_dir(self) -> Path:
+        if self.config.run_dir is not None:
+            return Path(self.config.run_dir).expanduser().resolve() / self.task_name
         run_dir = get_run_dir()
         if run_dir is None:
             task_file = inspect.getfile(self.__class__)
@@ -72,7 +75,7 @@ class ArtifactsMixin(BaseTask[Config]):
             exp_dir = Path(self.config.exp_dir).expanduser().resolve()
             exp_dir.mkdir(parents=True, exist_ok=True)
             self.__exp_dir = exp_dir
-            logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
+            logger.log(LOG_STATUS, "Experiment: %s", self.__exp_dir)
             return self.__exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
@@ -88,7 +91,7 @@ class ArtifactsMixin(BaseTask[Config]):
             run_id += 1
         exp_dir.mkdir(exist_ok=True, parents=True)
         self.__exp_dir = exp_dir.expanduser().resolve()
-        logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
+        logger.log(LOG_STATUS, "Experiment: %s", self.__exp_dir)
         return self.__exp_dir
 
     @exp_dir.setter
