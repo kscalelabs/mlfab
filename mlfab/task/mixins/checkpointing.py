@@ -34,6 +34,8 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
+    ckpt_ignore_frozen_params: bool = field(False, help="Whether to ignore frozen parameters when loading checkpoints")
+    ckpt_strict: bool = field(True, help="Use strict mode when loading checkpoints")
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
@@ -195,9 +197,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return StateDictOptions(
             full_state_dict=False,
             cpu_offload=True,
-            ignore_frozen_params=False,
+            ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
             keep_submodule_prefixes=True,
-            strict=True,
+            strict=self.config.ckpt_strict,
         )
 
     def load_ckpt_(
@@ -230,6 +232,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
         dcp.load(weights_dict, checkpoint_id=ckpt_path)
+
         set_state_dict(
             module,
             optimizer,

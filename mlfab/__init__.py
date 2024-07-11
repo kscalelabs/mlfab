@@ -205,6 +205,8 @@ __all__ = [
     "ScriptConfig",
     "Config",
     "Task",
+    "CustomPickleModule",
+    "convert_dcp_to_torch",
     "collate",
     "collate_nullable",
     "pad_all",
@@ -469,6 +471,8 @@ NAME_MAP: dict[str, str] = {
     "ScriptConfig": "task.script",
     "Config": "task.task",
     "Task": "task.task",
+    "CustomPickleModule": "utils.checkpoint",
+    "convert_dcp_to_torch": "utils.checkpoint",
     "collate": "utils.data.collate",
     "collate_nullable": "utils.data.collate",
     "pad_all": "utils.data.collate",
@@ -751,6 +755,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.profiler import ProfilerOptions
     from mlfab.task.script import Script, ScriptConfig
     from mlfab.task.task import Config, Task
+    from mlfab.utils.checkpoint import CustomPickleModule, convert_dcp_to_torch
     from mlfab.utils.data.collate import CollateMode, collate, collate_nullable, pad_all, pad_sequence
     from mlfab.utils.data.dataset import SmallDataset
     from mlfab.utils.data.error_handling import (
