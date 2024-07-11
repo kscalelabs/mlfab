@@ -2,9 +2,9 @@
 
 import itertools
 import logging
+from collections import deque
 from dataclasses import dataclass
-from queue import Queue
-from typing import Generic, TypeVar
+from typing import Deque, Generic, TypeVar
 
 import torch
 from torch import Tensor, nn
@@ -92,17 +92,23 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
             elif any(True for _ in iter_tensors(module, recurse=False)):
                 raise RuntimeError(f"Encountered a module without a weight initialization: {module}")
 
-        module_queue: Queue[nn.Module] = Queue()
-        module_queue.put(model)
+        module_queue: Deque[nn.Module] = deque()
+        module_queue.append(model)
+        weight_reset_queue: Deque[nn.Module] = deque()
 
-        while not module_queue.empty():
-            module = module_queue.get()
+        # Converts meta tensors to empty tensors on the target device.
+        while len(module_queue) > 0:
+            module = module_queue.popleft()
             module._apply(to_empty, recurse=False)
             if isinstance(module, PretrainedModule):
                 module.load()
                 if has_meta(module, recurse=True):
                     raise RuntimeError("Pretrained module has meta tensors after loading!")
             else:
-                init_weights_(module)
+                weight_reset_queue.append(module)
                 for child in module.children():
-                    module_queue.put(child)
+                    module_queue.append(child)
+
+        # Resets the module weights, starting at the leaves of the model.
+        while len(weight_reset_queue) > 0:
+            init_weights_(weight_reset_queue.pop())

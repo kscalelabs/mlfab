@@ -58,6 +58,7 @@ from torch.utils.checkpoint import checkpoint
 from mlfab.nn.architectures.next_token import SamplingStrategy, sample_from_logits
 from mlfab.nn.embeddings import apply_rotary_embeddings, get_rotary_embeddings
 from mlfab.nn.norms import get_norm_linear
+from mlfab.utils.nn import ResetParameters
 
 MaskMode = Literal["causal", "lengths", "combine"]
 
@@ -152,7 +153,7 @@ Tk = TypeVar("Tk", Tensor, None)
 Tv = TypeVar("Tv", Tensor, None)
 
 
-class MultiheadAttention(nn.Module):
+class MultiheadAttention(ResetParameters, nn.Module):
     """Defines a streamable multihead attention layer.
 
     This is a slightly modified implementation of ``nn.MultiheadAttention``
@@ -234,6 +235,12 @@ class MultiheadAttention(nn.Module):
         self.kproj = nn.Linear(self.kdim, self.kv_embed_dim, bias=bias)
         self.vproj = nn.Linear(self.vdim, self.kv_embed_dim, bias=bias)
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+
+    def reset_parameters(self) -> None:
+        nn.init.xavier_normal_(self.qproj.weight)
+        nn.init.xavier_normal_(self.kproj.weight)
+        nn.init.xavier_normal_(self.vproj.weight)
+        nn.init.xavier_normal_(self.out_proj.weight)
 
     def forward_matmuls(
         self,
