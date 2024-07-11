@@ -237,7 +237,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         raw_config, state_dict = self.load_raw_ckpt(ckpt_path, missing_ok=False, raw=True)
         raw_state = state_dict.pop("state", None)
         if raw_config is not None:
-            diff = get_diff_string(diff_configs(OmegaConf.create(self.config), OmegaConf.create(raw_config)))
+            base_config = OmegaConf.create(self.config)  # type: ignore[call-overload]
+            diff = get_diff_string(diff_configs(base_config, OmegaConf.create(raw_config)))
             if diff:
                 logger.warning("Loaded config differs from current config:\n%s", diff)
         self.load_task_state_dict_(state_dict, strict, assign)
@@ -245,8 +246,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         _maybe_barrier()
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.load(state_dict=state_dict, checkpoint_id=ckpt_path)
+        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        dcp.load(weights_dict, checkpoint_id=ckpt_path)
         set_state_dict(
             module,
             optimizer,
@@ -295,8 +296,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         _maybe_barrier()
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        state_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.save(state_dict, checkpoint_id=ckpt_path)
+        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        dcp.save(weights_dict, checkpoint_id=ckpt_path)
 
         if is_master():
             state_dict: dict = {}
