@@ -58,7 +58,7 @@ class DummyTask(mlfab.Task[Config]):
 
 @pytest.mark.slow
 def test_slurm_launcher(tmpdir: Path) -> None:
-    mlfab.load_user_config().directories.run = str(tmpdir)
+    os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["DEFAULT_SLURM_KEY"] = "test"
 
     (stage_dir := Path(tmpdir / "staging")).mkdir()
