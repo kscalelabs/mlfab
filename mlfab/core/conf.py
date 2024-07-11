@@ -189,8 +189,6 @@ def get_run_dir(*, missing_ok: Literal[True]) -> Path | None: ...
 
 
 def get_run_dir(*, missing_ok: bool = True) -> Path | None:
-    if "RUN_DIR" in os.environ:
-        return Path(os.environ["RUN_DIR"])
     config = load_user_config().directories
     if is_missing(config, "run"):
         if not missing_ok:
@@ -204,8 +202,6 @@ def get_run_dir(*, missing_ok: bool = True) -> Path | None:
 
 
 def get_data_dir() -> Path:
-    if "DATA_DIR" in os.environ:
-        return Path(os.environ["DATA_DIR"])
     config = load_user_config().directories
     if is_missing(config, "data"):
         raise RuntimeError(
@@ -216,8 +212,6 @@ def get_data_dir() -> Path:
 
 
 def get_pretrained_models_dir() -> Path:
-    if "MODEL_DIR" in os.environ:
-        return Path(os.environ["MODEL_DIR"])
     config = load_user_config().directories
     if is_missing(config, "pretrained_models"):
         raise RuntimeError(

@@ -39,6 +39,9 @@ class ArtifactsMixin(BaseTask[Config]):
         if run_dir is None:
             task_file = inspect.getfile(self.__class__)
             run_dir = Path(task_file).resolve().parent
+            logger.log(LOG_STATUS, "Getting run directory from task: %s", run_dir)
+        else:
+            logger.log(LOG_STATUS, "Found run directory in environment: %s %s", run_dir, os.environ["RUN_DIR"])
         return run_dir / self.task_name
 
     def add_lock_file(self, lock_type: str, *, exists_ok: bool = False) -> None:
@@ -72,7 +75,7 @@ class ArtifactsMixin(BaseTask[Config]):
             exp_dir = Path(self.config.exp_dir).expanduser().resolve()
             exp_dir.mkdir(parents=True, exist_ok=True)
             self.__exp_dir = exp_dir
-            logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
+            logger.log(LOG_STATUS, "Experiment: %s", self.__exp_dir)
             return self.__exp_dir
 
         def get_exp_dir(run_id: int) -> Path:
@@ -88,7 +91,7 @@ class ArtifactsMixin(BaseTask[Config]):
             run_id += 1
         exp_dir.mkdir(exist_ok=True, parents=True)
         self.__exp_dir = exp_dir.expanduser().resolve()
-        logger.log(LOG_STATUS, "exp: %s", self.__exp_dir)
+        logger.log(LOG_STATUS, "Experiment: %s", self.__exp_dir)
         return self.__exp_dir
 
     @exp_dir.setter

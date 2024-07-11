@@ -85,7 +85,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
 
     # Run from the same experiment directory.
     exp_dir = Path(tmpdir) / "dummy_task" / "run_0"
-    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
+    assert exp_dir.exists(), f"Directory does not exist: {exp_dir}"
     config.exp_dir = str(exp_dir)
     config.max_steps = 10
 
