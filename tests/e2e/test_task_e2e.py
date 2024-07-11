@@ -63,7 +63,7 @@ class DummyTask(mlfab.Task[Config]):
 @pytest.mark.slow
 @pytest.mark.parametrize("model_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
+    mlfab.load_user_config().directories.run = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
         os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
@@ -101,7 +101,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
 
 @pytest.mark.slow
 def test_staged_training(tmpdir: Path) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
+    mlfab.load_user_config().directories.run = str(tmpdir)
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
