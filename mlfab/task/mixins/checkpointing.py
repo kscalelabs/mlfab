@@ -2,12 +2,11 @@
 
 import json
 import logging
-import pickle
 import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable, Generic, Literal, Self, TypeVar, overload
+from typing import Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
@@ -21,6 +20,7 @@ from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
+from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
@@ -34,6 +34,8 @@ class CheckpointingConfig(ArtifactsConfig):
     save_every_n_steps: int | None = field(None, help="Save a checkpoint every N steps")
     save_every_n_seconds: float | None = field(60.0 * 60.0, help="Save a checkpoint every N seconds")
     load_from_ckpt_path: str | None = field(None, help="If set, load initial model weights from this path")
+    ckpt_ignore_frozen_params: bool = field(False, help="Whether to ignore frozen parameters when loading checkpoints")
+    ckpt_strict: bool = field(True, help="Use strict mode when loading checkpoints")
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
@@ -44,24 +46,6 @@ def _maybe_barrier() -> None:
         dist.barrier()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-
-
-class CustomPickler(pickle.Pickler):
-    def persistent_id(self, obj: Any) -> Any:  # noqa: ANN401
-        return None
-
-
-class CustomUnpickler(pickle.Unpickler):
-    def find_class(self, module: str, name: str) -> type:
-        try:
-            return super().find_class(module, name)
-        except AttributeError:
-            return lambda *args, **kwargs: None  # type: ignore[return-value]
-
-
-class CustomPickleModule:
-    Pickler = CustomPickler
-    Unpickler = CustomUnpickler
 
 
 class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
@@ -213,9 +197,9 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         return StateDictOptions(
             full_state_dict=False,
             cpu_offload=True,
-            ignore_frozen_params=False,
+            ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
             keep_submodule_prefixes=True,
-            strict=True,
+            strict=self.config.ckpt_strict,
         )
 
     def load_ckpt_(
@@ -248,6 +232,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
         dcp.load(weights_dict, checkpoint_id=ckpt_path)
+
         set_state_dict(
             module,
             optimizer,

@@ -89,6 +89,15 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     config.exp_dir = str(exp_dir)
     config.max_steps = 10
 
+    # Attempts to convert to a single torch checkpoint.
+    ckpt_path = Path(tmpdir) / "ckpt.pt"
+    mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
+    assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
+
+    # Loads the checkpoint weights into a new model.
+    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
+    DummyTask(config).load_state_dict(state_dict)
+
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
     # Run from the same experiment directory, single-process.
@@ -115,4 +124,4 @@ def test_staged_training(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
-    test_e2e_training_mp(Path(tempfile.mkdtemp()), 2)
+    test_e2e_training_mp(Path(tempfile.mkdtemp()), 4)
