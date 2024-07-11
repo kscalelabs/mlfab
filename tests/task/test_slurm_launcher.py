@@ -58,7 +58,6 @@ class DummyTask(mlfab.Task[Config]):
 
 @pytest.mark.slow
 def test_slurm_launcher(tmpdir: Path) -> None:
-    os.environ["RUN_DIR"] = str(tmpdir)
     os.environ["DEFAULT_SLURM_KEY"] = "test"
 
     (stage_dir := Path(tmpdir / "staging")).mkdir()
@@ -70,7 +69,7 @@ def test_slurm_launcher(tmpdir: Path) -> None:
         cpus_per_gpu=1,
     )
 
-    task = DummyTask.get_task(Config(batch_size=16), use_cli=False)
+    task = DummyTask.get_task(Config(batch_size=16, run_dir=str(tmpdir)), use_cli=False)
 
     contents = launcher.sbatch_file_contents(task)
     match = re.search(r"python -m .+", contents)

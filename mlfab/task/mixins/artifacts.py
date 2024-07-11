@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(kw_only=True)
 class ArtifactsConfig(BaseConfig):
+    run_dir: str | None = field(None, help="The fixed run directory")
     exp_dir: str | None = field(None, help="The fixed experiment directory")
 
 
@@ -35,13 +36,12 @@ class ArtifactsMixin(BaseTask[Config]):
 
     @functools.cached_property
     def run_dir(self) -> Path:
+        if self.config.run_dir is not None:
+            return Path(self.config.run_dir).expanduser().resolve() / self.task_name
         run_dir = get_run_dir()
         if run_dir is None:
             task_file = inspect.getfile(self.__class__)
             run_dir = Path(task_file).resolve().parent
-            logger.log(LOG_STATUS, "Getting run directory from task: %s", run_dir)
-        else:
-            logger.log(LOG_STATUS, "Found run directory in environment: %s %s", run_dir, os.environ["RUN_DIR"])
         return run_dir / self.task_name
 
     def add_lock_file(self, lock_type: str, *, exists_ok: bool = False) -> None:
