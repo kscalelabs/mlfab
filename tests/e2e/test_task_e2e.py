@@ -85,14 +85,14 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
 
     # Run from the same experiment directory.
     exp_dir = Path(tmpdir) / "dummy_task" / "run_0"
-    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(tmpdir.iterdir())}"
+    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
     config.exp_dir = str(exp_dir)
     config.max_steps = 10
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
     # Run from the same experiment directory, single-process.
-    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(tmpdir.iterdir())}"
+    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
     config.max_steps = 15
     config.model_parallelism = 1
 
