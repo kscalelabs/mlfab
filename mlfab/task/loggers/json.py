@@ -3,6 +3,7 @@
 import json
 import sys
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any, Literal, TextIO
 
 from torch import Tensor
@@ -26,6 +27,7 @@ class JsonLogger(LoggerImpl):
         line_sep: str = "\n",
         remove_unicode_from_namespaces: bool = True,
         log_interval_seconds: float = 10.0,
+        exp_dir: Path | None = None,
     ) -> None:
         """Defines a simpler logger which logs to stdout.
 
@@ -40,6 +42,7 @@ class JsonLogger(LoggerImpl):
                 use ASCII art for visibility in other logs, but in the JSON
                 log file should be ignored.
             log_interval_seconds: The interval between successive log lines.
+            exp_dir: The experiment directory.
         """
         super().__init__(log_interval_seconds)
 
@@ -49,6 +52,7 @@ class JsonLogger(LoggerImpl):
         self.open_mode = open_mode
         self.line_sep = line_sep
         self.remove_unicode_from_namespaces = remove_unicode_from_namespaces
+        self.exp_dir = exp_dir
 
     @property
     def fp(self) -> TextIO:

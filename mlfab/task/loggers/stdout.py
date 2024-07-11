@@ -4,6 +4,7 @@ import datetime
 import logging
 import sys
 from collections import deque
+from pathlib import Path
 from typing import Any, Deque, TextIO
 
 from torch import Tensor
@@ -39,6 +40,7 @@ class StdoutLogger(LoggerImpl):
         log_fp: bool = False,
         log_interval_seconds: float = 1.0,
         remove_temporary_after: datetime.timedelta = datetime.timedelta(seconds=10),
+        exp_dir: Path | None = None,
     ) -> None:
         """Defines a logger which shows a pop-up using Curses.
 
@@ -52,6 +54,7 @@ class StdoutLogger(LoggerImpl):
             log_interval_seconds: The interval between successive log lines.
             remove_temporary_after: The time after which temporary toasts
                 are removed.
+            exp_dir: The experiment directory.
         """
         super().__init__(log_interval_seconds)
 
@@ -63,6 +66,9 @@ class StdoutLogger(LoggerImpl):
         self.precision = precision
         self.remove_temporary_after = remove_temporary_after
         self.logger = logging.getLogger("stdout")
+
+        self.task_info: tuple[str, Path] | None = None
+        self.exp_dir = exp_dir
 
         self.statuses: Deque[tuple[str, datetime.datetime]] = deque()
         self.pings: Deque[tuple[str, datetime.datetime]] = deque()
@@ -76,8 +82,25 @@ class StdoutLogger(LoggerImpl):
         self.write_queues()
         return super().stop()
 
+    def log_task_info(self, task_name: str, task_path: Path) -> None:
+        self.task_info = task_name, task_path
+
     def write_separator(self) -> None:
         self.write_fp.write("\033[2J\033[H")
+
+    def write_task_info(self) -> None:
+        if self.task_info is None and self.exp_dir is None:
+            return
+
+        if self.task_info is not None:
+            task_name, task_path = self.task_info
+            self.write_fp.write(f"{colored(task_name, 'green', bold=True)}\n")
+            self.write_fp.write(f" ↪ {colored(str(task_path), 'grey')}\n")
+
+        if self.exp_dir is not None:
+            self.write_fp.write(f" ↪ {colored(str(self.exp_dir), 'grey')}\n")
+
+        self.write_fp.write("\n")
 
     def write_state_window(self, line: LogLine) -> None:
         elapsed_time = format_timedelta(datetime.timedelta(seconds=line.state.elapsed_time_s), short=True)
@@ -151,6 +174,7 @@ class StdoutLogger(LoggerImpl):
 
     def write(self, line: LogLine) -> None:
         self.write_separator()
+        self.write_task_info()
         self.write_state_window(line)
         self.write_log_window(line)
         self.write_queues()

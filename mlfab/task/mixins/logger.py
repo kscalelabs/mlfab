@@ -11,18 +11,17 @@ from torch import Tensor
 from mlfab.core.conf import Device as BaseDeviceConfig, field
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
-from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.logger import ChannelSelectMode, Logger, LoggerImpl, Number
 from mlfab.task.loggers.json import JsonLogger
 from mlfab.task.loggers.state import StateLogger
 from mlfab.task.loggers.stdout import StdoutLogger
 from mlfab.task.loggers.tensorboard import TensorboardLogger
-from mlfab.task.mixins.artifacts import ArtifactsMixin
+from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.text import is_interactive_session
 
 
 @dataclass(kw_only=True)
-class LoggerConfig(BaseConfig):
+class LoggerConfig(ArtifactsConfig):
     device: BaseDeviceConfig = field(BaseDeviceConfig(), help="Device configuration")
 
 
@@ -35,7 +34,7 @@ def get_env_var(name: str, default: bool) -> bool:
     return os.environ[name].strip() == "1"
 
 
-class LoggerMixin(BaseTask[Config], Generic[Config]):
+class LoggerMixin(ArtifactsMixin[Config], Generic[Config]):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
 
@@ -49,12 +48,11 @@ class LoggerMixin(BaseTask[Config], Generic[Config]):
 
     def set_loggers(self) -> None:
         if is_master():
-            self.add_logger(StdoutLogger() if is_interactive_session() else JsonLogger())
-            if isinstance(self, ArtifactsMixin):
-                self.add_logger(
-                    StateLogger(self.exp_dir),
-                    TensorboardLogger(self.exp_dir),
-                )
+            self.add_logger(
+                StdoutLogger(exp_dir=self.exp_dir) if is_interactive_session() else JsonLogger(exp_dir=self.exp_dir),
+                StateLogger(self.exp_dir),
+                TensorboardLogger(self.exp_dir),
+            )
 
     def write_logs(self, state: State) -> None:
         self.logger.write(state)
