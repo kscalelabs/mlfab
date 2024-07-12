@@ -51,10 +51,12 @@ def convert_dcp_to_torch(input_path: Path, output_path: Path, key: str | None = 
         sd = sd[key]
 
     # Removes common prefixes.
-    for prefix in ("module.", "mod."):
-        consume_prefix_in_state_dict_if_present(sd, prefix)
-        for v in sd.values():
-            consume_prefix_in_state_dict_if_present(v, prefix)
+    if isinstance(sd, dict):
+        for prefix in ("module.", "mod."):
+            consume_prefix_in_state_dict_if_present(sd, prefix)
+            for v in sd.values():
+                if isinstance(v, dict):
+                    consume_prefix_in_state_dict_if_present(v, prefix)
 
     torch.save(sd, output_path, pickle_module=CustomPickleModule)
 
