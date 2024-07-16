@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 @dataclass(kw_only=True)
 class Config(mlfab.Config):
     num_layers: int = mlfab.field(2)
-    learning_rate: float = mlfab.field(1e-3)
+    learning_rate: float = mlfab.field(1e-2)
     betas: tuple[float, float] = mlfab.field((0.9, 0.999))
     weight_decay: float = mlfab.field(1e-4)
     warmup_steps: int = mlfab.field(100)
@@ -43,7 +43,12 @@ class DummyTask(mlfab.Task[Config]):
         super().__init__(config)
 
         self.proj = nn.Linear(8, 8)
-        self.emb = nn.Embedding(10, 8)
+
+        with self.torch_device:
+            custom_emb = nn.Embedding(10, 8)
+            custom_emb.weight.data.fill_(3.14)
+            self.emb = mlfab.pretrained(custom_emb)
+
         self.convs = nn.Sequential(*(nn.Conv1d(3, 3, 3, padding=1) for _ in range(config.num_layers)))
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
@@ -52,8 +57,7 @@ class DummyTask(mlfab.Task[Config]):
         return self.convs(z)
 
     def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
-        o = self(*batch).sum()
-        return o
+        return self(*batch).mean()
 
     def get_dataset(self, phase: mlfab.Phase) -> DummyDataset:
         return DummyDataset()

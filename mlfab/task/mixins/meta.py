@@ -1,5 +1,6 @@
 """Defines a mixin to support initializing models with the meta device."""
 
+import functools
 import itertools
 import logging
 from collections import deque
@@ -47,13 +48,13 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
         def has_meta(module: nn.Module, recurse: bool) -> bool:
             return any(p.is_meta for p in iter_tensors(module, recurse))
 
-        def to_empty(t: Tensor) -> Tensor:
+        def to_empty(t: Tensor, use_device_dtype: bool) -> Tensor:
             if t.is_meta:
-                if t.is_floating_point():
+                if t.is_floating_point() and use_device_dtype:
                     return torch.empty_like(t, device=self.torch_device, dtype=self.torch_dtype)
                 return torch.empty_like(t, device=self.torch_device)
 
-            if t.is_floating_point():
+            if t.is_floating_point() and use_device_dtype:
                 return t.to(self.torch_device, self.torch_dtype)
             return t.to(self.torch_device)
 
@@ -99,7 +100,8 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
         # Converts meta tensors to empty tensors on the target device.
         while len(module_queue) > 0:
             module = module_queue.popleft()
-            module._apply(to_empty, recurse=False)
+            use_device_dtype = module.use_device_dtype if isinstance(module, PretrainedModule) else False
+            module._apply(functools.partial(to_empty, use_device_dtype=use_device_dtype), recurse=False)
             if isinstance(module, PretrainedModule):
                 module.load()
                 if has_meta(module, recurse=True):
