@@ -15,7 +15,7 @@ from torch.nn.modules.rnn import RNNBase, RNNCellBase
 
 from mlfab.core.conf import field
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
-from mlfab.task.mixins.pretrained import PretrainedModule
+from mlfab.task.mixins.pretrained import PretrainedMixin, PretrainedModule
 from mlfab.utils.nn import ResetParameters
 
 logger = logging.getLogger(__name__)
@@ -93,23 +93,29 @@ class MetaMixin(DeviceMixin[Config], Generic[Config]):
             elif any(True for _ in iter_tensors(module, recurse=False)):
                 raise RuntimeError(f"Encountered a module without a weight initialization: {module}")
 
-        module_queue: Deque[nn.Module] = deque()
+        module_queue: Deque[nn.Module | PretrainedModule] = deque()
         module_queue.append(model)
         weight_reset_queue: Deque[nn.Module] = deque()
 
         # Converts meta tensors to empty tensors on the target device.
         while len(module_queue) > 0:
             module = module_queue.popleft()
-            use_device_dtype = module.use_device_dtype if isinstance(module, PretrainedModule) else False
-            module._apply(functools.partial(to_empty, use_device_dtype=use_device_dtype), recurse=False)
             if isinstance(module, PretrainedModule):
+                module.module._apply(
+                    functools.partial(to_empty, use_device_dtype=module.use_device_dtype),
+                    recurse=True,
+                )
                 module.load()
-                if has_meta(module, recurse=True):
+                if has_meta(module.module, recurse=True):
                     raise RuntimeError("Pretrained module has meta tensors after loading!")
             else:
+                module._apply(functools.partial(to_empty, use_device_dtype=False), recurse=False)
                 weight_reset_queue.append(module)
                 for child in module.children():
                     module_queue.append(child)
+                if isinstance(module, PretrainedMixin):
+                    for pretrained_child in module._pretrained_modules:
+                        module_queue.append(pretrained_child)
 
         # Resets the module weights, starting at the leaves of the model.
         while len(weight_reset_queue) > 0:
