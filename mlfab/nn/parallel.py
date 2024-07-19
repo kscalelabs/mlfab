@@ -239,7 +239,7 @@ def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
 
 
-def mp_info() -> _GroupInfo:
+def tp_info() -> _GroupInfo:
     if _parallel_group_info is None:
         raise RuntimeError("Parallel process groups have not been initialized!")
     return _parallel_group_info.tp
@@ -251,24 +251,24 @@ def dp_info() -> _GroupInfo:
     return _parallel_group_info.dp
 
 
-def mp_rank() -> int:
-    return 0 if _parallel_group_info is None else mp_info().rank
+def tp_rank() -> int:
+    return 0 if _parallel_group_info is None else tp_info().rank
 
 
-def mp_world_size() -> int:
-    return 1 if _parallel_group_info is None else mp_info().world_size
+def tp_world_size() -> int:
+    return 1 if _parallel_group_info is None else tp_info().world_size
 
 
-def mp_ranks() -> list[int]:
-    return mp_info().global_ranks
+def tp_ranks() -> list[int]:
+    return tp_info().global_ranks
 
 
-def mp_group() -> ProcessGroup:
-    return mp_info().group
+def tp_group() -> ProcessGroup:
+    return tp_info().group
 
 
-def mp_group_nullable() -> ProcessGroup | None:
-    return None if _parallel_group_info is None else mp_group()
+def tp_group_nullable() -> ProcessGroup | None:
+    return None if _parallel_group_info is None else tp_group()
 
 
 def dp_rank() -> int:
@@ -295,7 +295,7 @@ class ParallismError(Exception):
     pass
 
 
-class _ModelParallelCopy(Function):
+class _TensorParallelCopy(Function):
     @staticmethod
     def forward(
         ctx: FunctionCtx,
@@ -307,10 +307,10 @@ class _ModelParallelCopy(Function):
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else mp_info().reduce(grad, op=ctx.op), None
+        return grad if _parallel_group_info is None else tp_info().reduce(grad, op=ctx.op), None
 
 
-def mp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
+def tp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
     """Copies the input to the model parallel region.
 
     Forward this is a no-op, but backward it reduces the gradient across
@@ -323,10 +323,10 @@ def mp_copy(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
     Returns:
         Output tensor, with shape ``(*)``.
     """
-    return _ModelParallelCopy.apply(x, op)
+    return _TensorParallelCopy.apply(x, op)
 
 
-class _ModelParallelReduce(Function):
+class _TensorParallelReduce(Function):
     @staticmethod
     def forward(
         ctx: FunctionCtx,
@@ -334,14 +334,14 @@ class _ModelParallelReduce(Function):
         op: Any,  # noqa: ANN401
     ) -> Tensor:
         ctx.mark_dirty(x)
-        return x if _parallel_group_info is None else mp_info().reduce(x, op=op)
+        return x if _parallel_group_info is None else tp_info().reduce(x, op=op)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
         return grad, None
 
 
-def mp_reduce(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
+def tp_reduce(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
     """Reduces the input from the model parallel region.
 
     Forward this reduces the input across model parallel replicas (i.e., it is
@@ -354,21 +354,21 @@ def mp_reduce(x: Tensor, op: Any = ReduceOp.SUM) -> Tensor:  # noqa: ANN401
     Returns:
         Output tensor, with shape ``(*)``.
     """
-    return _ModelParallelReduce.apply(x, op)
+    return _TensorParallelReduce.apply(x, op)
 
 
-class _ModelParallelScatter(Function):
+class _TensorParallelScatter(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return x if _parallel_group_info is None else mp_info().split(x, dim=dim)
+        return x if _parallel_group_info is None else tp_info().split(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else mp_info().gather(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else tp_info().gather(grad, dim=ctx.dim), None
 
 
-def mp_scatter(x: Tensor, dim: int = -1) -> Tensor:
+def tp_scatter(x: Tensor, dim: int = -1) -> Tensor:
     """Scatters the input across model parallel regions.
 
     Args:
@@ -378,21 +378,21 @@ def mp_scatter(x: Tensor, dim: int = -1) -> Tensor:
     Returns:
         Output tensor, with shape ``(..., N // world_size, ...)``.
     """
-    return _ModelParallelScatter.apply(x, dim)
+    return _TensorParallelScatter.apply(x, dim)
 
 
-class _ModelParallelGather(Function):
+class _TensorParallelGather(Function):
     @staticmethod
     def forward(ctx: FunctionCtx, x: Tensor, dim: int) -> Tensor:
         ctx.dim = dim
-        return x if _parallel_group_info is None else mp_info().gather(x, dim=dim)
+        return x if _parallel_group_info is None else tp_info().gather(x, dim=dim)
 
     @staticmethod
     def backward(ctx: FunctionCtx, grad: Tensor) -> tuple[Tensor, None]:
-        return grad if _parallel_group_info is None else mp_info().split(grad, dim=ctx.dim), None
+        return grad if _parallel_group_info is None else tp_info().split(grad, dim=ctx.dim), None
 
 
-def mp_gather(x: Tensor, dim: int = -1) -> Tensor:
+def tp_gather(x: Tensor, dim: int = -1) -> Tensor:
     """Gathers the input from model parallel regions.
 
     Args:
@@ -402,7 +402,7 @@ def mp_gather(x: Tensor, dim: int = -1) -> Tensor:
     Returns:
         Output tensor, with shape ``(..., N * world_size, ...)``.
     """
-    return _ModelParallelGather.apply(x, dim)
+    return _TensorParallelGather.apply(x, dim)
 
 
 def initialize_model_parallel_affine_weight_(
@@ -429,7 +429,7 @@ def initialize_model_parallel_affine_weight_(
     if weight.is_meta:
         return
 
-    rank, world_size = mp_rank(), mp_world_size()
+    rank, world_size = tp_rank(), tp_world_size()
 
     # For single GPU cases, just initialize normally.
     if world_size == 1:
@@ -685,23 +685,23 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     # We need to initialize all groups across all devices, but then we choose
     # the specific group for this device.
     dp_group, dp_ids = get_group(groups_dm.permute(1, 0))
-    mp_group, mp_ids = get_group(groups_dm)
+    tp_group, tp_ids = get_group(groups_dm)
 
     assert isinstance(dp_group, ProcessGroup), dp_group
-    assert isinstance(mp_group, ProcessGroup), mp_group
+    assert isinstance(tp_group, ProcessGroup), tp_group
 
     assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
-    assert len(mp_ids) == model_parallelism, f"{len(mp_ids)=} != {model_parallelism=}"
+    assert len(tp_ids) == model_parallelism, f"{len(tp_ids)=} != {model_parallelism=}"
 
     dp_rank = global_rank // model_parallelism
-    mp_rank = global_rank % model_parallelism
+    tp_rank = global_rank % model_parallelism
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
         tp=_GroupInfo(
-            group=mp_group,
-            global_ranks=mp_ids,
-            rank=mp_rank,
+            group=tp_group,
+            global_ranks=tp_ids,
+            rank=tp_rank,
             world_size=model_parallelism,
         ),
         dp=_GroupInfo(
@@ -717,7 +717,7 @@ def cleanup_dist() -> None:
     global _parallel_group_info
     if _parallel_group_info is not None:
         dist.destroy_process_group(dp_info().group)
-        dist.destroy_process_group(mp_info().group)
+        dist.destroy_process_group(tp_info().group)
     if (pg := dist.GroupMember.WORLD) is not None:
         dist.destroy_process_group(pg)
     _parallel_group_info = None
