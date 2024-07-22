@@ -52,7 +52,7 @@ class MultiProcessKwargs(TypedDict):
     master_addr: NotRequired[str]
     master_port: NotRequired[int]
     init_method: NotRequired[str]
-    model_parallelism: NotRequired[int | str]
+    tensor_parallelism: NotRequired[int | str]
     multiprocess_launch_method: NotRequired[str]
 
 
@@ -65,7 +65,7 @@ class MultiProcessConfig:
     master_addr: str = field("127.0.0.1", help="The address of the master process")
     master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
     init_method: str = field("env://", help="The initialization method")
-    model_parallelism: int | str = field(1, help="The number of model parallel processes")
+    tensor_parallelism: int | str = field(1, help="The number of tensor parallel processes")
     multiprocess_launch_method: str = field("forkserver", help="The launch method for multiprocessing")
 
     @classmethod
@@ -405,7 +405,7 @@ def tp_gather(x: Tensor, dim: int = -1) -> Tensor:
     return _TensorParallelGather.apply(x, dim)
 
 
-def initialize_model_parallel_affine_weight_(
+def initialize_tensor_parallel_affine_weight_(
     weight: Tensor,
     out_features: int,
     in_features: int,
@@ -609,12 +609,12 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         raise ParallismError("Distributed training is not initialized.")
 
     global_rank, global_world_size = dist.get_rank(), dist.get_world_size()
-    model_parallelism = cfg.model_parallelism
+    tensor_parallelism = cfg.tensor_parallelism
 
     # Tries to parse to int.
-    if isinstance(model_parallelism, str):
+    if isinstance(tensor_parallelism, str):
         try:
-            model_parallelism = int(model_parallelism)
+            tensor_parallelism = int(tensor_parallelism)
         except ValueError:
             pass
 
@@ -623,43 +623,43 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         "local": cfg.local_world_size,
         "global": global_world_size,
     }
-    if isinstance(model_parallelism, str):
-        model_parallelism = model_parallelism.lower()
-        if model_parallelism in special_values:
-            model_parallelism = special_values[model_parallelism]
+    if isinstance(tensor_parallelism, str):
+        tensor_parallelism = tensor_parallelism.lower()
+        if tensor_parallelism in special_values:
+            tensor_parallelism = special_values[tensor_parallelism]
         else:
             try:
-                model_parallelism = int(model_parallelism)
+                tensor_parallelism = int(tensor_parallelism)
             except ValueError:
                 special_str = "[" + ", ".join(sorted(special_values.keys())) + "]"
                 raise NotImplementedError(
-                    f"Invalid value for model parallelism: {model_parallelism}, "
+                    f"Invalid value for model parallelism: {tensor_parallelism}, "
                     f"should either be an integer or one of {special_str}"
                 )
 
-    if model_parallelism <= 0:
-        raise ValueError(f"Model parallelism must be positive, got {model_parallelism}")
+    if tensor_parallelism <= 0:
+        raise ValueError(f"Model parallelism must be positive, got {tensor_parallelism}")
 
     # This is specific behavior - if model parallelism is too large for the
     # current machine, we just clamp it to whatever the world size is.
-    if model_parallelism > global_world_size:
+    if tensor_parallelism > global_world_size:
         logger.warning(
             "Model parallelism %d is greater than world size %d, setting to %d",
-            model_parallelism,
+            tensor_parallelism,
             global_world_size,
             global_world_size,
         )
-        model_parallelism = global_world_size
+        tensor_parallelism = global_world_size
 
     # Validates parallelism for current world size.
-    if global_world_size % model_parallelism != 0:
-        raise ParallismError(f"{global_world_size=} is not divisible by {model_parallelism=}")
-    data_parallelism = global_world_size // model_parallelism
+    if global_world_size % tensor_parallelism != 0:
+        raise ParallismError(f"{global_world_size=} is not divisible by {tensor_parallelism=}")
+    data_parallelism = global_world_size // tensor_parallelism
 
     logger.info(
         ("Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s"),
         colored("Model", "light-green"),
-        colored(str(model_parallelism), "light-cyan", bold=True),
+        colored(str(tensor_parallelism), "light-cyan", bold=True),
         colored("Data", "light-green"),
         colored(str(data_parallelism), "light-cyan", bold=True),
     )
@@ -668,7 +668,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     # same model parallel group than data parallel group. This is because for
     # typical environments we have data parallel groups that are on separate
     # devices.
-    groups_dm = torch.arange(global_world_size).view(data_parallelism, model_parallelism)
+    groups_dm = torch.arange(global_world_size).view(data_parallelism, tensor_parallelism)
 
     def get_group(groups_nd: Tensor) -> tuple[ProcessGroup, list[int]]:
         assert groups_nd.dim() == 2
@@ -691,10 +691,10 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     assert isinstance(tp_group, ProcessGroup), tp_group
 
     assert len(dp_ids) == data_parallelism, f"{len(dp_ids)=} != {data_parallelism=}"
-    assert len(tp_ids) == model_parallelism, f"{len(tp_ids)=} != {model_parallelism=}"
+    assert len(tp_ids) == tensor_parallelism, f"{len(tp_ids)=} != {tensor_parallelism=}"
 
-    dp_rank = global_rank // model_parallelism
-    tp_rank = global_rank % model_parallelism
+    dp_rank = global_rank // tensor_parallelism
+    tp_rank = global_rank % tensor_parallelism
 
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
@@ -702,7 +702,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             group=tp_group,
             global_ranks=tp_ids,
             rank=tp_rank,
-            world_size=model_parallelism,
+            world_size=tensor_parallelism,
         ),
         dp=_GroupInfo(
             group=dp_group,
