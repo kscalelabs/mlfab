@@ -198,9 +198,9 @@ def collate_nullable(
     # Handles dataclasses.
     if is_dataclass(item):
         output_dict = {}
-        item_keys = item.__dict__.keys()
-        for key in item_keys:
-            output_dict[key] = collate_nullable([getattr(i, key) for i in items], mode=mode, pad=pad)
+        item_dc_keys = item.__dict__.keys()
+        for dc_key in item_dc_keys:
+            output_dict[dc_key] = collate_nullable([getattr(i, dc_key) for i in items], mode=mode, pad=pad)
         return item.__class__(**output_dict)
 
     # By default, don't do anything.
