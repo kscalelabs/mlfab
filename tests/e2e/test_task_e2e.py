@@ -68,8 +68,6 @@ class DummyTask(mlfab.Task[Config]):
 @pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
-    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
-        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
     num_processes = 4

@@ -209,7 +209,6 @@ class _GroupInfo:
 class _GroupsInfos:
     tp: _GroupInfo
     dp: _GroupInfo
-    cpu: ProcessGroup
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
         return init_device_mesh(
@@ -239,22 +238,6 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
 @functools.lru_cache(None)
 def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
-
-
-@overload
-def cpu_pg(throw_if_missing: Literal[True] = True) -> ProcessGroup: ...
-
-
-@overload
-def cpu_pg(throw_if_missing: Literal[False]) -> ProcessGroup | None: ...
-
-
-def cpu_pg(throw_if_missing: bool = True) -> ProcessGroup | None:
-    if _parallel_group_info is None:
-        if throw_if_missing:
-            raise RuntimeError("Parallel process groups have not been initialized!")
-        return None
-    return _parallel_group_info.cpu
 
 
 def tp_info() -> _GroupInfo:
@@ -626,13 +609,6 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         device_id=device_id,
     )
 
-    # Creates a CPU-only process group for CPU operations.
-    cpu_pg_impl = dist.new_group(
-        ranks=list(range(cfg.world_size)),
-        timeout=PROCESS_GROUP_TIMEOUT,
-        backend=get_cpu_distributed_backend(),
-    )
-
     logger.debug("Initialized process group")
     if all_reduce:
         dist.all_reduce(torch.zeros(1, device="cuda" if torch.cuda.is_available() else "cpu"))
@@ -748,7 +724,6 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
-        cpu=cpu_pg_impl,
     )
 
 
@@ -774,10 +749,6 @@ def get_distributed_backend() -> dist.Backend:
     # For example, if you're on a system with some strange NCCL errors, you
     # can try changing this environment variable to `gloo`.
     return dist.Backend(os.environ.get("TORCH_DISTRIBUTED_BACKEND", default_backend()))
-
-
-def get_cpu_distributed_backend() -> dist.Backend:
-    return dist.Backend(os.environ.get("TORCH_CPU_DISTRIBUTED_BACKEND", "gloo"))
 
 
 def init_and_run(

@@ -45,7 +45,7 @@ Config = TypeVar("Config", bound=CheckpointingConfig)
 
 def _maybe_barrier() -> None:
     if dist.is_initialized():
-        dist.monitored_barrier(timeout=datetime.timedelta(minutes=5))
+        dist.barrier()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
