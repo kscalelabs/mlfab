@@ -714,6 +714,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.parallel import (
         MultiProcessConfig,
         cleanup_dist,
+        cpu_pg,
         dp_group,
         dp_rank,
         dp_ranks,

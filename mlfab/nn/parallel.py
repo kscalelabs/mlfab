@@ -208,6 +208,7 @@ class _GroupInfo:
 class _GroupsInfos:
     tp: _GroupInfo
     dp: _GroupInfo
+    cpu: ProcessGroup
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
         return init_device_mesh(
@@ -237,6 +238,22 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
 @functools.lru_cache(None)
 def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
+
+
+@overload
+def cpu_pg(throw_if_missing: Literal[True] = True) -> ProcessGroup: ...
+
+
+@overload
+def cpu_pg(throw_if_missing: Literal[False]) -> ProcessGroup | None: ...
+
+
+def cpu_pg(throw_if_missing: bool = True) -> ProcessGroup | None:
+    if _parallel_group_info is None:
+        if throw_if_missing:
+            raise RuntimeError("Parallel process groups have not been initialized!")
+        return None
+    return _parallel_group_info.cpu
 
 
 def tp_info() -> _GroupInfo:
@@ -638,13 +655,13 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
                 )
 
     if tensor_parallelism <= 0:
-        raise ValueError(f"Model parallelism must be positive, got {tensor_parallelism}")
+        raise ValueError(f"Tensor parallelism must be positive, got {tensor_parallelism}")
 
     # This is specific behavior - if model parallelism is too large for the
     # current machine, we just clamp it to whatever the world size is.
     if tensor_parallelism > global_world_size:
         logger.warning(
-            "Model parallelism %d is greater than world size %d, setting to %d",
+            "Tensor parallelism %d is greater than world size %d, setting to %d",
             tensor_parallelism,
             global_world_size,
             global_world_size,
@@ -656,9 +673,10 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         raise ParallismError(f"{global_world_size=} is not divisible by {tensor_parallelism=}")
     data_parallelism = global_world_size // tensor_parallelism
 
-    logger.info(
+    logger.log(
+        LOG_INFO_ALL,
         ("Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s"),
-        colored("Model", "light-green"),
+        colored("Tensor", "light-green"),
         colored(str(tensor_parallelism), "light-cyan", bold=True),
         colored("Data", "light-green"),
         colored(str(data_parallelism), "light-cyan", bold=True),
@@ -696,6 +714,12 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     dp_rank = global_rank // tensor_parallelism
     tp_rank = global_rank % tensor_parallelism
 
+    # Creates a process group for CPU processes.
+    cpu_process_group = dist.new_group(
+        ranks=list(range(global_world_size)),
+        backend=dist.Backend.GLOO,
+    )
+
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
         tp=_GroupInfo(
@@ -710,14 +734,16 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
+        cpu=cpu_process_group,
     )
 
 
 def cleanup_dist() -> None:
     global _parallel_group_info
     if _parallel_group_info is not None:
-        dist.destroy_process_group(dp_info().group)
-        dist.destroy_process_group(tp_info().group)
+        dist.destroy_process_group(_parallel_group_info.dp.group)
+        dist.destroy_process_group(_parallel_group_info.tp.group)
+        dist.destroy_process_group(_parallel_group_info.cpu)
     if (pg := dist.GroupMember.WORLD) is not None:
         dist.destroy_process_group(pg)
     _parallel_group_info = None
