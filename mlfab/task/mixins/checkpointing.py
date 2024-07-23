@@ -15,12 +15,12 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import cpu_pg, is_master
+from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
@@ -233,10 +233,13 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.load(
-            weights_dict,
-            checkpoint_id=ckpt_path,
-            process_group=cpu_pg(throw_if_missing=False),
+        dcp.load(weights_dict, checkpoint_id=ckpt_path)
+        set_state_dict(
+            module,
+            optimizer,
+            model_state_dict=model_state_dict,
+            optim_state_dict=optimizer_state_dict,
+            options=options,
         )
         _maybe_barrier()
 
@@ -285,11 +288,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             options=options,
         )
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.save(
-            weights_dict,
-            checkpoint_id=ckpt_path,
-            process_group=cpu_pg(throw_if_missing=False),
-        )
+        dcp.save(weights_dict, checkpoint_id=ckpt_path)
 
         if is_master():
             state_dict: dict = {}
