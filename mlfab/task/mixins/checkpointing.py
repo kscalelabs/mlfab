@@ -283,7 +283,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.save(weights_dict, checkpoint_id=ckpt_path)
+        dcp.save(weights_dict, checkpoint_id=ckpt_path, process_group=cpu_pg(throw_if_missing=False))
 
         if is_master():
             state_dict: dict = {}
