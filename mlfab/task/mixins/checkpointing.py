@@ -15,7 +15,7 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -237,14 +237,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             weights_dict,
             checkpoint_id=ckpt_path,
             process_group=cpu_pg(throw_if_missing=False),
-        )
-
-        set_state_dict(
-            module,
-            optimizer,
-            model_state_dict=model_state_dict,
-            optim_state_dict=optimizer_state_dict,
-            options=options,
         )
         _maybe_barrier()
 
