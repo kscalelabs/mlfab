@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 29500
 
-PROCESS_GROUP_TIMEOUT = datetime.timedelta(seconds=60)
+PROCESS_GROUP_TIMEOUT = datetime.timedelta(minutes=5)
 
 P = ParamSpec("P")
 T = TypeVar("T", bound=nn.Module)
