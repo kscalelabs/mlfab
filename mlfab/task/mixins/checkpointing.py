@@ -18,7 +18,7 @@ from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import is_master
+from mlfab.nn.parallel import cpu_pg, is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
 from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
@@ -231,7 +231,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.load(weights_dict, checkpoint_id=ckpt_path)
+        dcp.load(weights_dict, checkpoint_id=ckpt_path, process_group=cpu_pg(throw_if_missing=False))
 
         set_state_dict(
             module,

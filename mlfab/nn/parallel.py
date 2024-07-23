@@ -240,9 +240,19 @@ def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
 
 
-def cpu_pg() -> ProcessGroup:
+@overload
+def cpu_pg(throw_if_missing: Literal[True] = True) -> ProcessGroup: ...
+
+
+@overload
+def cpu_pg(throw_if_missing: Literal[False]) -> ProcessGroup | None: ...
+
+
+def cpu_pg(throw_if_missing: bool = True) -> ProcessGroup | None:
     if _parallel_group_info is None:
-        raise RuntimeError("Parallel process groups have not been initialized!")
+        if throw_if_missing:
+            raise RuntimeError("Parallel process groups have not been initialized!")
+        return None
     return _parallel_group_info.cpu
 
 
