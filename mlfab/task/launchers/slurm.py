@@ -242,7 +242,8 @@ class SlurmLauncher(StagedLauncher):
         return ":".join(p for p in pythonpath_paths if p)
 
     def sbatch_file_contents(self, task: "ArtifactsMixin[ArtifactsConfig]") -> str:
-        output_path, error_path = task.exp_dir / "slurm.out", task.exp_dir / "slurm.err"
+        slurm_dir = task.exp_dir / "slurm"
+        output_path, error_path = slurm_dir / "slurm.%N.%t.out", slurm_dir / "slurm.%N.%t.err"
         nccl_path = task.exp_dir / "nccl.txt"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
