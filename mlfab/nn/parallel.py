@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 29500
 
+PROCESS_GROUP_TIMEOUT = datetime.timedelta(seconds=60)
+
 P = ParamSpec("P")
 T = TypeVar("T", bound=nn.Module)
 
@@ -606,20 +608,30 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     os.environ["MASTER_ADDR"] = cfg.master_addr
     os.environ["MASTER_PORT"] = str(cfg.master_port)
 
-    init_method = "env://"
-    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, init_method)
-    dist.init_process_group(
-        backend=get_cpu_distributed_backend(),
-        init_method=init_method,
-        world_size=cfg.world_size,
-        rank=cfg.rank,
-    )
-    assert (world_pg := dist.group.WORLD) is not None, "World process group is not initialized"
-
+    device_id: torch.device | None = None
     if torch.cuda.is_available():
         dev_id = (local_rank := cfg.local_rank) % (dev_cnt := torch.cuda.device_count())
         logger.log(LOG_DEBUG_ALL, "Setting device %d (local rank %d with %d device(s))", dev_id, local_rank, dev_cnt)
         torch.cuda.set_device(dev_id)
+        device_id = torch.device("cuda", dev_id)
+
+    init_method = "env://"
+    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, init_method)
+    dist.init_process_group(
+        backend=get_distributed_backend(),
+        init_method=init_method,
+        world_size=cfg.world_size,
+        rank=cfg.rank,
+        timeout=PROCESS_GROUP_TIMEOUT,
+        device_id=device_id,
+    )
+
+    # Creates a CPU-only process group for CPU operations.
+    cpu_pg_impl = dist.new_group(
+        ranks=list(range(cfg.world_size)),
+        timeout=PROCESS_GROUP_TIMEOUT,
+        backend=get_cpu_distributed_backend(),
+    )
 
     logger.debug("Initialized process group")
     if all_reduce:
@@ -699,7 +711,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             group_ranks = groups_nd[i].tolist()
             group_i = dist.new_group(
                 group_ranks,
-                timeout=datetime.timedelta(seconds=60),
+                timeout=PROCESS_GROUP_TIMEOUT,
                 backend=get_distributed_backend(),
             )
             if global_rank in group_ranks:
@@ -736,7 +748,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
-        cpu=world_pg,
+        cpu=cpu_pg_impl,
     )
 
 
