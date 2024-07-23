@@ -7,6 +7,7 @@ for model parallelism and data parallelism. The process group information can
 be accessed using :func:`mlfab.nn.parallel.parallel_group_info`.
 """
 
+import datetime
 import functools
 import logging
 import math
@@ -206,6 +207,7 @@ class _GroupInfo:
 class _GroupsInfos:
     tp: _GroupInfo
     dp: _GroupInfo
+    cpu: ProcessGroup
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
         return init_device_mesh(
@@ -235,6 +237,22 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
 @functools.lru_cache(None)
 def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
+
+
+@overload
+def cpu_pg(throw_if_missing: Literal[True] = True) -> ProcessGroup: ...
+
+
+@overload
+def cpu_pg(throw_if_missing: Literal[False]) -> ProcessGroup | None: ...
+
+
+def cpu_pg(throw_if_missing: bool = True) -> ProcessGroup | None:
+    if _parallel_group_info is None:
+        if throw_if_missing:
+            raise RuntimeError("Parallel process groups have not been initialized!")
+        return None
+    return _parallel_group_info.cpu
 
 
 def tp_info() -> _GroupInfo:
@@ -588,14 +606,15 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     os.environ["MASTER_ADDR"] = cfg.master_addr
     os.environ["MASTER_PORT"] = str(cfg.master_port)
 
-    init_method = f"tcp://{cfg.master_addr}:{cfg.master_port}"
+    init_method = "env://"
     logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, init_method)
     dist.init_process_group(
-        backend=dist.Backend.GLOO,
+        backend=get_cpu_distributed_backend(),
         init_method=init_method,
         world_size=cfg.world_size,
         rank=cfg.rank,
     )
+    assert (world_pg := dist.group.WORLD) is not None, "World process group is not initialized"
 
     if torch.cuda.is_available():
         dev_id = (local_rank := cfg.local_rank) % (dev_cnt := torch.cuda.device_count())
@@ -678,7 +697,11 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         group: tuple[ProcessGroup, list[int]] | None = None
         for i in range(groups_nd.size(0)):
             group_ranks = groups_nd[i].tolist()
-            group_i = dist.new_group(group_ranks)
+            group_i = dist.new_group(
+                group_ranks,
+                timeout=datetime.timedelta(seconds=60),
+                backend=get_distributed_backend(),
+            )
             if global_rank in group_ranks:
                 group = (group_i, group_ranks)
         if group is None:
@@ -713,6 +736,7 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
+        cpu=world_pg,
     )
 
 
@@ -738,6 +762,10 @@ def get_distributed_backend() -> dist.Backend:
     # For example, if you're on a system with some strange NCCL errors, you
     # can try changing this environment variable to `gloo`.
     return dist.Backend(os.environ.get("TORCH_DISTRIBUTED_BACKEND", default_backend()))
+
+
+def get_cpu_distributed_backend() -> dist.Backend:
+    return dist.Backend(os.environ.get("TORCH_CPU_DISTRIBUTED_BACKEND", "gloo"))
 
 
 def init_and_run(

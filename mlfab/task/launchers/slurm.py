@@ -411,7 +411,6 @@ srun \\
             local_world_size=local_world_size,
             master_addr=master_addr,
             master_port=master_port,
-            init_method="env://",
             tensor_parallelism=tensor_parallelism,
         )
         init_dist(cfg)
