@@ -1,6 +1,5 @@
 """Defines a mixin for handling model checkpointing."""
 
-import datetime
 import json
 import logging
 import time
@@ -15,7 +14,7 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -234,13 +233,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
         dcp.load(weights_dict, checkpoint_id=ckpt_path)
-        set_state_dict(
-            module,
-            optimizer,
-            model_state_dict=model_state_dict,
-            optim_state_dict=optimizer_state_dict,
-            options=options,
-        )
         _maybe_barrier()
 
         if raw_state is not None:

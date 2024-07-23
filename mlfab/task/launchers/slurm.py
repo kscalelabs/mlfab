@@ -433,4 +433,20 @@ srun \\
 
 
 if __name__ == "__main__":
+    print(
+        "\n".join(
+            [
+                "",
+                "┌─────",
+                f"│ Job ID: {os.environ.get('SLURM_JOBID', 'MISSING')}",
+                f"│ Host: {os.environ.get('SLURMD_NODENAME', 'MISSING')}",
+                f"│ All nodes: {os.environ.get('SLURM_NODELIST', 'MISSING')}",
+                f"│ Launch time: {datetime.datetime.now()}",
+                "└─────",
+                "",
+            ]
+        ),
+        flush=True,
+    )
+
     SlurmLauncher.run()
