@@ -655,13 +655,13 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
                 )
 
     if tensor_parallelism <= 0:
-        raise ValueError(f"Model parallelism must be positive, got {tensor_parallelism}")
+        raise ValueError(f"Tensor parallelism must be positive, got {tensor_parallelism}")
 
     # This is specific behavior - if model parallelism is too large for the
     # current machine, we just clamp it to whatever the world size is.
     if tensor_parallelism > global_world_size:
         logger.warning(
-            "Model parallelism %d is greater than world size %d, setting to %d",
+            "Tensor parallelism %d is greater than world size %d, setting to %d",
             tensor_parallelism,
             global_world_size,
             global_world_size,
@@ -673,9 +673,10 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         raise ParallismError(f"{global_world_size=} is not divisible by {tensor_parallelism=}")
     data_parallelism = global_world_size // tensor_parallelism
 
-    logger.info(
+    logger.log(
+        LOG_INFO_ALL,
         ("Parallism configuration\n ↪ %s parallelism %s\n ↪ %s parallelism %s"),
-        colored("Model", "light-green"),
+        colored("Tensor", "light-green"),
         colored(str(tensor_parallelism), "light-cyan", bold=True),
         colored("Data", "light-green"),
         colored(str(data_parallelism), "light-cyan", bold=True),
