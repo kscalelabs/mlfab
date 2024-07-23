@@ -51,7 +51,6 @@ class MultiProcessKwargs(TypedDict):
     local_world_size: NotRequired[int]
     master_addr: NotRequired[str]
     master_port: NotRequired[int]
-    init_method: NotRequired[str]
     tensor_parallelism: NotRequired[int | str]
     multiprocess_launch_method: NotRequired[str]
 
@@ -64,7 +63,6 @@ class MultiProcessConfig:
     local_world_size: int = field(II("world_size"), help="The number of processes per machine")
     master_addr: str = field("127.0.0.1", help="The address of the master process")
     master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
-    init_method: str = field("env://", help="The initialization method")
     tensor_parallelism: int | str = field(1, help="The number of tensor parallel processes")
     multiprocess_launch_method: str = field("forkserver", help="The launch method for multiprocessing")
 
@@ -590,10 +588,11 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     os.environ["MASTER_ADDR"] = cfg.master_addr
     os.environ["MASTER_PORT"] = str(cfg.master_port)
 
-    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, cfg.init_method)
+    init_method = f"tcp://{cfg.master_addr}:{cfg.master_port}"
+    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, init_method)
     dist.init_process_group(
         backend=dist.Backend.GLOO,
-        init_method=cfg.init_method,
+        init_method=init_method,
         world_size=cfg.world_size,
         rank=cfg.rank,
     )
