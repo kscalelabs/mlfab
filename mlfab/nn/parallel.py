@@ -208,6 +208,7 @@ class _GroupInfo:
 class _GroupsInfos:
     tp: _GroupInfo
     dp: _GroupInfo
+    cpu: ProcessGroup
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
         return init_device_mesh(
@@ -237,6 +238,12 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
 @functools.lru_cache(None)
 def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
+
+
+def cpu_pg() -> ProcessGroup:
+    if _parallel_group_info is None:
+        raise RuntimeError("Parallel process groups have not been initialized!")
+    return _parallel_group_info.cpu
 
 
 def tp_info() -> _GroupInfo:
@@ -696,6 +703,12 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     dp_rank = global_rank // tensor_parallelism
     tp_rank = global_rank % tensor_parallelism
 
+    # Creates a process group for CPU processes.
+    cpu_process_group = dist.new_group(
+        ranks=list(range(global_world_size)),
+        backend=dist.Backend.GLOO,
+    )
+
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
         tp=_GroupInfo(
@@ -710,14 +723,16 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
+        cpu=cpu_process_group,
     )
 
 
 def cleanup_dist() -> None:
     global _parallel_group_info
     if _parallel_group_info is not None:
-        dist.destroy_process_group(dp_info().group)
-        dist.destroy_process_group(tp_info().group)
+        dist.destroy_process_group(_parallel_group_info.dp.group)
+        dist.destroy_process_group(_parallel_group_info.tp.group)
+        dist.destroy_process_group(_parallel_group_info.cpu)
     if (pg := dist.GroupMember.WORLD) is not None:
         dist.destroy_process_group(pg)
     _parallel_group_info = None
