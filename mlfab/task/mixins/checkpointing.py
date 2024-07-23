@@ -15,7 +15,6 @@ from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
 from torch.optim.optimizer import Optimizer
-from torch.distributed.checkpoint.filesystem import FileSystemReader, FileSystemWriter
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
