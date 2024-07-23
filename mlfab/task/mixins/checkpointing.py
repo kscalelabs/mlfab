@@ -1,5 +1,6 @@
 """Defines a mixin for handling model checkpointing."""
 
+import datetime
 import json
 import logging
 import time
@@ -42,10 +43,10 @@ Config = TypeVar("Config", bound=CheckpointingConfig)
 
 
 def _maybe_barrier() -> None:
-    if dist.is_initialized():
-        dist.barrier()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
+    if dist.is_initialized():
+        dist.monitored_barrier(timeout=datetime.timedelta(minutes=5))
 
 
 class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
