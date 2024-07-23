@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import warnings
+from concurrent.futures import Future
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Generic, Literal, Self, TypeVar, overload
@@ -270,7 +271,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
-    ) -> Path:
+    ) -> Path | tuple[Path, Future]:
         ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
 
         self.on_before_save_ckpt(ckpt_path)
@@ -284,7 +285,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         options = self._get_fsdp_state_dict_options()
         model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
         weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        # dcp.async_save(weights_dict, checkpoint_id=ckpt_path)
         dcp.save(weights_dict, checkpoint_id=ckpt_path, process_group=cpu_pg(throw_if_missing=False))
 
         if is_master():
@@ -300,5 +300,4 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         _maybe_barrier()
 
         self.on_after_save_ckpt(ckpt_path)
-
         return ckpt_path
