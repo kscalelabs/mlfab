@@ -4,7 +4,6 @@ import json
 import logging
 import time
 import warnings
-from concurrent.futures import Future
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Generic, Literal, Self, TypeVar, overload
@@ -262,7 +261,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
-    ) -> Path | tuple[Path, Future]:
+    ) -> Path:
         ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
 
         self.on_before_save_ckpt(ckpt_path)
