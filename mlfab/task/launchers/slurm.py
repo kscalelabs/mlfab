@@ -4,6 +4,7 @@ import argparse
 import datetime
 import functools
 import json
+import logging
 import os
 import re
 import signal
@@ -21,8 +22,10 @@ from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.experiments import get_random_port
-from mlfab.utils.logging import configure_logging
+from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import show_info
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MASTER_PORT = 29500
 
@@ -42,15 +45,17 @@ def set_slurm_rank_and_world_size() -> tuple[int, int, int, int]:
     return rank, local_rank, world_size, local_world_size
 
 
-def get_slurm_master_addr_and_port() -> tuple[str, int]:
+def get_slurm_master_addr_and_port() -> tuple[str, int, str | None, str | None]:
     node_list = os.environ.get("SLURM_STEP_NODELIST")
     if node_list is None:
         node_list = os.environ.get("SLURM_JOB_NODELIST")
     assert node_list is not None, "`SLURM_JOB_NODELIST` environment variable not set"
+    host = os.environ.get("SLURMD_NODENAME", None)
+    job_id = os.environ.get("SLURM_JOB_ID", None)
     hostnames = subprocess.check_output(["scontrol", "show", "hostnames", node_list])
-    host = hostnames.split()[0].decode("utf-8")
-    port = int(os.environ.get("MASTER_PORT", str(DEFAULT_MASTER_PORT)))
-    return host, port
+    master_addr = hostnames.split()[0].decode("utf-8")
+    master_port = int(os.environ.get("MASTER_PORT", str(DEFAULT_MASTER_PORT)))
+    return master_addr, master_port, host, job_id
 
 
 def write_message(message: str) -> None:
@@ -242,8 +247,7 @@ class SlurmLauncher(StagedLauncher):
         return ":".join(p for p in pythonpath_paths if p)
 
     def sbatch_file_contents(self, task: "ArtifactsMixin[ArtifactsConfig]") -> str:
-        slurm_dir = task.exp_dir / "slurm"
-        output_path, error_path = slurm_dir / "slurm.%N.%t.out", slurm_dir / "slurm.%N.%t.err"
+        output_path = task.exp_dir / "slurm" / "%N.slurm"
         nccl_path = task.exp_dir / "nccl.txt"
         stage_dir = task.stage_environment()
         comments = ([] if self.comment is None else [self.comment]) + [f"Log directory: {task.exp_dir}"]
@@ -283,7 +287,7 @@ class SlurmLauncher(StagedLauncher):
 #SBATCH --cpus-per-gpu={self.cpus_per_gpu}
 #SBATCH --gpus-per-node={self.gpus_per_node}
 #SBATCH --output={output_path}
-#SBATCH --error={error_path}
+#SBATCH --error={output_path}
 #SBATCH --open-mode=append{extra_sbatch_lines_str}
 
 # Sets the environment variables.
@@ -326,25 +330,13 @@ fi
 # Append the log data to the JSON file
 jq ". + [$log_data]" $slurm_info_file > tmp.$$.json && mv tmp.$$.json $slurm_info_file
 
-# Make a new line in the stdout file.
-echo ""
-echo "***"
-echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}"
-echo "***"
-echo ""
-
-# Also make a new line in the stderr file.
-echo "" >&2
-echo "***" >&2
-echo "Job ID: ${{SLURM_JOB_ID}} - ${{launch_timestamp}}" >&2
-echo "***" >&2
-echo "" >&2
-
 # Runs the training command.
 srun \\
     --ntasks-per-node={self.gpus_per_node} \\
     --cpus-per-gpu={self.cpus_per_gpu} \\
     --gpus-per-node={self.gpus_per_node} \\
+    --output={output_path} \\
+    --error={output_path} \\
     python -m {self.__module__} {task.task_key} {config_path}
 """.strip()
 
@@ -396,7 +388,7 @@ srun \\
             raise RuntimeError(f"Usage: python -m {cls.__module__} <task_key> <config_path>")
 
         # Gets Slurm information.
-        host, port = get_slurm_master_addr_and_port()
+        master_addr, master_port, host, job_id = get_slurm_master_addr_and_port()
         node_rank = int(os.environ["SLURM_NODEID"])
         local_rank = int(os.environ["SLURM_LOCALID"])
         node_world_size = int(os.environ["SLURM_NNODES"])
@@ -406,6 +398,7 @@ srun \\
 
         # Sets the initialization method and configures per-rank logging.
         configure_logging(rank=rank, world_size=world_size)
+        logger.log(LOG_INFO_ALL, "Job ID: %s, Host: %s", job_id, host)
 
         # Gets parallelism environment variables.
         tensor_parallelism = os.environ.get("TENSOR_PARALLELISM", "1")
@@ -416,8 +409,8 @@ srun \\
             local_rank=local_rank,
             world_size=world_size,
             local_world_size=local_world_size,
-            master_addr=host,
-            master_port=port,
+            master_addr=master_addr,
+            master_port=master_port,
             init_method="env://",
             tensor_parallelism=tensor_parallelism,
         )
