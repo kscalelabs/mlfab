@@ -138,7 +138,7 @@ class SlurmLauncher(StagedLauncher):
         account: str | None = None,
         nodelist: list[str] | None = None,
         master_port: int | None = None,
-        model_parallelism: int | str = 1,
+        tensor_parallelism: int | str = 1,
         nccl_debug: str = "WARN",
         nccl_debug_subsys: str = "ALL",
     ) -> None:
@@ -170,7 +170,7 @@ class SlurmLauncher(StagedLauncher):
         self.num_jobs = num_jobs
         self.comment = comment
         self.master_port = get_random_port(DEFAULT_MASTER_PORT) if master_port is None else master_port
-        self.model_parallelism = model_parallelism
+        self.tensor_parallelism = tensor_parallelism
         self.account = account
         self.nodelist = nodelist
         self.nccl_debug = nccl_debug
@@ -233,8 +233,8 @@ class SlurmLauncher(StagedLauncher):
     @property
     def extra_export_lines(self) -> str:
         export_lines: dict[str, str] = {}
-        if self.model_parallelism != 1:
-            export_lines["MODEL_PARALLELISM"] = str(self.model_parallelism)
+        if self.tensor_parallelism != 1:
+            export_lines["TENSOR_PARALLELISM"] = str(self.tensor_parallelism)
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
 
     def pythonpath(self, stage_dir: str | Path | None) -> str:
@@ -407,9 +407,9 @@ srun \\
         configure_logging(rank=rank, world_size=world_size)
 
         # Gets parallelism environment variables.
-        model_parallelism = os.environ.get("MODEL_PARALLELISM", "1")
+        tensor_parallelism = os.environ.get("TENSOR_PARALLELISM", "1")
 
-        # Sets model parallelism.
+        # Sets tensor parallelism.
         cfg = MultiProcessConfig(
             rank=rank,
             local_rank=local_rank,
@@ -418,7 +418,7 @@ srun \\
             master_addr=host,
             master_port=port,
             init_method="env://",
-            model_parallelism=model_parallelism,
+            tensor_parallelism=tensor_parallelism,
         )
         init_dist(cfg)
 

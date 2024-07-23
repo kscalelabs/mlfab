@@ -58,7 +58,7 @@ class CliLauncher(BaseLauncher):
                     cpus_per_gpu=slurm_args.cpus_per_gpu,
                     num_nodes=slurm_args.num_nodes,
                     num_jobs=slurm_args.num_jobs,
-                    model_parallelism=cfg.model_parallelism,
+                    tensor_parallelism=cfg.tensor_parallelism,
                     account=slurm_args.account,
                     nodelist=slurm_args.nodelist,
                     nccl_debug=slurm_args.nccl_debug,

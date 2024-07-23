@@ -65,8 +65,8 @@ class DummyTask(mlfab.Task[Config]):
 
 @pytest.mark.timeout(120)
 @pytest.mark.slow
-@pytest.mark.parametrize("model_parallelism", (1, 2, 4))
-def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
+@pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
+def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
     if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
         os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
@@ -81,7 +81,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
         batch_size=2,
         num_train_dl_workers=0,
         max_steps=5,
-        model_parallelism=model_parallelism,
+        tensor_parallelism=tensor_parallelism,
         run_dir=str(tmpdir),
     )
 
@@ -107,7 +107,7 @@ def test_e2e_training_mp(tmpdir: Path, model_parallelism: int) -> None:
     # Run from the same experiment directory, single-process.
     assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
     config.max_steps = 15
-    config.model_parallelism = 1
+    config.tensor_parallelism = 1
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=1), use_cli=False)
 

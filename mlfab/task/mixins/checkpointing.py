@@ -276,7 +276,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
-        ckpt_path.mkdir(exist_ok=True, parents=True)
+        if is_master():
+            ckpt_path.mkdir(exist_ok=True, parents=True)
 
         _maybe_barrier()
         options = self._get_fsdp_state_dict_options()
