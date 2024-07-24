@@ -566,10 +566,7 @@ class AdamWScheduleFree(Optimizer):
             loss = closure()
 
         for group in self.param_groups:
-            try:
-                eps = group["eps"]
-            except Exception:
-                raise Exception(f"Group: {group}")
+            eps = group["eps"]
             beta1, beta2 = group["betas"]
             decay = group["weight_decay"]
             k = group["k"]
