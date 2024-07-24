@@ -22,7 +22,7 @@ from torch.distributed.fsdp.wrap import CustomPolicy
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
-from mlfab.nn.parallel import all_params_are_cuda, device_mesh, parallel_group_info
+from mlfab.nn.parallel import all_params_are_cuda, device_mesh, get_world_size, parallel_group_info
 from mlfab.task.mixins.device import DeviceConfig, DeviceMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.utils.experiments import MinGradScaleError, NaNError, clip_grad_norm_, get_weight_norm
@@ -139,7 +139,9 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def get_wrapped_model(self, model: nn.Module) -> FSDP:
+    def get_wrapped_model(self, model: nn.Module) -> FSDP | nn.Module:
+        if get_world_size() <= 1:
+            return model
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
