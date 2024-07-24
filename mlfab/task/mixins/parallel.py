@@ -139,7 +139,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def get_wrapped_model(self, model: nn.Module) -> FSDP | nn.Module:
+    def get_wrapped_model(self, model: nn.Module) -> FSDP:
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
