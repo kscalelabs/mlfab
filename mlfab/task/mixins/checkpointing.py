@@ -21,7 +21,6 @@ from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
-from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
@@ -70,12 +69,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             task information, not the model weights.
         """
         ckpt_path = Path(path)
-        state_dict = torch.load(
-            ckpt_path / STATE_FILE_NAME,
-            map_location="cpu",
-            pickle_module=CustomPickleModule,
-            weights_only=False,
-        )
+        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu", weights_only=True)
         return state_dict
 
     @overload
@@ -301,7 +295,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             state_dict["task"] = self.task_state_dict()
             state_dict["state"] = json.dumps(asdict(state))
             state_dict["config"] = OmegaConf.to_yaml(self.config)
-            torch.save(state_dict, ckpt_path / STATE_FILE_NAME, pickle_module=CustomPickleModule)
+            torch.save(state_dict, ckpt_path / STATE_FILE_NAME)
 
             # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)

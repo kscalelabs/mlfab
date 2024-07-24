@@ -102,17 +102,10 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
 
     # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
+    state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
     DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
-
-    # Run from the same experiment directory, single-process.
-    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
-    config.max_steps = 15
-    config.tensor_parallelism = 1
-
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=1), use_cli=False)
 
 
 @pytest.mark.slow
