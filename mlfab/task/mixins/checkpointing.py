@@ -201,7 +201,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def _ckpt_options(self) -> StateDictOptions:
         return StateDictOptions(
             full_state_dict=False,
-            cpu_offload=False,
+            cpu_offload=True,
             ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
             keep_submodule_prefixes=True,
             strict=self.config.ckpt_strict,
