@@ -7,6 +7,7 @@ training loop.
 import logging
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -111,6 +112,10 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     os.environ["USE_METAL"] = "0"
 
     num_processes = 4
+
+    if torch.cuda.is_available() and torch.cuda.device_count() < tensor_parallelism:
+        warnings.warn("CUDA device count is less than tensor parallelism; using GLOO backend.")
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
 
     mlfab.configure_logging()
 
