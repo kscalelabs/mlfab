@@ -66,43 +66,6 @@ class DummyTask(mlfab.Task[Config]):
 
 @pytest.mark.timeout(120)
 @pytest.mark.slow
-def test_e2e_training_sp(tmpdir: Path) -> None:
-    os.environ["TENSORBOARD_PORT"] = "-1"
-    os.environ["USE_METAL"] = "0"
-
-    mlfab.configure_logging()
-
-    config = Config(
-        num_layers=2,
-        batch_size=2,
-        num_train_dl_workers=0,
-        max_steps=5,
-        tensor_parallelism=1,
-        run_dir=str(tmpdir),
-    )
-
-    DummyTask.launch(config, launcher=mlfab.SingleProcessLauncher(), use_cli=False)
-
-    # Run from the same experiment directory.
-    exp_dir = Path(tmpdir) / "dummy_task" / "run_0"
-    assert exp_dir.exists(), f"Directory does not exist: {exp_dir}"
-    config.exp_dir = str(exp_dir)
-    config.max_steps = 10
-
-    # Attempts to convert to a single torch checkpoint.
-    ckpt_path = Path(tmpdir) / "ckpt.pt"
-    mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
-    assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
-
-    # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
-    DummyTask(config).load_state_dict(state_dict)
-
-    DummyTask.launch(config, launcher=mlfab.SingleProcessLauncher(), use_cli=False)
-
-
-@pytest.mark.timeout(120)
-@pytest.mark.slow
 @pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"

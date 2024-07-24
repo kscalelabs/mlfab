@@ -10,10 +10,11 @@ from typing import Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
-import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
+from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -239,7 +240,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             "model": model_state_dict,
             "optimizer": optimizer_state_dict,
         }
-        dcp.load(dcp_state_dict, checkpoint_id=ckpt_path)
+        dcp_load(dcp_state_dict, checkpoint_id=ckpt_path)
         set_state_dict(
             model,
             optimizer,
@@ -293,7 +294,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             "model": model_state_dict,
             "optimizer": optimizer_state_dict,
         }
-        dcp.save(dcp_state_dict, checkpoint_id=ckpt_path)
+        dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
 
         if is_master():
             state_dict: dict = {}
