@@ -473,7 +473,7 @@ class TrainMixin(
                 Thread(target=self.log_state, daemon=True).start()
 
             with self.step_context("load_checkpoint"):
-                state = self.load_ckpt_(module=mod, optimizer=opt, strict=self.config.init_state_strict)
+                state = self.load_ckpt_(model=mod, optimizer=opt, strict=self.config.init_state_strict)
 
             # Gets the datasets.
             with self.step_context("get_dataset"):

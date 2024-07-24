@@ -1,10 +1,10 @@
 """Defines utility functions for handling checkpoints."""
 
 import argparse
-import pickle
 import warnings
+from collections import deque
 from pathlib import Path
-from typing import Any
+from typing import Deque
 
 import torch
 from torch.distributed.checkpoint import FileSystemReader
@@ -12,24 +12,6 @@ from torch.distributed.checkpoint.format_utils import _EmptyStateDictLoadPlanner
 from torch.distributed.checkpoint.metadata import STATE_DICT_TYPE
 from torch.distributed.checkpoint.state_dict_loader import _load_state_dict
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
-
-
-class CustomPickler(pickle.Pickler):
-    def persistent_id(self, obj: Any) -> Any:  # noqa: ANN401
-        return None
-
-
-class CustomUnpickler(pickle.Unpickler):
-    def find_class(self, module: str, name: str) -> type:
-        try:
-            return super().find_class(module, name)
-        except AttributeError:
-            return lambda *args, **kwargs: None  # type: ignore[return-value]
-
-
-class CustomPickleModule:
-    Pickler = CustomPickler
-    Unpickler = CustomUnpickler
 
 
 def convert_dcp_to_torch(input_path: Path, output_path: Path, key: str | None = None) -> None:
@@ -51,14 +33,18 @@ def convert_dcp_to_torch(input_path: Path, output_path: Path, key: str | None = 
         sd = sd[key]
 
     # Removes common prefixes.
+    dicts: Deque[dict] = deque()
     if isinstance(sd, dict):
+        dicts.append(sd)
+    while dicts:
+        d = dicts.popleft()
         for prefix in ("module.", "mod."):
-            consume_prefix_in_state_dict_if_present(sd, prefix)
-            for v in sd.values():
-                if isinstance(v, dict):
-                    consume_prefix_in_state_dict_if_present(v, prefix)
+            consume_prefix_in_state_dict_if_present(d, prefix)
+        for v in d.values():
+            if isinstance(v, dict):
+                dicts.append(v)
 
-    torch.save(sd, output_path, pickle_module=CustomPickleModule)
+    torch.save(sd, output_path)
 
 
 def main() -> None:

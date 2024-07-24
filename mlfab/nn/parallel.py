@@ -7,6 +7,7 @@ for model parallelism and data parallelism. The process group information can
 be accessed using :func:`mlfab.nn.parallel.parallel_group_info`.
 """
 
+import datetime
 import functools
 import logging
 import math
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PORT = 29500
 
+PROCESS_GROUP_TIMEOUT = datetime.timedelta(minutes=5)
+
 P = ParamSpec("P")
 T = TypeVar("T", bound=nn.Module)
 
@@ -51,7 +54,6 @@ class MultiProcessKwargs(TypedDict):
     local_world_size: NotRequired[int]
     master_addr: NotRequired[str]
     master_port: NotRequired[int]
-    init_method: NotRequired[str]
     tensor_parallelism: NotRequired[int | str]
     multiprocess_launch_method: NotRequired[str]
 
@@ -64,7 +66,6 @@ class MultiProcessConfig:
     local_world_size: int = field(II("world_size"), help="The number of processes per machine")
     master_addr: str = field("127.0.0.1", help="The address of the master process")
     master_port: int = field(II("mlfab.unused_port:29500"), help="The port of the master process")
-    init_method: str = field("env://", help="The initialization method")
     tensor_parallelism: int | str = field(1, help="The number of tensor parallel processes")
     multiprocess_launch_method: str = field("forkserver", help="The launch method for multiprocessing")
 
@@ -208,7 +209,6 @@ class _GroupInfo:
 class _GroupsInfos:
     tp: _GroupInfo
     dp: _GroupInfo
-    cpu: ProcessGroup
 
     def device_mesh(self, device_type: str) -> DeviceMesh:
         return init_device_mesh(
@@ -238,22 +238,6 @@ def parallel_group_info(required: bool = True) -> _GroupsInfos | None:
 @functools.lru_cache(None)
 def device_mesh(device_type: str) -> DeviceMesh:
     return parallel_group_info().device_mesh(device_type)
-
-
-@overload
-def cpu_pg(throw_if_missing: Literal[True] = True) -> ProcessGroup: ...
-
-
-@overload
-def cpu_pg(throw_if_missing: Literal[False]) -> ProcessGroup | None: ...
-
-
-def cpu_pg(throw_if_missing: bool = True) -> ProcessGroup | None:
-    if _parallel_group_info is None:
-        if throw_if_missing:
-            raise RuntimeError("Parallel process groups have not been initialized!")
-        return None
-    return _parallel_group_info.cpu
 
 
 def tp_info() -> _GroupInfo:
@@ -604,18 +588,26 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     if cfg is None:
         cfg = MultiProcessConfig.default_config()
 
-    backend = get_distributed_backend()
-
     os.environ["MASTER_ADDR"] = cfg.master_addr
     os.environ["MASTER_PORT"] = str(cfg.master_port)
 
-    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s - %s", cfg.rank, cfg.world_size, cfg.init_method, backend)
-    dist.init_process_group(backend=backend, init_method=cfg.init_method, world_size=cfg.world_size, rank=cfg.rank)
-
+    device_id: torch.device | None = None
     if torch.cuda.is_available():
         dev_id = (local_rank := cfg.local_rank) % (dev_cnt := torch.cuda.device_count())
         logger.log(LOG_DEBUG_ALL, "Setting device %d (local rank %d with %d device(s))", dev_id, local_rank, dev_cnt)
         torch.cuda.set_device(dev_id)
+        device_id = torch.device("cuda", dev_id)
+
+    init_method = "env://"
+    logger.log(LOG_INFO_ALL, "Initializing %d / %d using %s", cfg.rank, cfg.world_size, init_method)
+    dist.init_process_group(
+        backend=get_distributed_backend(),
+        init_method=init_method,
+        world_size=cfg.world_size,
+        rank=cfg.rank,
+        timeout=PROCESS_GROUP_TIMEOUT,
+        device_id=device_id,
+    )
 
     logger.debug("Initialized process group")
     if all_reduce:
@@ -693,7 +685,11 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
         group: tuple[ProcessGroup, list[int]] | None = None
         for i in range(groups_nd.size(0)):
             group_ranks = groups_nd[i].tolist()
-            group_i = dist.new_group(group_ranks)
+            group_i = dist.new_group(
+                group_ranks,
+                timeout=PROCESS_GROUP_TIMEOUT,
+                backend=get_distributed_backend(),
+            )
             if global_rank in group_ranks:
                 group = (group_i, group_ranks)
         if group is None:
@@ -714,12 +710,6 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
     dp_rank = global_rank // tensor_parallelism
     tp_rank = global_rank % tensor_parallelism
 
-    # Creates a process group for CPU processes.
-    cpu_process_group = dist.new_group(
-        ranks=list(range(global_world_size)),
-        backend=dist.Backend.GLOO,
-    )
-
     # Sets the group info now that it is initialized.
     _parallel_group_info = _GroupsInfos(
         tp=_GroupInfo(
@@ -734,7 +724,6 @@ def init_dist(cfg: MultiProcessConfig | None = None, all_reduce: bool = True) ->
             rank=dp_rank,
             world_size=data_parallelism,
         ),
-        cpu=cpu_process_group,
     )
 
 
@@ -743,7 +732,6 @@ def cleanup_dist() -> None:
     if _parallel_group_info is not None:
         dist.destroy_process_group(_parallel_group_info.dp.group)
         dist.destroy_process_group(_parallel_group_info.tp.group)
-        dist.destroy_process_group(_parallel_group_info.cpu)
     if (pg := dist.GroupMember.WORLD) is not None:
         dist.destroy_process_group(pg)
     _parallel_group_info = None

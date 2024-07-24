@@ -22,8 +22,8 @@ from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.experiments import get_random_port
-from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
-from mlfab.utils.text import show_info
+from mlfab.utils.logging import configure_logging
+from mlfab.utils.text import outlined, show_info
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +398,6 @@ srun \\
 
         # Sets the initialization method and configures per-rank logging.
         configure_logging(rank=rank, world_size=world_size)
-        logger.log(LOG_INFO_ALL, "Job ID: %s, Host: %s", job_id, host)
 
         # Gets parallelism environment variables.
         tensor_parallelism = os.environ.get("TENSOR_PARALLELISM", "1")
@@ -411,7 +410,6 @@ srun \\
             local_world_size=local_world_size,
             master_addr=master_addr,
             master_port=master_port,
-            init_method="env://",
             tensor_parallelism=tensor_parallelism,
         )
         init_dist(cfg)
@@ -434,4 +432,19 @@ srun \\
 
 
 if __name__ == "__main__":
+    # Prints a header with some information about the job.
+    print(
+        outlined(
+            [
+                f"Job ID: {os.environ.get('SLURM_JOBID', 'MISSING')}",
+                f"Node ID: {os.environ.get('SLURM_NODEID', 'MISSING')}",
+                f"Local ID: {os.environ.get('SLURM_LOCALID', 'MISSING')}",
+                f"Host: {os.environ.get('SLURMD_NODENAME', 'MISSING')}",
+                f"All nodes: {os.environ.get('SLURM_NODELIST', 'MISSING')}",
+                f"Launch time: {datetime.datetime.now()}",
+            ],
+        ),
+        flush=True,
+    )
+
     SlurmLauncher.run()

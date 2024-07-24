@@ -10,17 +10,17 @@ from typing import Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
-import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
+from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
-from mlfab.nn.parallel import cpu_pg, is_master
+from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
-from mlfab.utils.checkpoint import CustomPickleModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
@@ -69,7 +69,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             task information, not the model weights.
         """
         ckpt_path = Path(path)
-        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu", pickle_module=CustomPickleModule)
+        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu", weights_only=True)
         return state_dict
 
     @overload
@@ -193,7 +193,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def _get_fsdp_state_dict_options(self) -> StateDictOptions:
+    def _ckpt_options(self) -> StateDictOptions:
         return StateDictOptions(
             full_state_dict=False,
             cpu_offload=True,
@@ -204,7 +204,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
     def load_ckpt_(
         self,
-        module: nn.Module,
+        model: nn.Module,
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
@@ -228,13 +228,15 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.load_task_state_dict_(state_dict, strict, assign)
 
         _maybe_barrier()
-        options = self._get_fsdp_state_dict_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.load(weights_dict, checkpoint_id=ckpt_path, process_group=cpu_pg(throw_if_missing=False))
-
+        options = self._ckpt_options()
+        model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+        dcp_state_dict = {
+            "model": model_state_dict,
+            "optimizer": optimizer_state_dict,
+        }
+        dcp_load(dcp_state_dict, checkpoint_id=ckpt_path)
         set_state_dict(
-            module,
+            model,
             optimizer,
             model_state_dict=model_state_dict,
             optim_state_dict=optimizer_state_dict,
@@ -265,7 +267,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def save_ckpt(
         self,
         state: State,
-        module: nn.Module,
+        model: nn.Module,
         optimizer: Optimizer,
         *,
         ckpt_path: str | Path | None = None,
@@ -280,17 +282,20 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             ckpt_path.mkdir(exist_ok=True, parents=True)
 
         _maybe_barrier()
-        options = self._get_fsdp_state_dict_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
-        dcp.save(weights_dict, checkpoint_id=ckpt_path, process_group=cpu_pg(throw_if_missing=False))
+        options = self._ckpt_options()
+        model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+        dcp_state_dict = {
+            "model": model_state_dict,
+            "optimizer": optimizer_state_dict,
+        }
+        dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
 
         if is_master():
             state_dict: dict = {}
             state_dict["task"] = self.task_state_dict()
             state_dict["state"] = json.dumps(asdict(state))
             state_dict["config"] = OmegaConf.to_yaml(self.config)
-            torch.save(state_dict, ckpt_path / STATE_FILE_NAME, pickle_module=CustomPickleModule)
+            torch.save(state_dict, ckpt_path / STATE_FILE_NAME)
 
             # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)
@@ -298,5 +303,4 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         _maybe_barrier()
 
         self.on_after_save_ckpt(ckpt_path)
-
         return ckpt_path

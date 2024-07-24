@@ -3,10 +3,12 @@
 import os
 import sys
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import torch
 
 import mlfab
 
@@ -36,13 +38,17 @@ def test_e2e_script(tmpdir: Path) -> None:
 @pytest.mark.slow
 def test_e2e_script_mp(tmpdir: Path) -> None:
     os.environ["RUN_DIR"] = str(tmpdir)
-    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
-        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
+
+    num_processes = 2
+
+    if torch.cuda.is_available() and torch.cuda.device_count() < num_processes:
+        warnings.warn("CUDA device count is less than tensor parallelism; using GLOO backend.")
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
 
     mlfab.configure_logging()
 
-    DummyScript.launch(launcher=mlfab.MultiProcessLauncher(num_processes=2), use_cli=False)
+    DummyScript.launch(launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
 
 if __name__ == "__main__":

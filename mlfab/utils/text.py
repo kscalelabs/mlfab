@@ -100,7 +100,7 @@ def wrapped(
 
 
 def outlined(
-    s: str,
+    s: str | list[str],
     inner: Color | None = None,
     side: Color | None = None,
     bold: bool = False,
@@ -109,7 +109,9 @@ def outlined(
     spaces: str | re.Pattern = r" ",
     newlines: str | re.Pattern = r"[\n\r]",
 ) -> str:
-    strs = wrapped(uncolored(s), max_length, space, spaces, newlines)
+    if isinstance(s, str):
+        s = [s]
+    strs = [sss for ss in s for sss in wrapped(uncolored(ss), max_length, space, spaces, newlines)]
     max_len = max(len(s) for s in strs)
     strs = [f"{s}{' ' * (max_len - len(s))}" for s in strs]
     strs = [colored(s, inner, bold=bold) for s in strs]

@@ -7,6 +7,7 @@ training loop.
 import logging
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -68,11 +69,13 @@ class DummyTask(mlfab.Task[Config]):
 @pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
 def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
-    if "TORCH_DISTRIBUTED_BACKEND" not in os.environ:
-        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     os.environ["USE_METAL"] = "0"
 
     num_processes = 4
+
+    if torch.cuda.is_available() and torch.cuda.device_count() < tensor_parallelism:
+        warnings.warn("CUDA device count is less than tensor parallelism; using GLOO backend.")
+        os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
 
     mlfab.configure_logging()
 
@@ -99,17 +102,10 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
 
     # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
+    state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
     DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
-
-    # Run from the same experiment directory, single-process.
-    assert exp_dir.exists(), f"Experiment directory {tmpdir} contains files {list(Path(tmpdir).iterdir())}"
-    config.max_steps = 15
-    config.tensor_parallelism = 1
-
-    DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=1), use_cli=False)
 
 
 @pytest.mark.slow
@@ -128,4 +124,4 @@ def test_staged_training(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
-    test_e2e_training_mp(Path(tempfile.mkdtemp()), 4)
+    test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)

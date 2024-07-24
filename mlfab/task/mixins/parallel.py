@@ -9,7 +9,6 @@ from typing import Any, ContextManager, Generic, Sequence, TypeVar
 
 import torch
 from torch import Tensor, nn
-from torch.distributed import ProcessGroup
 from torch.distributed._tensor import DeviceMesh
 from torch.distributed.fsdp import (
     BackwardPrefetch,
@@ -69,7 +68,6 @@ def fsdp(
     cfg: ParallelConfig,
     device: torch.device,
     mixed_precision: MixedPrecision | None = None,
-    use_process_groups: bool = False,
 ) -> FSDP:
     group_info = parallel_group_info()
 
@@ -100,21 +98,12 @@ def fsdp(
         "use_orig_params": cfg.fsdp_use_orig_params,
     }
 
-    if use_process_groups:
-        process_group: tuple[ProcessGroup, ProcessGroup] | ProcessGroup
-        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-            process_group = group_info.tp.group, group_info.dp.group
-        else:
-            process_group = group_info.tp.group
-        model = FSDP(model, process_group=process_group, **kwargs)  # type: ignore[arg-type]
-
+    if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
+        mesh = device_mesh(device.type)
     else:
-        if sharding_strategy in (ShardingStrategy.HYBRID_SHARD, ShardingStrategy._HYBRID_SHARD_ZERO2):
-            mesh = device_mesh(device.type)
-        else:
-            mesh = device_mesh(device.type)["dp"]
+        mesh = device_mesh(device.type)["dp"]
 
-        model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
+    model = FSDP(model, device_mesh=mesh, **kwargs)  # type: ignore[arg-type]
 
     return model
 
