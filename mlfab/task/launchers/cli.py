@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Literal, get_args
 
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
-from mlfab.task.launchers.multi_process import MultiProcessLauncher
-from mlfab.task.launchers.single_process import SingleProcessLauncher
+from mlfab.task.launchers.process import MultiProcessLauncher, SingleProcessLauncher
 from mlfab.task.launchers.slurm import SlurmLauncher
 
 if TYPE_CHECKING:

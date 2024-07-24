@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from mlfab.nn.parallel import get_rank, get_world_size, launch_subprocesses
+from mlfab.nn.parallel import get_rank, get_world_size, init_and_run, launch_subprocesses
 from mlfab.task.base import RawConfigType
 from mlfab.task.launchers.base import BaseLauncher
 from mlfab.utils.logging import configure_logging
@@ -21,6 +21,18 @@ def run_training_worker(task: "type[RunnableMixin[Config]]", cfg: "Config") -> N
     with torch.device("meta"):
         task_obj = task(cfg)
     task_obj.run()
+
+
+class SingleProcessLauncher(BaseLauncher):
+    def launch(
+        self,
+        task: "type[RunnableMixin[Config]]",
+        *cfgs: RawConfigType,
+        use_cli: bool | list[str] = True,
+    ) -> None:
+        cfg = task.get_config(*cfgs, use_cli=use_cli)
+        train_fn = functools.partial(run_training_worker, task, cfg)
+        init_and_run(train_fn)
 
 
 @dataclass(kw_only=True)

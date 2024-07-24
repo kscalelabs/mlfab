@@ -6,14 +6,15 @@ import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Literal, Self, TypeVar, overload
+from typing import Any, Callable, Generic, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.stateful import Stateful
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -39,6 +40,40 @@ class CheckpointingConfig(ArtifactsConfig):
 
 
 Config = TypeVar("Config", bound=CheckpointingConfig)
+
+
+class CkptState(Stateful):
+    def __init__(
+        self,
+        model: nn.Module,
+        optimizer: Optimizer,
+        strict: bool = True,
+        ignore_frozen_params: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.model = model
+        self.optimizer = optimizer
+        self.options = StateDictOptions(
+            full_state_dict=False,
+            cpu_offload=True,
+            ignore_frozen_params=ignore_frozen_params,
+            keep_submodule_prefixes=True,
+            strict=strict,
+        )
+
+    def state_dict(self) -> dict[str, Any]:
+        model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer, options=self.options)
+        return {"model": model_state_dict, "optim": optimizer_state_dict}
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        set_state_dict(
+            self.model,
+            self.optimizer,
+            model_state_dict=state_dict["model"],
+            optim_state_dict=state_dict["optim"],
+            options=self.options,
+        )
 
 
 def _maybe_barrier() -> None:
@@ -193,15 +228,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             return ckpt_path
         return None
 
-    def _get_fsdp_state_dict_options(self) -> StateDictOptions:
-        return StateDictOptions(
-            full_state_dict=False,
-            cpu_offload=True,
-            ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
-            keep_submodule_prefixes=True,
-            strict=self.config.ckpt_strict,
-        )
-
     def load_ckpt_(
         self,
         module: nn.Module,
@@ -228,9 +254,14 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self.load_task_state_dict_(state_dict, strict, assign)
 
         _maybe_barrier()
-        options = self._get_fsdp_state_dict_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(module, optimizer, options=options)
-        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        weights_dict = {
+            "ckpt": CkptState(
+                module,
+                optimizer,
+                strict=self.config.ckpt_strict,
+                ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
+            ),
+        }
         dcp.load(weights_dict, checkpoint_id=ckpt_path)
         _maybe_barrier()
 
@@ -272,13 +303,14 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             ckpt_path.mkdir(exist_ok=True, parents=True)
 
         _maybe_barrier()
-        options = self._get_fsdp_state_dict_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(
-            module,
-            optimizer,
-            options=options,
-        )
-        weights_dict = {"model": model_state_dict, "optimizer": optimizer_state_dict}
+        weights_dict = {
+            "ckpt": CkptState(
+                module,
+                optimizer,
+                strict=self.config.ckpt_strict,
+                ignore_frozen_params=self.config.ckpt_ignore_frozen_params,
+            ),
+        }
         dcp.save(weights_dict, checkpoint_id=ckpt_path)
 
         if is_master():

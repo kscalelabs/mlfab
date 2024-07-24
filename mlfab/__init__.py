@@ -446,8 +446,8 @@ NAME_MAP: dict[str, str] = {
     "VectorQuantization": "nn.quantization.vq",
     "BaseLauncher": "task.launchers.base",
     "CliLauncher": "task.launchers.cli",
-    "MultiProcessLauncher": "task.launchers.multi_process",
-    "SingleProcessLauncher": "task.launchers.single_process",
+    "MultiProcessLauncher": "task.launchers.process",
+    "SingleProcessLauncher": "task.launchers.process",
     "SlurmLauncher": "task.launchers.slurm",
     "LogAudio": "task.logger",
     "LogImage": "task.logger",
@@ -738,8 +738,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.quantization.vq import ResidualVectorQuantization, VectorQuantization
     from mlfab.task.launchers.base import BaseLauncher
     from mlfab.task.launchers.cli import CliLauncher
-    from mlfab.task.launchers.multi_process import MultiProcessLauncher
-    from mlfab.task.launchers.single_process import SingleProcessLauncher
+    from mlfab.task.launchers.process import MultiProcessLauncher, SingleProcessLauncher
     from mlfab.task.launchers.slurm import SlurmLauncher
     from mlfab.task.logger import LogAudio, Logger, LoggerImpl, LogImage, LogLine, LogVideo, make_square_image_or_video
     from mlfab.task.loggers.json import JsonLogger

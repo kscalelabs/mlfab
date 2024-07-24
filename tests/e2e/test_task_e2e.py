@@ -94,7 +94,7 @@ def test_e2e_training_sp(tmpdir: Path) -> None:
     assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
 
     # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
+    state_dict = torch.load(ckpt_path, map_location="cpu")["ckpt"]["model"]
     DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.SingleProcessLauncher(), use_cli=False)
@@ -134,7 +134,7 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
 
     # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu")["model"]
+    state_dict = torch.load(ckpt_path, map_location="cpu")["ckpt"]["model"]
     DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
@@ -164,3 +164,4 @@ def test_staged_training(tmpdir: Path) -> None:
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
     test_e2e_training_mp(Path(tempfile.mkdtemp()), 4)
+    # test_e2e_training_sp(Path(tempfile.mkdtemp()))
