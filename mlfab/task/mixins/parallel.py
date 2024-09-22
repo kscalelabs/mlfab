@@ -19,6 +19,7 @@ from torch.distributed.fsdp import (
 from torch.distributed.fsdp.api import ShardingStrategy
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.distributed.fsdp.wrap import CustomPolicy
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -53,6 +54,9 @@ class ParallelConfig(DeviceConfig, LoggerConfig):
     fsdp_keep_low_precision_grads: bool = field(False, help="Whether to keep low precision grads")
     fsdp_cast_forward_inputs: bool = field(False, help="Whether to cast forward inputs")
     fsdp_cast_root_forward_inputs: bool = field(True, help="Whether to cast root forward inputs")
+    ddp_static_graph: bool = field(True, help="Whether to use a static graph for DDP")
+    ddp_find_unused_parameters: bool = field(False, help="Whether to find unused parameters for DDP")
+    use_ddp: bool = field(False, help="Whether to use DDP")
     grad_scaler: GradScalerConfig = field(GradScalerConfig(), help="Gradient scaler configuration")
     grad_scaler_enabled: bool = field(True, help="If set, should FP16 training be enabled")
     clip_grad_norm: float = field(10.0, help="What to clip the gradient norm to")
@@ -111,6 +115,19 @@ def fsdp(
     return model
 
 
+def ddp(
+    model: nn.Module,
+    cfg: ParallelConfig,
+    device: torch.device,
+) -> nn.Module:
+    return DDP(
+        model,
+        device_ids=[device.index] if device.index is not None else None,
+        find_unused_parameters=cfg.ddp_find_unused_parameters,
+        static_graph=cfg.ddp_static_graph,
+    )
+
+
 class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
     """Defines a task mixin for converting models to FSDP."""
 
@@ -142,9 +159,11 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
             cast_root_forward_inputs=self.config.fsdp_cast_root_forward_inputs,
         )
 
-    def get_wrapped_model(self, model: nn.Module) -> FSDP | nn.Module:
+    def get_wrapped_model(self, model: nn.Module) -> FSDP | DDP | nn.Module:
         if get_world_size() <= 1:
             return model
+        if self.config.use_ddp:
+            return ddp(model, self.config, self.torch_device)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:

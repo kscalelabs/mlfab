@@ -64,10 +64,7 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
-@pytest.mark.timeout(120)
-@pytest.mark.slow
-@pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
-def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
+def _test_e2e_common(tmpdir: Path, tensor_parallelism: int, use_ddp: bool) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
@@ -86,6 +83,7 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
         max_steps=5,
         tensor_parallelism=tensor_parallelism,
         run_dir=str(tmpdir),
+        use_ddp=use_ddp,
     )
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
@@ -108,6 +106,19 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 
 
+@pytest.mark.timeout(120)
+@pytest.mark.slow
+@pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
+def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
+    _test_e2e_common(tmpdir, tensor_parallelism, False)
+
+
+@pytest.mark.timeout(120)
+@pytest.mark.slow
+def test_e2e_training_ddp(tmpdir: Path) -> None:
+    _test_e2e_common(tmpdir, 1, True)
+
+
 @pytest.mark.slow
 def test_staged_training(tmpdir: Path) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
@@ -124,4 +135,5 @@ def test_staged_training(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
-    test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)
+    # test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)
+    test_e2e_training_ddp(Path(tempfile.mkdtemp()))
