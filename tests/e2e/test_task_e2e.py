@@ -64,10 +64,7 @@ class DummyTask(mlfab.Task[Config]):
         return DummyDataset()
 
 
-@pytest.mark.timeout(120)
-@pytest.mark.slow
-@pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
-def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
+def _test_e2e_common(tmpdir: Path, tensor_parallelism: int, use_ddp: bool) -> None:
     os.environ["TENSORBOARD_PORT"] = "-1"
     os.environ["USE_METAL"] = "0"
 
@@ -86,6 +83,7 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
         max_steps=5,
         tensor_parallelism=tensor_parallelism,
         run_dir=str(tmpdir),
+        use_ddp=use_ddp,
     )
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
@@ -96,16 +94,29 @@ def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
     config.exp_dir = str(exp_dir)
     config.max_steps = 10
 
-    # Attempts to convert to a single torch checkpoint.
-    ckpt_path = Path(tmpdir) / "ckpt.pt"
-    mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
-    assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
-
-    # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
-    DummyTask(config).load_state_dict(state_dict)
+    # Attempts to convert to a single torch checkpoint, then loads the
+    # checkpoint weights into a new model.
+    if not use_ddp:
+        ckpt_path = Path(tmpdir) / "ckpt.pt"
+        mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
+        assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
+        state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
+        DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
+
+
+@pytest.mark.timeout(120)
+@pytest.mark.slow
+@pytest.mark.parametrize("tensor_parallelism", (1, 2, 4))
+def test_e2e_training_mp(tmpdir: Path, tensor_parallelism: int) -> None:
+    _test_e2e_common(tmpdir, tensor_parallelism, False)
+
+
+@pytest.mark.timeout(120)
+@pytest.mark.slow
+def test_e2e_training_ddp(tmpdir: Path) -> None:
+    _test_e2e_common(tmpdir, 1, True)
 
 
 @pytest.mark.slow
@@ -124,4 +135,5 @@ def test_staged_training(tmpdir: Path) -> None:
 
 if __name__ == "__main__":
     # python -m tests.e2e.test_task_e2e
-    test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)
+    # test_e2e_training_mp(Path(tempfile.mkdtemp()), 1)
+    test_e2e_training_ddp(Path(tempfile.mkdtemp()))
