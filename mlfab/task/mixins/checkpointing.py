@@ -71,7 +71,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             task information, not the model weights.
         """
         ckpt_path = Path(path)
-        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu", weights_only=True)
+        state_dict = torch.load(ckpt_path / STATE_FILE_NAME, map_location="cpu")
         return state_dict
 
     @overload
@@ -250,7 +250,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 options=options,
             )
         else:
-            ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", weights_only=True)
+            ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", mmap=True)
             model_ckpt_dict = ckpt_dict["model"]
             optimizer_ckpt_dict = ckpt_dict["optimizer"]
             model.load_state_dict(model_ckpt_dict)
