@@ -162,7 +162,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
-        if isinstance(mod, FSDP) and not is_last:
+        if (isinstance(mod, DDP | FSDP)) and not is_last:
             return mod.no_sync()
         return contextlib.nullcontext()
 

@@ -94,14 +94,14 @@ def _test_e2e_common(tmpdir: Path, tensor_parallelism: int, use_ddp: bool) -> No
     config.exp_dir = str(exp_dir)
     config.max_steps = 10
 
-    # Attempts to convert to a single torch checkpoint.
-    ckpt_path = Path(tmpdir) / "ckpt.pt"
-    mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
-    assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
-
-    # Loads the checkpoint weights into a new model.
-    state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
-    DummyTask(config).load_state_dict(state_dict)
+    # Attempts to convert to a single torch checkpoint, then loads the
+    # checkpoint weights into a new model.
+    if not use_ddp:
+        ckpt_path = Path(tmpdir) / "ckpt.pt"
+        mlfab.convert_dcp_to_torch(exp_dir / "ckpt", ckpt_path)
+        assert ckpt_path.exists(), f"Checkpoint does not exist: {ckpt_path}"
+        state_dict = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
+        DummyTask(config).load_state_dict(state_dict)
 
     DummyTask.launch(config, launcher=mlfab.MultiProcessLauncher(num_processes=num_processes), use_cli=False)
 

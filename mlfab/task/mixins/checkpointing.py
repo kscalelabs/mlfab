@@ -15,6 +15,7 @@ from torch import nn
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
 from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
@@ -27,6 +28,7 @@ from mlfab.utils.sugar import default
 logger = logging.getLogger(__name__)
 
 STATE_FILE_NAME = "state.pt"
+CKPT_FILE_NAME = "ckpt.pt"
 
 
 @dataclass(kw_only=True)
@@ -230,22 +232,29 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 logger.warning("Loaded config differs from current config:\n%s", diff)
         self.load_task_state_dict_(state_dict, strict, assign)
 
-        _maybe_barrier()
-        options = self._ckpt_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
-        dcp_state_dict = {
-            "model": model_state_dict,
-            "optimizer": optimizer_state_dict,
-        }
-        dcp_load(dcp_state_dict, checkpoint_id=ckpt_path)
-        _maybe_barrier()
-        set_state_dict(
-            model,
-            optimizer,
-            model_state_dict=model_state_dict,
-            optim_state_dict=optimizer_state_dict,
-            options=options,
-        )
+        if isinstance(model, FSDP):
+            _maybe_barrier()
+            options = self._ckpt_options()
+            model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+            dcp_state_dict = {
+                "model": model_state_dict,
+                "optimizer": optimizer_state_dict,
+            }
+            dcp_load(dcp_state_dict, checkpoint_id=ckpt_path)
+            _maybe_barrier()
+            set_state_dict(
+                model,
+                optimizer,
+                model_state_dict=model_state_dict,
+                optim_state_dict=optimizer_state_dict,
+                options=options,
+            )
+        else:
+            ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", weights_only=True)
+            model_ckpt_dict = ckpt_dict["model"]
+            optimizer_ckpt_dict = ckpt_dict["optimizer"]
+            model.load_state_dict(model_ckpt_dict)
+            optimizer.load_state_dict(optimizer_ckpt_dict)
         _maybe_barrier()
 
         if raw_state is not None:
@@ -283,14 +292,23 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
 
-        _maybe_barrier()
-        options = self._ckpt_options()
-        model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
-        dcp_state_dict = {
-            "model": model_state_dict,
-            "optimizer": optimizer_state_dict,
-        }
-        dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
+        if isinstance(model, FSDP):
+            _maybe_barrier()
+            options = self._ckpt_options()
+            model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+            dcp_state_dict = {
+                "model": model_state_dict,
+                "optimizer": optimizer_state_dict,
+            }
+            dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
+        elif is_master():
+            model_state_dict = model.state_dict()
+            optimizer_state_dict = optimizer.state_dict()
+            dcp_state_dict = {
+                "model": model_state_dict,
+                "optimizer": optimizer_state_dict,
+            }
+            torch.save(dcp_state_dict, ckpt_path / CKPT_FILE_NAME)
         _maybe_barrier()
 
         if is_master():
