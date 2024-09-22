@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Literal, get_args
 
 from mlfab.task.base import RawConfigType
@@ -43,26 +44,16 @@ class CliLauncher(BaseLauncher):
             case "mp":
                 multi_process_args, cli_args_rest = MultiProcessLauncher.parse_args_from_cli(cli_args_rest)
                 use_cli_next = False if not use_cli else cli_args_rest
-                MultiProcessLauncher(
-                    num_processes=multi_process_args.num_processes,
-                ).launch(task, *cfgs, use_cli=use_cli_next)
+                MultiProcessLauncher(**asdict(multi_process_args)).launch(task, *cfgs, use_cli=use_cli_next)
 
             case "slurm":
                 slurm_args, cli_args_rest = SlurmLauncher.parse_args_from_cli(cli_args_rest)
                 use_cli_next = False if not use_cli else cli_args_rest
                 cfg = task.get_config(*cfgs, use_cli=use_cli_next)
                 SlurmLauncher(
-                    partition=slurm_args.partition,
-                    gpus_per_node=slurm_args.gpus_per_node,
-                    cpus_per_gpu=slurm_args.cpus_per_gpu,
-                    num_nodes=slurm_args.num_nodes,
-                    num_jobs=slurm_args.num_jobs,
+                    **asdict(slurm_args),
                     tensor_parallelism=cfg.tensor_parallelism,
-                    account=slurm_args.account,
-                    nodelist=slurm_args.nodelist,
-                    nccl_debug=slurm_args.nccl_debug,
-                    nccl_debug_subsys=slurm_args.nccl_debug_subsys,
-                ).launch(task, *cfgs, use_cli=use_cli_next)
+                ).launch(task, cfg, use_cli=use_cli_next)
 
             case _:
                 raise ValueError(f"Invalid launcher choice: {launcher_choice}")

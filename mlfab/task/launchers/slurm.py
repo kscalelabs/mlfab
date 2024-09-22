@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -22,7 +23,7 @@ from mlfab.task.launchers.staged import StagedLauncher
 from mlfab.task.mixins.artifacts import ArtifactsMixin, Config as ArtifactsConfig
 from mlfab.task.mixins.runnable import Config as RunnableConfig, RunnableMixin
 from mlfab.utils.experiments import get_random_port
-from mlfab.utils.logging import configure_logging
+from mlfab.utils.logging import LOG_INFO_ALL, configure_logging
 from mlfab.utils.text import outlined, show_info
 
 logger = logging.getLogger(__name__)
@@ -45,17 +46,15 @@ def set_slurm_rank_and_world_size() -> tuple[int, int, int, int]:
     return rank, local_rank, world_size, local_world_size
 
 
-def get_slurm_master_addr_and_port() -> tuple[str, int, str | None, str | None]:
+def get_slurm_master_addr_and_port() -> tuple[str, int]:
     node_list = os.environ.get("SLURM_STEP_NODELIST")
     if node_list is None:
         node_list = os.environ.get("SLURM_JOB_NODELIST")
     assert node_list is not None, "`SLURM_JOB_NODELIST` environment variable not set"
-    host = os.environ.get("SLURMD_NODENAME", None)
-    job_id = os.environ.get("SLURM_JOB_ID", None)
     hostnames = subprocess.check_output(["scontrol", "show", "hostnames", node_list])
     master_addr = hostnames.split()[0].decode("utf-8")
     master_port = int(os.environ.get("MASTER_PORT", str(DEFAULT_MASTER_PORT)))
-    return master_addr, master_port, host, job_id
+    return master_addr, master_port
 
 
 def write_message(message: str) -> None:
@@ -119,6 +118,7 @@ class SlurmArgs:
     master_port: int | None
     nccl_debug: str
     nccl_debug_subsys: str
+    requeue: bool
 
 
 class SlurmLauncher(StagedLauncher):
@@ -146,6 +146,7 @@ class SlurmLauncher(StagedLauncher):
         tensor_parallelism: int | str = 1,
         nccl_debug: str = "WARN",
         nccl_debug_subsys: str = "ALL",
+        requeue: bool = False,
     ) -> None:
         super().__init__()
 
@@ -180,6 +181,7 @@ class SlurmLauncher(StagedLauncher):
         self.nodelist = nodelist
         self.nccl_debug = nccl_debug
         self.nccl_debug_subsys = nccl_debug_subsys
+        self.requeue = requeue
 
     @classmethod
     def parse_args_from_cli(cls, args: list[str] | None = None) -> tuple[SlurmArgs, list[str]]:
@@ -197,7 +199,8 @@ class SlurmLauncher(StagedLauncher):
         parser.add_argument("--nodelist", type=str, nargs="+", default=None, help="The list of nodes to use")
         parser.add_argument("--master-port", type=int, default=None, help="Specific master port to use")
         parser.add_argument("--nccl-debug", type=str, default="WARN", help="If set, turn off NCCL debug logs")
-        parser.add_argument("--nccl-debug-subsys", type=str, default="ALL", help="Subsystem debugging options")
+        parser.add_argument("--nccl-debug-subsys", type=str, default="INIT,P2P", help="Subsystem debugging options")
+        parser.add_argument("--requeue", action="store_true", help="If set, requeue the job on USR1 signal")
         args, remaining_args = parser.parse_known_intermixed_args(args=args)
 
         return (
@@ -216,6 +219,7 @@ class SlurmLauncher(StagedLauncher):
                 master_port=args.master_port,
                 nccl_debug=args.nccl_debug,
                 nccl_debug_subsys=args.nccl_debug_subsys,
+                requeue=args.requeue,
             ),
             remaining_args,
         )
@@ -233,6 +237,8 @@ class SlurmLauncher(StagedLauncher):
             sbatch_lines += [f"--time={self.time_limit}"]
         if self.nodelist is not None and len(self.nodelist) > 0:
             sbatch_lines += [f"--nodelist={','.join(self.nodelist)}"]
+        if self.requeue:
+            sbatch_lines += ["--requeue"]
         return sbatch_lines
 
     @property
@@ -240,6 +246,8 @@ class SlurmLauncher(StagedLauncher):
         export_lines: dict[str, str] = {}
         if self.tensor_parallelism != 1:
             export_lines["TENSOR_PARALLELISM"] = str(self.tensor_parallelism)
+        if self.requeue:
+            export_lines["REQUEUE_SLURM_JOB"] = "1"
         return "".join(f"\nexport {k}={v}" for k, v in sorted(export_lines.items()))
 
     def pythonpath(self, stage_dir: str | Path | None) -> str:
@@ -275,11 +283,17 @@ class SlurmLauncher(StagedLauncher):
         if self.time_limit is not None:
             job_info["time_limit"] = self.time_limit
 
+        log_data = {
+            "job_id": "${SLURM_JOB_ID}",
+            "job_start_time": "${launch_timestamp}",
+            "node_list": "${SLURM_NODELIST}",
+            "job": job_info,
+        }
+
         return f"""
 #!/bin/bash
 #SBATCH --job-name={task.task_name}
 #SBATCH --partition={self.partition}
-#SBATCH --requeue
 #SBATCH --signal=USR1@60
 #SBATCH --comment='{'; '.join(comments)}'
 #SBATCH --nodes={self.num_nodes}
@@ -313,12 +327,7 @@ export TENSORBOARD_PORT=-1
 launch_timestamp=$(date)
 slurm_info_file={task.exp_dir}/slurm_info.json
 log_data=$(cat <<EOF
-{{
-    "job_id": "${{SLURM_JOB_ID}}",
-    "job_start_time": "${{launch_timestamp}}",
-    "node_list": "${{SLURM_NODELIST}}",
-    "job": {json.dumps(job_info, indent=8)}
-}}
+{json.dumps(log_data, indent=2)}
 EOF
 )
 
@@ -362,9 +371,11 @@ srun \\
         # Calls `sbatch` on the given file.
         all_run_ids: list[str] = []
         for _ in range(self.num_jobs):
-            command = ["sbatch", str(sbatch_path)]
+            command = ["sbatch"]
             if all_run_ids:
                 command += ["--dependency", all_run_ids[-1]]
+            command += [str(sbatch_path)]
+            logger.info("Command: %s", command)
             proc = subprocess.Popen(  # pylint: disable=consider-using-with
                 command,
                 stdout=subprocess.PIPE,
@@ -388,7 +399,7 @@ srun \\
             raise RuntimeError(f"Usage: python -m {cls.__module__} <task_key> <config_path>")
 
         # Gets Slurm information.
-        master_addr, master_port, host, job_id = get_slurm_master_addr_and_port()
+        master_addr, master_port = get_slurm_master_addr_and_port()
         node_rank = int(os.environ["SLURM_NODEID"])
         local_rank = int(os.environ["SLURM_LOCALID"])
         node_world_size = int(os.environ["SLURM_NNODES"])
@@ -399,8 +410,22 @@ srun \\
         # Sets the initialization method and configures per-rank logging.
         configure_logging(rank=rank, world_size=world_size)
 
+        # Logs Nvidia information.
+        if shutil.which("nvidia-smi") is not None:
+            with subprocess.Popen(
+                ["nvidia-smi", "topo", "--matrix"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ) as proc:
+                stdout, stderr = proc.communicate()
+                if stderr:
+                    logger.error("Error running `nvidia-smi`: %s", stderr.decode("utf-8"))
+                else:
+                    logger.log(LOG_INFO_ALL, "Nvidia GPUs:\n%s", stdout.decode("utf-8"))
+
         # Gets parallelism environment variables.
         tensor_parallelism = os.environ.get("TENSOR_PARALLELISM", "1")
+        requeue = os.environ.get("REQUEUE_SLURM_JOB", "0") == "1"
 
         # Sets tensor parallelism.
         cfg = MultiProcessConfig(
@@ -425,7 +450,8 @@ srun \\
         # current job is being set up.
         task.add_lock_file("running", exists_ok=True)
         task.remove_lock_file("scheduled", missing_ok=True)
-        task.add_signal_handler(requeue_job, signal.SIGUSR1)
+        if requeue:
+            task.add_signal_handler(requeue_job, signal.SIGUSR1)
 
         # Runs the base training loop.
         task.run()

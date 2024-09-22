@@ -72,7 +72,10 @@ def fsdp(
     group_info = parallel_group_info()
 
     if (sharding_strategy := cfg.fsdp_sharding_strategy) is None:
-        if group_info.dp.world_size == 1:
+        if group_info.tp.world_size == 1:
+            logger.info("Using NO_SHARD FSDP strategy")
+            sharding_strategy = ShardingStrategy.NO_SHARD
+        elif group_info.dp.world_size == 1:
             logger.info("Using FULL_SHARD FSDP strategy")
             sharding_strategy = ShardingStrategy.FULL_SHARD
         else:

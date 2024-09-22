@@ -186,7 +186,10 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def get_init_ckpt_path(self) -> Path | None:
         ckpt_path = self.get_ckpt_path()
         if ckpt_path.exists():
-            return ckpt_path
+            if any(ckpt_path.iterdir()):
+                return ckpt_path
+        elif is_master():
+            ckpt_path.mkdir(parents=True)  # Creates the checkpoint directory if it does not exist.
         if self.config.load_from_ckpt_path is not None:
             ckpt_path = Path(self.config.load_from_ckpt_path)
             assert ckpt_path.exists(), f"Checkpoint path {ckpt_path} does not exist."
@@ -235,6 +238,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             "optimizer": optimizer_state_dict,
         }
         dcp_load(dcp_state_dict, checkpoint_id=ckpt_path)
+        _maybe_barrier()
         set_state_dict(
             model,
             optimizer,
@@ -278,8 +282,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
         # Gets the path to the last checkpoint.
         logger.info("Saving checkpoint to %s", ckpt_path)
-        if is_master():
-            ckpt_path.mkdir(exist_ok=True, parents=True)
 
         _maybe_barrier()
         options = self._ckpt_options()
@@ -289,6 +291,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             "optimizer": optimizer_state_dict,
         }
         dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
+        _maybe_barrier()
 
         if is_master():
             state_dict: dict = {}
@@ -299,7 +302,6 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
 
             # Marks directory with artifacts which shouldn't be overwritten.
             self.add_lock_file("ckpt", exists_ok=True)
-
         _maybe_barrier()
 
         self.on_after_save_ckpt(ckpt_path)
