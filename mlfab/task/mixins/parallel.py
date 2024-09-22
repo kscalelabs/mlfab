@@ -115,14 +115,9 @@ def fsdp(
     return model
 
 
-def ddp(
-    model: nn.Module,
-    cfg: ParallelConfig,
-    device: torch.device,
-) -> nn.Module:
+def ddp(model: nn.Module, cfg: ParallelConfig) -> nn.Module:
     return DDP(
         model,
-        device_ids=[device.index] if device.index is not None else None,
         find_unused_parameters=cfg.ddp_find_unused_parameters,
         static_graph=cfg.ddp_static_graph,
     )
@@ -163,7 +158,7 @@ class ParallelMixin(DeviceMixin[Config], LoggerMixin[Config], Generic[Config]):
         if get_world_size() <= 1:
             return model
         if self.config.use_ddp:
-            return ddp(model, self.config, self.torch_device)
+            return ddp(model, self.config)
         return fsdp(model, self.config, self.torch_device, self.get_fsdp_mixed_precision())
 
     def get_grad_sync_context(self, mod: nn.Module, is_last: bool) -> ContextManager:
