@@ -250,7 +250,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
                 options=options,
             )
         else:
-            ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", mmap=True)
+            ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu")
             model_ckpt_dict = ckpt_dict["model"]
             optimizer_ckpt_dict = ckpt_dict["optimizer"]
             model.load_state_dict(model_ckpt_dict)
