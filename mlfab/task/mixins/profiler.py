@@ -12,7 +12,6 @@ import torch
 from mlfab.core.conf import field
 from mlfab.nn.device.gpu import gpu_device
 from mlfab.task.base import BaseConfig, BaseTask
-from mlfab.task.mixins.artifacts import ArtifactsMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin, StepType
 
