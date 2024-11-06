@@ -38,7 +38,7 @@ def convert_dcp_to_torch(input_path: Path, output_path: Path, key: str | None = 
         dicts.append(sd)
     while dicts:
         d = dicts.popleft()
-        for prefix in ("module.", "mod."):
+        for prefix in ("module.", "base_mod."):
             consume_prefix_in_state_dict_if_present(d, prefix)
         for v in d.values():
             if isinstance(v, dict):
