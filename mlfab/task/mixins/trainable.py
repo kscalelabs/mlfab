@@ -87,7 +87,7 @@ class TrainableModule(nn.Module):
         self.base_mod = mod
 
     def forward(self, batch: Batch, state: State) -> Loss:
-        return self.mod.get_loss(batch, state)
+        return self.base_mod.get_loss(batch, state)
 
 
 def get_step(step_kind: StepKind, state: State) -> int:

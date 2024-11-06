@@ -256,11 +256,14 @@ __all__ = [
 
 __all__ += [
     "ActivationType",
+    "Batch",
     "CollateMode",
     "EmbeddingKind",
+    "Loss",
     "NormType",
     "ODESolverType",
     "OptType",
+    "Output",
     "ParametrizationNormType",
     "Phase",
     "RwkvAttentionState",
