@@ -6,22 +6,28 @@ import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Literal, Self, TypeVar, overload
+from typing import Callable, Generic, Iterable, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
 from omegaconf import DictConfig, OmegaConf
 from torch import nn
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
+from torch.distributed.checkpoint.state_dict import (
+    StateDictOptions,
+    get_state_dict,
+    set_state_dict,
+)
 from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torch.optim.optimizer import Optimizer
 
 from mlfab.core.conf import field
 from mlfab.core.state import State
 from mlfab.nn.parallel import is_master
 from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
+from mlfab.task.mixins.trainable import TrainableModule
 from mlfab.utils.experiments import diff_configs, get_diff_string
 from mlfab.utils.sugar import default
 
@@ -183,6 +189,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         cfg, state_dict = cls.load_raw_ckpt(path, use_cli=use_cli, config_fn=config_fn)
         task = cls(cfg)
         task.load_task_state_dict_(state_dict, strict=strict, assign=assign)
+        task.load_ckpt_(task, ckpt_path=path, strict=strict, assign=assign)
         return task
 
     def get_init_ckpt_path(self) -> Path | None:
@@ -191,7 +198,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             if any(ckpt_path.iterdir()):
                 return ckpt_path
         elif is_master():
-            ckpt_path.mkdir(parents=True)  # Creates the checkpoint directory if it does not exist.
+            ckpt_path.mkdir(parents=True)
         if self.config.load_from_ckpt_path is not None:
             ckpt_path = Path(self.config.load_from_ckpt_path)
             assert ckpt_path.exists(), f"Checkpoint path {ckpt_path} does not exist."
@@ -210,8 +217,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
     def load_ckpt_(
         self,
         model: nn.Module,
-        optimizer: Optimizer,
         *,
+        optimizer: Optimizer | None = None,
         ckpt_path: str | Path | None = None,
         strict: bool = True,
         assign: bool = False,
@@ -235,7 +242,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(model, FSDP):
             _maybe_barrier()
             options = self._ckpt_options()
-            model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+            fsdp_optimizer: Optimizer | Iterable[Optimizer] = [] if optimizer is None else optimizer
+            model_state_dict, optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
                 "model": model_state_dict,
                 "optimizer": optimizer_state_dict,
@@ -244,7 +252,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             _maybe_barrier()
             set_state_dict(
                 model,
-                optimizer,
+                fsdp_optimizer,
                 model_state_dict=model_state_dict,
                 optim_state_dict=optimizer_state_dict,
                 options=options,
@@ -252,9 +260,12 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         else:
             ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", weights_only=True)
             model_ckpt_dict = ckpt_dict["model"]
-            optimizer_ckpt_dict = ckpt_dict["optimizer"]
+            if not isinstance(model, TrainableModule):
+                consume_prefix_in_state_dict_if_present(model_ckpt_dict, "base_mod.")
             model.load_state_dict(model_ckpt_dict)
-            optimizer.load_state_dict(optimizer_ckpt_dict)
+            if optimizer is not None:
+                optimizer_ckpt_dict = ckpt_dict["optimizer"]
+                optimizer.load_state_dict(optimizer_ckpt_dict)
         _maybe_barrier()
 
         if raw_state is not None:
@@ -281,8 +292,8 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         self,
         state: State,
         model: nn.Module,
-        optimizer: Optimizer,
         *,
+        optimizer: Optimizer | None = None,
         ckpt_path: str | Path | None = None,
     ) -> Path:
         ckpt_path = default(ckpt_path, self.get_ckpt_path, lambda p: Path(p))
@@ -295,18 +306,19 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(model, FSDP):
             _maybe_barrier()
             options = self._ckpt_options()
-            model_state_dict, optimizer_state_dict = get_state_dict(model, optimizer, options=options)
+            fsdp_optimizer: Optimizer | Iterable[Optimizer] = [] if optimizer is None else optimizer
+            dcp_model_state_dict, dcp_optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
-                "model": model_state_dict,
-                "optimizer": optimizer_state_dict,
+                "model": dcp_model_state_dict,
+                "optimizer": dcp_optimizer_state_dict,
             }
             dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
         elif is_master():
-            model_state_dict = model.state_dict()
-            optimizer_state_dict = optimizer.state_dict()
+            nn_model_state_dict = model.state_dict()
+            nn_optimizer_state_dict = optimizer.state_dict() if optimizer is not None else None
             dcp_state_dict = {
-                "model": model_state_dict,
-                "optimizer": optimizer_state_dict,
+                "model": nn_model_state_dict,
+                "optimizer": nn_optimizer_state_dict,
             }
             torch.save(dcp_state_dict, ckpt_path / CKPT_FILE_NAME)
         _maybe_barrier()

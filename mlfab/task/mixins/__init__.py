@@ -14,4 +14,5 @@ from mlfab.task.mixins.process import ProcessConfig, ProcessMixin
 from mlfab.task.mixins.profiler import ProfilerConfig, ProfilerMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin
-from mlfab.task.mixins.train import TrainConfig, TrainMixin
+from mlfab.task.mixins.task import TaskConfig, TaskMixin
+from mlfab.task.mixins.trainable import TrainableConfig, TrainableMixin

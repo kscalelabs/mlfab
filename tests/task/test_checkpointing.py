@@ -50,8 +50,17 @@ def test_model_serialization(tmpdir: Path) -> None:
     opt = task.build_optimizer(mod)
     ckpt_path = Path(tmpdir)
     assert not any(k.startswith("pretrained") for k in mod.state_dict().keys())
-    task.save_ckpt(mlfab.State.init_state(), mod, opt, ckpt_path=ckpt_path)
-    task.load_ckpt_(mod, opt, ckpt_path=ckpt_path)
+    task.save_ckpt(
+        state=mlfab.State.init_state(),
+        model=mod,
+        optimizer=opt,
+        ckpt_path=ckpt_path,
+    )
+    task.load_ckpt_(
+        model=mod,
+        optimizer=opt,
+        ckpt_path=ckpt_path,
+    )
 
 
 if __name__ == "__main__":

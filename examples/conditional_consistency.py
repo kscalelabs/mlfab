@@ -14,7 +14,6 @@ from dpshdl.impl.mnist import MNIST
 from torch import Tensor, nn
 
 import mlfab
-from mlfab.core.state import State
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +68,13 @@ class ConditionalConsistency(mlfab.Task[Config]):
         emb = c_emb + t_emb
         return self.model(x, emb)
 
-    def get_loss(self, batch: tuple[Tensor, Tensor], state: State) -> Tensor:
+    def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
         x, class_id = batch
         loss = self.diff.loss(lambda x, t: self(x, t, class_id), x, state.num_steps, loss_dim=1)
         self.log_step(batch, loss, state)
         return loss
 
-    def log_train_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: State) -> None:
+    def log_train_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
         self.log_scalar("num_scales", lambda: self.diff._get_num_scales(state.num_steps))
 
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
