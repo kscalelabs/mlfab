@@ -307,18 +307,18 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             _maybe_barrier()
             options = self._ckpt_options()
             fsdp_optimizer: Optimizer | Iterable[Optimizer] = [] if optimizer is None else optimizer
-            model_state_dict, optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
+            dcp_model_state_dict, dcp_optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
-                "model": model_state_dict,
-                "optimizer": optimizer_state_dict,
+                "model": dcp_model_state_dict,
+                "optimizer": dcp_optimizer_state_dict,
             }
             dcp_save(dcp_state_dict, checkpoint_id=ckpt_path)
         elif is_master():
-            model_state_dict = model.state_dict()
-            optimizer_state_dict = optimizer.state_dict() if optimizer is not None else None
+            nn_model_state_dict = model.state_dict()
+            nn_optimizer_state_dict = optimizer.state_dict() if optimizer is not None else None
             dcp_state_dict = {
-                "model": model_state_dict,
-                "optimizer": optimizer_state_dict,
+                "model": nn_model_state_dict,
+                "optimizer": nn_optimizer_state_dict,
             }
             torch.save(dcp_state_dict, ckpt_path / CKPT_FILE_NAME)
         _maybe_barrier()

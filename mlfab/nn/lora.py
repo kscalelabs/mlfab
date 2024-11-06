@@ -1333,7 +1333,7 @@ def maybe_lora(
     """
     if freeze and r is None:
         module = cast(T_module, module.requires_grad_(False))
-    return module if r is None else lora(module, r, alpha, dropout, merge, reset_base_parameters)
+    return cast(T_module, module if r is None else lora(module, r, alpha, dropout, merge, reset_base_parameters))
 
 
 def maybe_lora_weight_norm(
