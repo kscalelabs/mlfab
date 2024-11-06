@@ -306,7 +306,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(model, FSDP):
             _maybe_barrier()
             options = self._ckpt_options()
-            fsdp_optimizer: Iterable[Optimizer] = [] if optimizer is None else optimizer
+            fsdp_optimizer: Optimizer | Iterable[Optimizer] = [] if optimizer is None else optimizer
             model_state_dict, optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
                 "model": model_state_dict,

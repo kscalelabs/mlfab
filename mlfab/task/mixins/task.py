@@ -117,7 +117,11 @@ class TaskMixin(
                 self.on_training_start(state)
 
             def on_exit() -> None:
-                self.save_ckpt(state, mod, opt)
+                self.save_ckpt(
+                    state=state,
+                    model=mod,
+                    optimizer=opt,
+                )
 
             # Handle user-defined interrupts during the training loop.
             self.add_signal_handler(on_exit, signal.SIGUSR1)
@@ -142,7 +146,11 @@ class TaskMixin(
 
                     if self.should_save_ckpt(state):
                         with self.step_context("save_checkpoint"):
-                            self.save_ckpt(state, mod, opt)
+                            self.save_ckpt(
+                                state=state,
+                                model=mod,
+                                optimizer=opt,
+                            )
 
                     if profile is not None:
                         profile.step()
@@ -152,7 +160,11 @@ class TaskMixin(
 
             except TrainingFinishedError:
                 with self.step_context("save_checkpoint"):
-                    self.save_ckpt(state, mod, opt)
+                    self.save_ckpt(
+                        state=state,
+                        model=mod,
+                        optimizer=opt,
+                    )
                 if is_master():
                     elapsed_time = format_timedelta(datetime.timedelta(seconds=time.time() - state.start_time_s))
                     show_info(
