@@ -84,7 +84,7 @@ class TrainableModule(nn.Module):
     def __init__(self, mod: "TrainableMixin") -> None:
         super().__init__()
 
-        self.mod = mod
+        self.base_mod = mod
 
     def forward(self, batch: Batch, state: State) -> Loss:
         return self.mod.get_loss(batch, state)

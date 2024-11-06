@@ -6,7 +6,7 @@ import time
 import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Generic, Literal, Self, TypeVar, overload
+from typing import Callable, Generic, Iterable, Literal, Self, TypeVar, overload
 
 import torch
 import torch.distributed as dist
@@ -242,7 +242,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(model, FSDP):
             _maybe_barrier()
             options = self._ckpt_options()
-            fsdp_optimizer = [] if optimizer is None else optimizer
+            fsdp_optimizer: Optimizer | Iterable[Optimizer] = [] if optimizer is None else optimizer
             model_state_dict, optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
                 "model": model_state_dict,
@@ -261,7 +261,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
             ckpt_dict = torch.load(ckpt_path / CKPT_FILE_NAME, map_location="cpu", weights_only=True)
             model_ckpt_dict = ckpt_dict["model"]
             if not isinstance(model, TrainableModule):
-                model_ckpt_dict = consume_prefix_in_state_dict_if_present(model_ckpt_dict, "mod.")
+                consume_prefix_in_state_dict_if_present(model_ckpt_dict, "base_mod.")
             model.load_state_dict(model_ckpt_dict)
             if optimizer is not None:
                 optimizer_ckpt_dict = ckpt_dict["optimizer"]
@@ -306,7 +306,7 @@ class CheckpointingMixin(ArtifactsMixin[Config], Generic[Config]):
         if isinstance(model, FSDP):
             _maybe_barrier()
             options = self._ckpt_options()
-            fsdp_optimizer = [] if optimizer is None else optimizer
+            fsdp_optimizer: Iterable[Optimizer] = [] if optimizer is None else optimizer
             model_state_dict, optimizer_state_dict = get_state_dict(model, fsdp_optimizer, options=options)
             dcp_state_dict = {
                 "model": model_state_dict,
