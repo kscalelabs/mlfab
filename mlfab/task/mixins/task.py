@@ -17,7 +17,9 @@ from mlfab.nn.parallel import is_master
 from mlfab.task.base import BaseConfig, BaseTask
 from mlfab.task.mixins.checkpointing import CheckpointingConfig, CheckpointingMixin
 from mlfab.task.mixins.compile import CompileConfig, CompileMixin
+from mlfab.task.mixins.cpu_stats import CPUStatsConfig, CPUStatsMixin
 from mlfab.task.mixins.data_loader import DataloadersConfig, DataloadersMixin
+from mlfab.task.mixins.gpu_stats import GPUStatsConfig, GPUStatsMixin
 from mlfab.task.mixins.meta import MetaConfig, MetaMixin
 from mlfab.task.mixins.pretrained import PretrainedConfig, PretrainedMixin
 from mlfab.task.mixins.runnable import RunnableConfig, RunnableMixin
@@ -37,6 +39,8 @@ class TaskConfig(
     PretrainedConfig,
     DataloadersConfig,
     RunnableConfig,
+    GPUStatsConfig,
+    CPUStatsConfig,
     BaseConfig,
 ):
     init_state_strict: bool = field(True, help="Load the initial state strictly")
@@ -53,6 +57,8 @@ class TaskMixin(
     PretrainedMixin[Config],
     DataloadersMixin[Config],
     RunnableMixin[Config],
+    GPUStatsMixin[Config],
+    CPUStatsMixin[Config],
     BaseTask[Config],
     Generic[Config],
 ):
