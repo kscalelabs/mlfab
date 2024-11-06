@@ -18,8 +18,6 @@ from dpshdl.dataset import Dataset
 from torch import Tensor, nn
 
 import mlfab
-from mlfab.core.state import Phase, State
-from mlfab.task.mixins.train import Batch, Loss, Output
 
 PADDING_IDX = 0
 
@@ -132,13 +130,13 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
         self.tokenizer = Tokenizer(config.num_letters)
         self.model = MonotonicSeq2Seq(config.num_letters + 1, config.embedding_dims, config.use_rnn)
 
-    def get_dataset(self, phase: Phase) -> Dataset:
+    def get_dataset(self, phase: mlfab.Phase) -> Dataset:
         return LettersDataset(self.tokenizer, self.config.seq_length)
 
     def forward(self, tokens_in: Tensor, tokens_out: Tensor) -> Tensor:
         return self.model(tokens_in, tokens_out)
 
-    def get_loss(self, batch: Batch, state: State) -> Loss:
+    def get_loss(self, batch: tuple[Tensor, Tensor], state: mlfab.State) -> Tensor:
         tokens_in, tokens_out = batch
         tokens_out_pred = self(tokens_in, tokens_out)
         self.log_step(batch, tokens_out_pred, state)
@@ -148,7 +146,7 @@ class MonotonicAttentionTask(mlfab.Task[Config]):
             ignore_index=PADDING_IDX,
         )
 
-    def log_valid_step(self, batch: Batch, output: Output, state: State) -> None:
+    def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
         tokens_in, tokens_out = batch
         letters_in = " ".join(self.tokenizer.detokenize(tokens_in[0]).split())
         letters_out = " ".join(self.tokenizer.detokenize(tokens_out[0]).split())

@@ -202,8 +202,6 @@ __all__ = [
     "fsdp",
     "pretrained",
     "ProfilerOptions",
-    "Script",
-    "ScriptConfig",
     "Config",
     "Task",
     "convert_dcp_to_torch",
@@ -468,8 +466,6 @@ NAME_MAP: dict[str, str] = {
     "fsdp": "task.mixins.parallel",
     "pretrained": "task.mixins.pretrained",
     "ProfilerOptions": "task.mixins.profiler",
-    "Script": "task.script",
-    "ScriptConfig": "task.script",
     "Config": "task.task",
     "Task": "task.task",
     "convert_dcp_to_torch": "utils.checkpoint",
@@ -526,11 +522,14 @@ NAME_MAP: dict[str, str] = {
 NAME_MAP.update(
     {
         "ActivationType": "nn.activations",
+        "Batch": "task.mixins.trainable",
         "CollateMode": "utils.data.collate",
         "EmbeddingKind": "nn.embeddings",
+        "Loss": "task.mixins.trainable",
         "NormType": "nn.norms",
         "ODESolverType": "nn.diffusion.ode",
         "OptType": "task.mixins.optimizer",
+        "Output": "task.mixins.trainable",
         "ParametrizationNormType": "nn.norms",
         "Phase": "core.state",
         "RwkvAttentionState": "nn.architectures.rwkv",
@@ -752,7 +751,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.task.mixins.parallel import ParallelConfig, ddp, fsdp
     from mlfab.task.mixins.pretrained import pretrained
     from mlfab.task.mixins.profiler import ProfilerOptions
-    from mlfab.task.script import Script, ScriptConfig
+    from mlfab.task.mixins.trainable import Batch, Loss, Output
     from mlfab.task.task import Config, Task
     from mlfab.utils.checkpoint import convert_dcp_to_torch
     from mlfab.utils.data.collate import CollateMode, collate, collate_nullable, pad_all, pad_sequence

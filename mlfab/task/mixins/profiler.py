@@ -11,7 +11,8 @@ import torch
 
 from mlfab.core.conf import field
 from mlfab.nn.device.gpu import gpu_device
-from mlfab.task.mixins.artifacts import ArtifactsConfig, ArtifactsMixin
+from mlfab.task.base import BaseConfig, BaseTask
+from mlfab.task.mixins.artifacts import ArtifactsMixin
 from mlfab.task.mixins.logger import LoggerConfig, LoggerMixin
 from mlfab.task.mixins.step_wrapper import StepContextConfig, StepContextMixin, StepType
 
@@ -63,7 +64,11 @@ STEPS_TO_WARN_IF_LONG: set[StepType] = {
 
 
 @dataclass(kw_only=True)
-class ProfilerConfig(LoggerConfig, StepContextConfig, ArtifactsConfig):
+class ProfilerConfig(
+    LoggerConfig,
+    StepContextConfig,
+    BaseConfig,
+):
     profiler: ProfilerOptions = field(ProfilerOptions(), help="Profiler configuration")
     min_warn_time: float = field(5.0, help="Minimum time to warn for long operations")
 
@@ -74,7 +79,7 @@ Config = TypeVar("Config", bound=ProfilerConfig)
 class ProfilerMixin(
     LoggerMixin[Config],
     StepContextMixin[Config],
-    ArtifactsMixin[Config],
+    BaseTask[Config],
     Generic[Config],
 ):
     """Defines a task mixin for enabling the PyTorch profiler."""
