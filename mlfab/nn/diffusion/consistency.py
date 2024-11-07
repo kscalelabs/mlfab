@@ -103,6 +103,9 @@ class ConsistencyModel(nn.Module):
         self.start_scales = start_scales
         self.end_scales = end_scales
 
+    def get_noise(self, x: Tensor) -> Tensor:
+        return torch.randn_like(x)
+
     def loss_tensors(
         self,
         model: Callable[[Tensor, Tensor], Tensor],
@@ -138,7 +141,7 @@ class ConsistencyModel(nn.Module):
         # Converts timesteps to sigmas.
         sigma_next, sigma_current = self._get_sigmas(torch.stack((t_next, t_current))).unbind(0)
 
-        noise = torch.randn_like(x)
+        noise = self.get_noise(x)
         dropout_state = torch.get_rng_state()
         x_current = x + noise * append_dims(sigma_current, dims)
         y_current = self._call_model(model, x_current, sigma_current)
@@ -226,7 +229,7 @@ class ConsistencyModel(nn.Module):
             x = self._call_model(model, x, sigmas[None, i])
             samples[num_steps - 1 - i] = x
             if i < num_steps - 1:
-                x = x + torch.randn_like(x) * sigmas[None, i + 1]
+                x = x + self.get_noise(x) * sigmas[None, i + 1]
         return samples
 
     @torch.no_grad()
@@ -261,7 +264,7 @@ class ConsistencyModel(nn.Module):
             x = self._call_model(model, x, sigmas[None, i])
             samples[num_steps - 1 - i] = x
             if i < num_steps - 1:
-                x = x + torch.randn_like(x) * sigmas[None, i + 1]
+                x = x + self.get_noise(x) * sigmas[None, i + 1]
         return samples
 
     def _get_scalings(self, sigma: Tensor) -> tuple[Tensor, Tensor, Tensor]:

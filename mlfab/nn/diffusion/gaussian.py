@@ -221,6 +221,9 @@ class GaussianDiffusion(ResetParameters, nn.Module):
 
         self.bar_alpha.data.copy_(bar_alpha.to(self.bar_alpha))
 
+    def get_noise(self, x: Tensor) -> Tensor:
+        return torch.randn_like(x)
+
     def loss_tensors(self, model: Callable[[Tensor, Tensor], Tensor], x: Tensor) -> tuple[Tensor, Tensor]:
         """Computes the loss for a given sample.
 
@@ -236,7 +239,7 @@ class GaussianDiffusion(ResetParameters, nn.Module):
         """
         bsz = x.shape[0]
         t_sample = torch.randint(1, self.num_timesteps + 1, size=(bsz,), device=x.device)
-        eps = torch.randn_like(x)
+        eps = self.get_noise(x)
         bar_alpha = self.bar_alpha[t_sample].view(-1, *[1] * (x.dim() - 1)).expand(x.shape)
         x_t = torch.sqrt(bar_alpha) * x + torch.sqrt(1 - bar_alpha) * eps
         pred_target = model(x_t, t_sample)
@@ -307,7 +310,7 @@ class GaussianDiffusion(ResetParameters, nn.Module):
         assert 0.0 <= start_percent <= 1.0
         num_timesteps = round(self.num_timesteps * start_percent)
         scalar_t_start = num_timesteps
-        noise = torch.randn_like(reference_sample)
+        noise = self.get_noise(reference_sample)
         bar_alpha = self.bar_alpha[scalar_t_start].view(-1, *[1] * (noise.dim() - 1)).expand(noise.shape)
         x = torch.sqrt(bar_alpha) * reference_sample + torch.sqrt(1 - bar_alpha) * noise
         return self._sample_common(
@@ -429,10 +432,10 @@ class GaussianDiffusion(ResetParameters, nn.Module):
         match self.sigma_type:
             case "upper_bound":
                 std = torch.sqrt(1 - bar_alpha_start / bar_alpha_end)
-                noise = std * torch.randn_like(x)
+                noise = std * self.get_noise(x)
             case "lower_bound":
                 std = torch.sqrt((1 - bar_alpha_start / bar_alpha_end) * (1 - bar_alpha_end) / (1 - bar_alpha_start))
-                noise = std * torch.randn_like(x)
+                noise = std * self.get_noise(x)
             case _:
                 raise AssertionError(f"Invalid {self.sigma_type=}.")
 
