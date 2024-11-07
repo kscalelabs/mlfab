@@ -282,7 +282,7 @@ class ConsistencyModel(nn.Module):
         min_inv_rho = self.sigma_min ** (1 / self.rho)
         max_inv_rho = self.sigma_max ** (1 / self.rho)
         sigmas: Tensor = (max_inv_rho + timesteps * (min_inv_rho - max_inv_rho)) ** self.rho
-        sigmas[timesteps == 1.0] = 0.0
+        sigmas = torch.where(timesteps >= 1.0, torch.full_like(sigmas, self.sigma_min), sigmas)
         return sigmas
 
     def _get_noise_distribution(self, sigma_next: Tensor, sigma_current: Tensor) -> Tensor:
