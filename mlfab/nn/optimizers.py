@@ -689,6 +689,11 @@ class MuonKwargs(TypedDict):
 
 
 class Muon(Optimizer):
+    """Muon optimizer.
+
+    This was mostly taken from here: https://github.com/KellerJordan/Muon
+    """
+
     def __init__(
         self,
         muon_params: Params,
@@ -722,7 +727,7 @@ class Muon(Optimizer):
 
         # Sort parameters into those for which we will use Muon, and those for which we will not
         for p in muon_params:
-            # Use Muon for every parameter in muon_params which is >= 2D and doesn't look like an embedding or head layer
+            # Use Muon for every parameter in muon_params which is >= 2D.
             if p.ndim >= 2 and p.size(0) < 10000:
                 self.state[p]["use_muon"] = True
             else:
