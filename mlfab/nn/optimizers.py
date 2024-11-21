@@ -11,12 +11,13 @@ from abc import ABC
 from typing import Callable, Generic, Iterable, Literal, NotRequired, Self, TypedDict, TypeVar, Unpack, cast
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor, distributed as dist, nn
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.adam import Adam as AdamBase
 from torch.optim.adamw import AdamW as AdamWBase
 from torch.optim.optimizer import Optimizer, ParamsT
 
+from mlfab.nn.parallel import get_rank, get_world_size
 from mlfab.nn.triton import supports_triton
 
 logger = logging.getLogger(__name__)
@@ -220,7 +221,7 @@ class Lion(Optimizer):
     better stability.
     """
 
-    def __init__(self, params: Params, use_triton: bool = True, **kwargs: Unpack[LionKwargs]) -> None:
+    def __init__(self, params: ParamsT, use_triton: bool = True, **kwargs: Unpack[LionKwargs]) -> None:
         lr = kwargs.pop("lr", 1e-4)
         betas = kwargs.pop("betas", (0.9, 0.99))
         weight_decay = kwargs.pop("weight_decay", 0.0)
@@ -236,7 +237,7 @@ class Lion(Optimizer):
             "weight_decay": weight_decay,
         }
 
-        super().__init__(params, defaults)  # type: ignore[arg-type]
+        super().__init__(params, defaults)
 
         self.update_fn = get_lion_update_fn(True)
         self.update_fn_cuda = get_lion_update_fn(use_triton)
@@ -295,7 +296,7 @@ class AdanKwargs(TypedDict):
 
 
 class Adan(Optimizer):
-    def __init__(self, params: Params, **kwargs: Unpack[AdanKwargs]) -> None:
+    def __init__(self, params: ParamsT, **kwargs: Unpack[AdanKwargs]) -> None:
         lr = kwargs.pop("lr", 1e-3)
         betas = kwargs.pop("betas", (0.1, 0.1, 0.001))
         eps = kwargs.pop("eps", 1e-8)
@@ -305,7 +306,7 @@ class Adan(Optimizer):
 
         defaults = {"lr": lr, "betas": betas, "eps": eps, "weight_decay": weight_decay}
 
-        super().__init__(params, defaults)  # type: ignore[arg-type]
+        super().__init__(params, defaults)
 
     @classmethod
     def get(
@@ -656,4 +657,160 @@ class AdamWScheduleFree(Optimizer):
                     z.sub_(grad_normalized, alpha=lr)
 
             group["k"] = k + 1
+        return loss
+
+
+@torch.compile
+def zeropower_via_newtonschulz5(grad: Tensor, steps: int = 10, eps: float = 1e-7) -> Tensor:
+    assert len(grad.shape) == 2
+    x = grad.bfloat16()
+    x /= x.norm() + eps  # ensure top singular value <= 1
+    if grad.size(0) > grad.size(1):
+        x = x.T
+    for _ in range(steps):
+        ax = x @ x.T
+        ax2 = ax @ ax
+        x = (3.4445 * ax - 4.7750 * ax + 2.0315 * ax2) @ x
+    if grad.size(0) > grad.size(1):
+        x = x.T
+    return x
+
+
+class MuonKwargs(TypedDict):
+    lr: NotRequired[float]
+    momentum: NotRequired[float]
+    nesterov: NotRequired[bool]
+    ns_steps: NotRequired[int]
+    adamw_lr: NotRequired[float]
+    adamw_betas: NotRequired[tuple[float, float]]
+    adamw_eps: NotRequired[float]
+    adamw_wd: NotRequired[float]
+    rank: NotRequired[int]
+    world_size: NotRequired[int]
+
+
+class Muon(Optimizer):
+    """Muon optimizer.
+
+    This was mostly taken from here: https://github.com/KellerJordan/Muon
+    """
+
+    def __init__(
+        self,
+        muon_params: Iterable[nn.Parameter],
+        adamw_params: Iterable[nn.Parameter] | None = None,
+        **kwargs: Unpack[MuonKwargs],
+    ) -> None:
+        lr = kwargs.pop("lr", 0.02)
+        momentum = kwargs.pop("momentum", 0.95)
+        nesterov = kwargs.pop("nesterov", True)
+        ns_steps = kwargs.pop("ns_steps", 6)
+        adamw_lr = kwargs.pop("adamw_lr", 3e-4)
+        adamw_betas = kwargs.pop("adamw_betas", (0.95, 0.95))
+        adamw_eps = kwargs.pop("adamw_eps", 1e-8)
+        adamw_wd = kwargs.pop("adamw_wd", 0.0)
+        rank = kwargs.pop("rank", get_rank())
+        world_size = kwargs.pop("world_size", get_world_size())
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            adamw_lr_ratio=adamw_lr / lr,
+            adamw_betas=adamw_betas,
+            adamw_eps=adamw_eps,
+            adamw_wd=adamw_wd,
+        )
+
+        params = list(muon_params)
+        adamw_params_list = list(adamw_params) if adamw_params is not None else []
+        all_params = [{"params": p} for p in params + adamw_params_list]
+
+        super().__init__(all_params, defaults)
+
+        # Sort parameters into those for which we will use Muon.
+        for group in self.param_groups:
+            for p in group["params"]:
+                param = cast(nn.Parameter, p)
+                if param in params:
+                    self.state[param]["use_muon"] = param.ndim >= 2 and param.size(0) < 10000
+                else:
+                    self.state[param]["use_muon"] = False
+
+        self.rank = rank
+        self.world_size = world_size
+
+    def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            params = [p for p in group["params"] if self.state[p]["use_muon"]]
+            lr = group["lr"]
+            momentum = group["momentum"]
+
+            # Generate weight updates in distributed fashion.
+            total_params = sum(p.numel() for p in params)
+            updates_flat = torch.zeros(total_params, device="cuda", dtype=torch.bfloat16)
+            curr_idx = 0
+            for i, p in enumerate(params):
+                if i % self.world_size == self.rank:
+                    g = p.grad
+                    if g.ndim > 2:
+                        g = g.view(g.size(0), -1)
+                    assert g is not None
+                    state = self.state[p]
+                    if "momentum_buffer" not in state:
+                        state["momentum_buffer"] = torch.zeros_like(g)
+                    buf = state["momentum_buffer"]
+                    buf.mul_(momentum).add_(g)
+                    if group["nesterov"]:
+                        g = g.add(buf, alpha=momentum)
+                    g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
+                    g *= max(1, g.size(0) / g.size(1)) ** 0.5
+                    updates_flat[curr_idx : curr_idx + p.numel()] = g.flatten()
+                curr_idx += p.numel()
+
+            # Sync updates across devices.
+            if self.world_size > 1:
+                dist.all_reduce(updates_flat, op=dist.ReduceOp.SUM)
+
+            # Deserialize and apply updates.
+            curr_idx = 0
+            for p in params:
+                g = updates_flat[curr_idx : curr_idx + p.numel()].view_as(p.data).type_as(p.data)
+                p.data.add_(g, alpha=-lr)
+                curr_idx += p.numel()
+
+            params = [p for p in group["params"] if not self.state[p]["use_muon"]]
+            lr = group["adamw_lr_ratio"] * group["lr"]  # in order for lr schedule to work
+            beta1, beta2 = group["adamw_betas"]
+            eps = group["adamw_eps"]
+            weight_decay = group["adamw_wd"]
+
+            for p in params:
+                g = p.grad
+                assert g is not None
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["moment1"] = torch.zeros_like(g)
+                    state["moment2"] = torch.zeros_like(g)
+                state["step"] += 1
+                step = state["step"]
+                buf1 = state["moment1"]
+                buf2 = state["moment2"]
+                buf1.lerp_(g, 1 - beta1)
+                buf2.lerp_(g.square(), 1 - beta2)
+
+                g = buf1 / (eps + buf2.sqrt())
+
+                bias_correction1 = 1 - beta1**step
+                bias_correction2 = 1 - beta2**step
+                scale = bias_correction1 / bias_correction2**0.5
+                p.data.mul_(1 - lr * weight_decay)
+                p.data.add_(g, alpha=-lr / scale)
+
         return loss
