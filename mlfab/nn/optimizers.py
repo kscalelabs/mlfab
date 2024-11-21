@@ -132,7 +132,7 @@ class OptimizerBuilder(ABC, Generic[OptimizerT]):
             if self.separate_weight_decay_params
             else model.parameters()
         )
-        return self.opt(params, **self.defaults)  # type: ignore[arg-type]
+        return self.opt(params, **self.defaults)
 
 
 def can_use_fused(model: nn.Module) -> bool:
@@ -237,7 +237,7 @@ class Lion(Optimizer):
             "weight_decay": weight_decay,
         }
 
-        super().__init__(params, defaults)  # type: ignore[arg-type]
+        super().__init__(params, defaults)
 
         self.update_fn = get_lion_update_fn(True)
         self.update_fn_cuda = get_lion_update_fn(use_triton)
@@ -306,7 +306,7 @@ class Adan(Optimizer):
 
         defaults = {"lr": lr, "betas": betas, "eps": eps, "weight_decay": weight_decay}
 
-        super().__init__(params, defaults)  # type: ignore[arg-type]
+        super().__init__(params, defaults)
 
     @classmethod
     def get(
@@ -727,7 +727,7 @@ class Muon(Optimizer):
         adamw_params_list = list(adamw_params) if adamw_params is not None else []
         all_params = [{"params": p} for p in params + adamw_params_list]
 
-        super().__init__(all_params, defaults)  # type: ignore[arg-type]
+        super().__init__(all_params, defaults)
 
         # Sort parameters into those for which we will use Muon.
         for group in self.param_groups:
