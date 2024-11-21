@@ -11,12 +11,13 @@ from abc import ABC
 from typing import Callable, Generic, Iterable, Literal, NotRequired, Self, TypedDict, TypeVar, Unpack, cast
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor, distributed as dist, nn
 from torch.nn.modules.batchnorm import _BatchNorm
 from torch.optim.adam import Adam as AdamBase
 from torch.optim.adamw import AdamW as AdamWBase
 from torch.optim.optimizer import Optimizer, ParamsT
 
+from mlfab.nn.parallel import get_rank, get_world_size
 from mlfab.nn.triton import supports_triton
 
 logger = logging.getLogger(__name__)
@@ -656,4 +657,153 @@ class AdamWScheduleFree(Optimizer):
                     z.sub_(grad_normalized, alpha=lr)
 
             group["k"] = k + 1
+        return loss
+
+
+@torch.compile
+def zeropower_via_newtonschulz5(grad: Tensor, steps: int = 10, eps: float = 1e-7) -> Tensor:
+    assert len(grad.shape) == 2
+    a, b, c = (3.4445, -4.7750, 2.0315)
+    x = grad.bfloat16()
+    x /= x.norm() + eps  # ensure top singular value <= 1
+    if grad.size(0) > grad.size(1):
+        x = x.T
+    for _ in range(steps):
+        a = x @ x.T
+        b = b * a + c * a @ a
+        x = a * x + b @ x
+    if grad.size(0) > grad.size(1):
+        x = x.T
+    return x
+
+
+class MuonKwargs(TypedDict):
+    lr: NotRequired[float]
+    momentum: NotRequired[float]
+    nesterov: NotRequired[bool]
+    ns_steps: NotRequired[int]
+    adamw_lr: NotRequired[float]
+    adamw_betas: NotRequired[tuple[float, float]]
+    adamw_eps: NotRequired[float]
+    adamw_wd: NotRequired[float]
+
+
+class Muon(Optimizer):
+    def __init__(
+        self,
+        muon_params: Params,
+        adamw_params: Params | None = None,
+        **kwargs: Unpack[MuonKwargs],
+    ) -> None:
+        lr = kwargs.pop("lr", 0.02)
+        momentum = kwargs.pop("momentum", 0.95)
+        nesterov = kwargs.pop("nesterov", True)
+        ns_steps = kwargs.pop("ns_steps", 6)
+        adamw_lr = kwargs.pop("adamw_lr", 3e-4)
+        adamw_betas = kwargs.pop("adamw_betas", (0.95, 0.95))
+        adamw_eps = kwargs.pop("adamw_eps", 1e-8)
+        adamw_wd = kwargs.pop("adamw_wd", 0.0)
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            nesterov=nesterov,
+            ns_steps=ns_steps,
+            adamw_lr_ratio=adamw_lr / lr,
+            adamw_betas=adamw_betas,
+            adamw_eps=adamw_eps,
+            adamw_wd=adamw_wd,
+        )
+
+        params = list(muon_params)
+        adamw_params = list(adamw_params) if adamw_params is not None else []
+        params.extend(adamw_params)
+        super().__init__(params, defaults)
+
+        # Sort parameters into those for which we will use Muon, and those for which we will not
+        for p in muon_params:
+            # Use Muon for every parameter in muon_params which is >= 2D and doesn't look like an embedding or head layer
+            if p.ndim >= 2 and p.size(0) < 10000:
+                self.state[p]["use_muon"] = True
+            else:
+                self.state[p]["use_muon"] = False
+        for p in adamw_params:
+            # Do not use Muon for parameters in adamw_params
+            self.state[p]["use_muon"] = False
+
+        self.rank, self.world_size = get_rank(), get_world_size()
+
+    def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            params = [p for p in group["params"] if self.state[p]["use_muon"]]
+            lr = group["lr"]
+            momentum = group["momentum"]
+
+            # Generate weight updates in distributed fashion.
+            total_params = sum(p.numel() for p in params)
+            updates_flat = torch.zeros(total_params, device="cuda", dtype=torch.bfloat16)
+            curr_idx = 0
+            for i, p in enumerate(params):
+                # This will perfectly distribute a transformer with multiple of 4 layers to 8 GPUs.
+                if i % self.world_size == self.rank:
+                    g = p.grad
+                    if g.ndim > 2:
+                        g = g.view(g.size(0), -1)
+                    assert g is not None
+                    state = self.state[p]
+                    if "momentum_buffer" not in state:
+                        state["momentum_buffer"] = torch.zeros_like(g)
+                    buf = state["momentum_buffer"]
+                    buf.mul_(momentum).add_(g)
+                    if group["nesterov"]:
+                        g = g.add(buf, alpha=momentum)
+                    g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
+                    g *= max(1, g.size(0) / g.size(1)) ** 0.5
+                    updates_flat[curr_idx : curr_idx + p.numel()] = g.flatten()
+                curr_idx += p.numel()
+
+            # Sync updates across devices.
+            if self.world_size > 1:
+                dist.all_reduce(updates_flat, op=dist.ReduceOp.SUM)
+
+            # Deserialize and apply updates.
+            curr_idx = 0
+            for p in params:
+                g = updates_flat[curr_idx : curr_idx + p.numel()].view_as(p.data).type_as(p.data)
+                p.data.add_(g, alpha=-lr)
+                curr_idx += p.numel()
+
+            params = [p for p in group["params"] if not self.state[p]["use_muon"]]
+            lr = group["adamw_lr_ratio"] * group["lr"]  # in order for lr schedule to work
+            beta1, beta2 = group["adamw_betas"]
+            eps = group["adamw_eps"]
+            weight_decay = group["adamw_wd"]
+
+            for p in params:
+                g = p.grad
+                assert g is not None
+                state = self.state[p]
+                if "step" not in state:
+                    state["step"] = 0
+                    state["moment1"] = torch.zeros_like(g)
+                    state["moment2"] = torch.zeros_like(g)
+                state["step"] += 1
+                step = state["step"]
+                buf1 = state["moment1"]
+                buf2 = state["moment2"]
+                buf1.lerp_(g, 1 - beta1)
+                buf2.lerp_(g.square(), 1 - beta2)
+
+                g = buf1 / (eps + buf2.sqrt())
+
+                bias_correction1 = 1 - beta1**step
+                bias_correction2 = 1 - beta2**step
+                scale = bias_correction1 / bias_correction2**0.5
+                p.data.mul_(1 - lr * weight_decay)
+                p.data.add_(g, alpha=-lr / scale)
+
         return loss
