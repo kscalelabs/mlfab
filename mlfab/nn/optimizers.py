@@ -132,7 +132,7 @@ class OptimizerBuilder(ABC, Generic[OptimizerT]):
             if self.separate_weight_decay_params
             else model.parameters()
         )
-        return self.opt(params, **self.defaults)
+        return self.opt(params, **self.defaults)  # type: ignore[arg-type]
 
 
 def can_use_fused(model: nn.Module) -> bool:
