@@ -221,7 +221,7 @@ class Lion(Optimizer):
     better stability.
     """
 
-    def __init__(self, params: Params, use_triton: bool = True, **kwargs: Unpack[LionKwargs]) -> None:
+    def __init__(self, params: ParamsT, use_triton: bool = True, **kwargs: Unpack[LionKwargs]) -> None:
         lr = kwargs.pop("lr", 1e-4)
         betas = kwargs.pop("betas", (0.9, 0.99))
         weight_decay = kwargs.pop("weight_decay", 0.0)
@@ -296,7 +296,7 @@ class AdanKwargs(TypedDict):
 
 
 class Adan(Optimizer):
-    def __init__(self, params: Params, **kwargs: Unpack[AdanKwargs]) -> None:
+    def __init__(self, params: ParamsT, **kwargs: Unpack[AdanKwargs]) -> None:
         lr = kwargs.pop("lr", 1e-3)
         betas = kwargs.pop("betas", (0.1, 0.1, 0.001))
         eps = kwargs.pop("eps", 1e-8)
@@ -663,15 +663,14 @@ class AdamWScheduleFree(Optimizer):
 @torch.compile
 def zeropower_via_newtonschulz5(grad: Tensor, steps: int = 10, eps: float = 1e-7) -> Tensor:
     assert len(grad.shape) == 2
-    a, b, c = (3.4445, -4.7750, 2.0315)
     x = grad.bfloat16()
     x /= x.norm() + eps  # ensure top singular value <= 1
     if grad.size(0) > grad.size(1):
         x = x.T
     for _ in range(steps):
-        a = x @ x.T
-        b = b * a + c * a @ a
-        x = a * x + b @ x
+        ax = x @ x.T
+        ax2 = ax @ ax
+        x = (3.4445 * ax - 4.7750 * ax + 2.0315 * ax2) @ x
     if grad.size(0) > grad.size(1):
         x = x.T
     return x
@@ -686,6 +685,8 @@ class MuonKwargs(TypedDict):
     adamw_betas: NotRequired[tuple[float, float]]
     adamw_eps: NotRequired[float]
     adamw_wd: NotRequired[float]
+    rank: NotRequired[int]
+    world_size: NotRequired[int]
 
 
 class Muon(Optimizer):
@@ -696,8 +697,8 @@ class Muon(Optimizer):
 
     def __init__(
         self,
-        muon_params: Params,
-        adamw_params: Params | None = None,
+        muon_params: Iterable[nn.Parameter],
+        adamw_params: Iterable[nn.Parameter] | None = None,
         **kwargs: Unpack[MuonKwargs],
     ) -> None:
         lr = kwargs.pop("lr", 0.02)
@@ -708,6 +709,8 @@ class Muon(Optimizer):
         adamw_betas = kwargs.pop("adamw_betas", (0.95, 0.95))
         adamw_eps = kwargs.pop("adamw_eps", 1e-8)
         adamw_wd = kwargs.pop("adamw_wd", 0.0)
+        rank = kwargs.pop("rank", get_rank())
+        world_size = kwargs.pop("world_size", get_world_size())
 
         defaults = dict(
             lr=lr,
@@ -721,22 +724,22 @@ class Muon(Optimizer):
         )
 
         params = list(muon_params)
-        adamw_params = list(adamw_params) if adamw_params is not None else []
-        params.extend(adamw_params)
-        super().__init__(params, defaults)
+        adamw_params_list = list(adamw_params) if adamw_params is not None else []
+        all_params = [{"params": p} for p in params + adamw_params_list]
 
-        # Sort parameters into those for which we will use Muon, and those for which we will not
-        for p in muon_params:
-            # Use Muon for every parameter in muon_params which is >= 2D.
-            if p.ndim >= 2 and p.size(0) < 10000:
-                self.state[p]["use_muon"] = True
-            else:
-                self.state[p]["use_muon"] = False
-        for p in adamw_params:
-            # Do not use Muon for parameters in adamw_params
-            self.state[p]["use_muon"] = False
+        super().__init__(all_params, defaults)  # type: ignore[arg-type]
 
-        self.rank, self.world_size = get_rank(), get_world_size()
+        # Sort parameters into those for which we will use Muon.
+        for group in self.param_groups:
+            for p in group["params"]:
+                param = cast(nn.Parameter, p)
+                if param in params:
+                    self.state[param]["use_muon"] = param.ndim >= 2 and param.size(0) < 10000
+                else:
+                    self.state[param]["use_muon"] = False
+
+        self.rank = rank
+        self.world_size = world_size
 
     def step(self, closure: Callable[[], float] | None = None) -> float | None:  # type: ignore[override]
         loss = None
@@ -753,7 +756,6 @@ class Muon(Optimizer):
             updates_flat = torch.zeros(total_params, device="cuda", dtype=torch.bfloat16)
             curr_idx = 0
             for i, p in enumerate(params):
-                # This will perfectly distribute a transformer with multiple of 4 layers to 8 GPUs.
                 if i % self.world_size == self.rank:
                     g = p.grad
                     if g.ndim > 2:
