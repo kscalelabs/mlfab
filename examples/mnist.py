@@ -61,15 +61,20 @@ class MnistClassification(mlfab.Task[Config]):
         loss = F.cross_entropy(yhat, y.long())
         return loss
 
+    def log_train_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
+        (_, y), yhat = batch, output
+        self.log_scalar("acc", lambda: (y == yhat.argmax(dim=-1)).float().mean(), namespace="metrics")
+
     def log_valid_step(self, batch: tuple[Tensor, Tensor], output: Tensor, state: mlfab.State) -> None:
+        max_images = 16
         (x, y), yhat = batch, output
 
         def get_label_strings() -> list[str]:
-            ypred = yhat.argmax(-1)
-            return [f"ytrue={y[i]}, ypred={ypred[i]}" for i in range(len(y))]
+            ypred = yhat[:max_images].argmax(-1)
+            return [f"ytrue={y[i]}, ypred={ypred[i]}" for i in range(len(y[:max_images]))]
 
-        self.log_labeled_images("images", lambda: (x.cpu(), get_label_strings()))
+        self.log_labeled_images("images", lambda: (x[:max_images].cpu(), get_label_strings()), namespace="samples")
 
 
 if __name__ == "__main__":
-    MnistClassification.launch(Config(batch_size=16, num_train_dl_workers=1))
+    MnistClassification.launch(Config(batch_size=256, num_train_dl_workers=1))
