@@ -228,6 +228,7 @@ __all__ = [
     "square_crop",
     "square_resize_crop",
     "upper_left_crop",
+    "TrainingFinishedError",
     "check_md5",
     "check_sha256",
     "ensure_downloaded",
@@ -243,13 +244,17 @@ __all__ = [
     "ResetParameters",
     "default",
     "TextBlock",
+    "camelcase_to_snakecase",
     "colored",
     "format_datetime",
     "format_timedelta",
+    "highlight_exception_message",
     "outlined",
     "render_text_blocks",
     "show_error",
+    "show_info",
     "show_warning",
+    "snakecase_to_camelcase",
     "uncolored",
     "wrapped",
     "TokenReader",
@@ -269,6 +274,7 @@ __all__ += [
     "Output",
     "ParametrizationNormType",
     "Phase",
+    "RawConfigType",
     "RwkvAttentionState",
     "RwkvFeedForwardState",
     "RwkvState",
@@ -498,6 +504,7 @@ NAME_MAP: dict[str, str] = {
     "square_crop": "utils.data.transforms",
     "square_resize_crop": "utils.data.transforms",
     "upper_left_crop": "utils.data.transforms",
+    "TrainingFinishedError": "utils.experiments",
     "check_md5": "utils.experiments",
     "check_sha256": "utils.experiments",
     "ensure_downloaded": "utils.experiments",
@@ -513,13 +520,17 @@ NAME_MAP: dict[str, str] = {
     "ResetParameters": "utils.nn",
     "default": "utils.sugar",
     "TextBlock": "utils.text",
+    "camelcase_to_snakecase": "utils.text",
     "colored": "utils.text",
     "format_datetime": "utils.text",
     "format_timedelta": "utils.text",
+    "highlight_exception_message": "utils.text",
     "outlined": "utils.text",
     "render_text_blocks": "utils.text",
     "show_error": "utils.text",
+    "show_info": "utils.text",
     "show_warning": "utils.text",
+    "snakecase_to_camelcase": "utils.text",
     "uncolored": "utils.text",
     "wrapped": "utils.text",
     "TokenReader": "utils.tokens",
@@ -541,6 +552,7 @@ NAME_MAP.update(
         "Output": "task.mixins.trainable",
         "ParametrizationNormType": "nn.norms",
         "Phase": "core.state",
+        "RawConfigType": "task.base",
         "RwkvAttentionState": "nn.architectures.rwkv",
         "RwkvFeedForwardState": "nn.architectures.rwkv",
         "RwkvState": "nn.architectures.rwkv",
@@ -747,6 +759,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.quantization.fsq import FiniteScalarQuantization
     from mlfab.nn.quantization.lfq import LookupFreeQuantization
     from mlfab.nn.quantization.vq import ResidualVectorQuantization, VectorQuantization
+    from mlfab.task.base import RawConfigType
     from mlfab.task.launchers.base import BaseLauncher
     from mlfab.task.launchers.cli import CliLauncher
     from mlfab.task.launchers.process import MultiProcessLauncher, SingleProcessLauncher
@@ -788,6 +801,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         upper_left_crop,
     )
     from mlfab.utils.experiments import (
+        TrainingFinishedError,
         check_md5,
         check_sha256,
         ensure_downloaded,
@@ -803,13 +817,17 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.utils.sugar import default
     from mlfab.utils.text import (
         TextBlock,
+        camelcase_to_snakecase,
         colored,
         format_datetime,
         format_timedelta,
+        highlight_exception_message,
         outlined,
         render_text_blocks,
         show_error,
+        show_info,
         show_warning,
+        snakecase_to_camelcase,
         uncolored,
         wrapped,
     )

@@ -66,22 +66,16 @@ class TaskMixin(
         super().__init__(config)
 
     def run(self) -> None:
-        self.run_training_loop()
-
-    def run_training_loop(self) -> None:
         """Runs the training loop.
-
-        Args:
-            model: The current model
-            task: The current task
-            optimizer: The current optimizer
-            lr_scheduler: The current learning rate scheduler
 
         Raises:
             ValueError: If the task is not a supervised learning task
         """
         with contextlib.ExitStack() as ctx:
             self.set_loggers()
+
+            if is_master():
+                Thread(target=self.log_state, daemon=True).start()
 
             with self.step_context("model_to_device"):
                 mod = self.get_trainable_module(self)
@@ -90,9 +84,6 @@ class TaskMixin(
 
             with self.step_context("create_optimizers"):
                 opt = self.build_optimizer(mod)
-
-            if is_master():
-                Thread(target=self.log_state, daemon=True).start()
 
             with self.step_context("load_checkpoint"):
                 state = self.load_ckpt_(model=mod, optimizer=opt, strict=self.config.init_state_strict)
