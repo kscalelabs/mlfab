@@ -244,6 +244,7 @@ __all__ = [
     "ResetParameters",
     "default",
     "TextBlock",
+    "camelcase_to_snakecase",
     "colored",
     "format_datetime",
     "format_timedelta",
@@ -253,6 +254,7 @@ __all__ = [
     "show_error",
     "show_info",
     "show_warning",
+    "snakecase_to_camelcase",
     "uncolored",
     "wrapped",
     "TokenReader",
@@ -517,6 +519,7 @@ NAME_MAP: dict[str, str] = {
     "ResetParameters": "utils.nn",
     "default": "utils.sugar",
     "TextBlock": "utils.text",
+    "camelcase_to_snakecase": "utils.text",
     "colored": "utils.text",
     "format_datetime": "utils.text",
     "format_timedelta": "utils.text",
@@ -526,6 +529,7 @@ NAME_MAP: dict[str, str] = {
     "show_error": "utils.text",
     "show_info": "utils.text",
     "show_warning": "utils.text",
+    "snakecase_to_camelcase": "utils.text",
     "uncolored": "utils.text",
     "wrapped": "utils.text",
     "TokenReader": "utils.tokens",
@@ -810,6 +814,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.utils.sugar import default
     from mlfab.utils.text import (
         TextBlock,
+        camelcase_to_snakecase,
         colored,
         format_datetime,
         format_timedelta,
@@ -819,6 +824,7 @@ if IMPORT_ALL or TYPE_CHECKING:
         show_error,
         show_info,
         show_warning,
+        snakecase_to_camelcase,
         uncolored,
         wrapped,
     )
