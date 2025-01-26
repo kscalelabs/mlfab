@@ -274,6 +274,7 @@ __all__ += [
     "Output",
     "ParametrizationNormType",
     "Phase",
+    "RawConfigType",
     "RwkvAttentionState",
     "RwkvFeedForwardState",
     "RwkvState",
@@ -551,6 +552,7 @@ NAME_MAP.update(
         "Output": "task.mixins.trainable",
         "ParametrizationNormType": "nn.norms",
         "Phase": "core.state",
+        "RawConfigType": "task.base",
         "RwkvAttentionState": "nn.architectures.rwkv",
         "RwkvFeedForwardState": "nn.architectures.rwkv",
         "RwkvState": "nn.architectures.rwkv",
@@ -757,6 +759,7 @@ if IMPORT_ALL or TYPE_CHECKING:
     from mlfab.nn.quantization.fsq import FiniteScalarQuantization
     from mlfab.nn.quantization.lfq import LookupFreeQuantization
     from mlfab.nn.quantization.vq import ResidualVectorQuantization, VectorQuantization
+    from mlfab.task.base import RawConfigType
     from mlfab.task.launchers.base import BaseLauncher
     from mlfab.task.launchers.cli import CliLauncher
     from mlfab.task.launchers.process import MultiProcessLauncher, SingleProcessLauncher
